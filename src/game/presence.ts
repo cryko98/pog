@@ -253,6 +253,66 @@ export function subscribeCoins(cb: (id: number) => void): () => void {
 }
 
 /* ------------------------------------------------------------------ *
+ * Resource nodes and igloos
+ *
+ * Cosmetic sync again: everyone sees a tree fall or an igloo go up at
+ * once, but the API is what actually decided it happened.
+ * ------------------------------------------------------------------ */
+
+const NODE_TOPIC = `${NS}/nodes`;
+const IGLOO_TOPIC = `${NS}/igloos`;
+
+export function announceNode(id: string, respawnAt: number) {
+  publish(NODE_TOPIC, { id, respawnAt, ts: Date.now() });
+}
+
+export function subscribeNodes(cb: (id: string, respawnAt: number) => void): () => void {
+  return listen(NODE_TOPIC, (topic, payload) => {
+    if (topic !== NODE_TOPIC) return;
+    try {
+      const d = JSON.parse(payload.toString());
+      if (typeof d?.id === 'string') cb(d.id, Number(d.respawnAt) || Date.now() + 60000);
+    } catch {
+      /* ignore */
+    }
+  });
+}
+
+export interface IglooMsg {
+  wallet: string;
+  owner: string;
+  x: number;
+  y: number;
+  style: string;
+  builtAt: number;
+}
+
+export function announceIgloo(igloo: IglooMsg) {
+  publish(IGLOO_TOPIC, igloo);
+}
+
+export function subscribeIgloos(cb: (igloo: IglooMsg) => void): () => void {
+  return listen(IGLOO_TOPIC, (topic, payload) => {
+    if (topic !== IGLOO_TOPIC) return;
+    try {
+      const d = JSON.parse(payload.toString());
+      if (typeof d?.wallet === 'string' && Number.isFinite(d.x) && Number.isFinite(d.y)) {
+        cb({
+          wallet: String(d.wallet).slice(0, 64),
+          owner: String(d.owner || 'Someone').slice(0, 16),
+          x: d.x,
+          y: d.y,
+          style: String(d.style || 'classic').slice(0, 16),
+          builtAt: Number(d.builtAt) || Date.now(),
+        });
+      }
+    } catch {
+      /* ignore */
+    }
+  });
+}
+
+/* ------------------------------------------------------------------ *
  * Site-wide online counter
  * ------------------------------------------------------------------ */
 

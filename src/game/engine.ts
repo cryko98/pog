@@ -9,11 +9,23 @@ import {
   getCoins,
   getProps,
   getLakes,
+  getNodes,
   isOnIce,
   resolveCollisions,
+  GATHER,
 } from '../../shared/world.js';
 import { blitPenguin, type Dir } from './penguin';
-import { CHUNK, drawCoin, drawProp, getGroundChunk, type Prop } from './scenery';
+import {
+  CHUNK,
+  drawCoin,
+  drawIgloo,
+  drawNode,
+  drawProp,
+  drawStump,
+  getGroundChunk,
+  type Prop,
+  type WorldNode,
+} from './scenery';
 import {
   announceCoin,
   presenceConnected,
@@ -23,6 +35,11 @@ import {
   subscribeCoins,
   subscribePresence,
   trackOnline,
+  announceNode,
+  subscribeNodes,
+  announceIgloo,
+  subscribeIgloos,
+  type IglooMsg,
   type Presence,
 } from './presence';
 import { api } from '../lib/api';
@@ -32,6 +49,14 @@ const ZOOM = 1;
 const PENGUIN_WORLD_HEIGHT = 78;
 const HEARTBEAT_MS = 25_000;
 
+export interface Inventory {
+  pog: number;
+  wood: number;
+  ice: number;
+  fish: number;
+  items: Record<string, number>;
+}
+
 export interface HudState {
   online: number;
   pog: number;
@@ -39,6 +64,10 @@ export interface HudState {
   x: number;
   y: number;
   onIce: boolean;
+  inventory: Inventory;
+  /** what pressing E would do right now, if anything */
+  prompt: string;
+  busy: boolean;
 }
 
 export interface ChatLine {
@@ -123,7 +152,7 @@ export class PogGame {
   private taken = new Set<number>();
   private claiming = new Set<number>();
   private bubbles = new Map<string, { text: string; until: number }>();
-  private pickupFx: Array<{ x: number; y: number; t: number }> = [];
+  private pickupFx: Array<{ x: number; y: number; t: number; label: string }> = [];
   private snow: Array<{ x: number; y: number; r: number; s: number; d: number }> = [];
   private sinceHud = 0;
 
@@ -133,6 +162,16 @@ export class PogGame {
 
   private props: Prop[] = getProps() as Prop[];
   private coins = getCoins() as Array<{ id: number; x: number; y: number }>;
+  private nodes = getNodes() as WorldNode[];
+  /** node id -> when it comes back */
+  private depleted = new Map<string, number>();
+  /** props index -> node id, so a chopped pine renders as a stump */
+  private treeNodeByProp = new Map<number, string>();
+  private igloos = new Map<string, IglooMsg>();
+  private nearNode: WorldNode | null = null;
+  private busy = false;
+  private inventory: Inventory = { pog: 0, wood: 0, ice: 0, fish: 0, items: {} };
+  private hat: string | null = null;
 
   constructor(private canvas: HTMLCanvasElement, private opts: Options) {
     this.ctx = canvas.getContext('2d', { alpha: false })!;
@@ -146,6 +185,10 @@ export class PogGame {
     this.me.y = WORLD.spawn.y + Math.sin(angle) * dist * 0.75;
     this.cam.x = this.me.x;
     this.cam.y = this.me.y;
+
+    this.props.forEach((p, i) => {
+      if (p.type === 'pine') this.treeNodeByProp.set(i, 't' + i);
+    });
   }
 
   /* ---------------- lifecycle ---------------- */
@@ -210,6 +253,10 @@ export class PogGame {
 
       subscribeCoins((id) => this.taken.add(id)),
 
+      subscribeNodes((id, respawnAt) => this.depleted.set(id, respawnAt)),
+
+      subscribeIgloos((igloo) => this.igloos.set(igloo.wallet, igloo)),
+
       trackOnline(this.selfId, (count) => {
         this.mqttOnline = count;
       })
@@ -220,6 +267,14 @@ export class PogGame {
       .takenCoins()
       .then(({ taken }) => taken.forEach((id) => this.taken.add(id)))
       .catch(() => {});
+
+    // igloos are public, so guests see the neighbourhood too
+    api
+      .igloos()
+      .then(({ igloos }) => igloos.forEach((i) => this.igloos.set(i.wallet, i)))
+      .catch(() => {});
+
+    if (!this.opts.guest) this.refreshState();
 
     const beat = () =>
       api
@@ -251,10 +306,149 @@ export class PogGame {
     this.detach = [];
   }
 
-  /** Rename / recolour without tearing down the session. */
-  setIdentity(name: string, color: string) {
+  /** Rename / recolour / re-hat without tearing down the session. */
+  setIdentity(name: string, color: string, hat: string | null = this.hat) {
     this.opts.name = name;
     this.opts.color = color;
+    this.hat = hat;
+  }
+
+  /** Pull inventory, node cooldowns and igloos back from the API. */
+  async refreshState() {
+    if (this.opts.guest) return;
+    try {
+      const { profile, depleted, igloos } = await api.gameState();
+      this.applyProfile(profile);
+      const now = Date.now();
+      depleted.forEach((id) => {
+        if (!this.depleted.has(id)) this.depleted.set(id, now + 60_000);
+      });
+      igloos.forEach((i) => this.igloos.set(i.wallet, i));
+    } catch {
+      /* the world still plays without it */
+    }
+  }
+
+  applyProfile(profile: {
+    pog: number;
+    wood: number;
+    ice: number;
+    fish: number;
+    items: Record<string, number>;
+  }) {
+    this.me.pog = profile.pog;
+    this.inventory = {
+      pog: profile.pog,
+      wood: profile.wood,
+      ice: profile.ice,
+      fish: profile.fish,
+      items: profile.items || {},
+    };
+  }
+
+  /** The node the player is standing next to, if any. */
+  private findNearNode(): WorldNode | null {
+    let best: WorldNode | null = null;
+    let bestDist = GATHER.range;
+    for (const n of this.nodes) {
+      if (Math.abs(n.x - this.me.x) > GATHER.range || Math.abs(n.y - this.me.y) > GATHER.range) continue;
+      const d = Math.hypot(n.x - this.me.x, n.y - this.me.y);
+      if (d < bestDist) {
+        bestDist = d;
+        best = n;
+      }
+    }
+    return best;
+  }
+
+  private promptFor(node: WorldNode | null): string {
+    if (!node) return '';
+    const until = this.depleted.get(node.id);
+    if (until && until > Date.now()) {
+      return `${Math.ceil((until - Date.now()) / 1000)}s until it is back`;
+    }
+    const rule = GATHER[node.type as 'tree' | 'ice' | 'hole'];
+    if (!rule) return '';
+    if (this.opts.guest) return 'Connect a wallet to gather';
+    if (node.type === 'hole' && !(this.inventory.items.rod > 0)) return 'You need a fishing rod';
+    return `Press E to ${rule.label.toLowerCase()}`;
+  }
+
+  /** Work the node the player is standing at. */
+  private interact() {
+    const node = this.nearNode;
+    if (!node || this.busy) return;
+
+    if (this.opts.guest) {
+      this.notifyGuest();
+      return;
+    }
+    const until = this.depleted.get(node.id);
+    if (until && until > Date.now()) return;
+    if (node.type === 'hole' && !(this.inventory.items.rod > 0)) {
+      this.pushChat({
+        id: crypto.randomUUID(),
+        text: 'Craft a fishing rod first — 14 wood at the workbench.',
+        system: true,
+      });
+      return;
+    }
+
+    this.busy = true;
+    // hide it straight away; the API decides whether it really happened
+    this.depleted.set(node.id, Date.now() + 2000);
+
+    api
+      .gather(node.id, this.me.x, this.me.y)
+      .then(({ profile, gained, respawnAt }) => {
+        this.applyProfile(profile);
+        this.depleted.set(node.id, respawnAt);
+        announceNode(node.id, respawnAt);
+        const parts = Object.entries(gained).map(([k, v]) => `+${v} ${k}`);
+        this.pickupFx.push({ x: node.x, y: node.y, t: performance.now(), label: parts.join(' ') });
+      })
+      .catch((err: Error) => {
+        this.depleted.delete(node.id);
+        this.pushChat({ id: crypto.randomUUID(), text: err.message, system: true });
+      })
+      .finally(() => {
+        this.busy = false;
+      });
+  }
+
+  /** Craft a recipe, then reflect the new inventory. */
+  async craft(recipe: string): Promise<string | null> {
+    try {
+      const { profile } = await api.craft(recipe);
+      this.applyProfile(profile);
+      return null;
+    } catch (err) {
+      return err instanceof Error ? err.message : 'Could not craft that.';
+    }
+  }
+
+  /** Raise an igloo where the player is standing. */
+  async buildIgloo(style: string): Promise<string | null> {
+    try {
+      const { igloo, profile } = await api.buildIgloo(this.me.x, this.me.y, style);
+      this.applyProfile(profile);
+      this.igloos.set(igloo.wallet, igloo);
+      announceIgloo(igloo);
+      this.pushChat({ id: crypto.randomUUID(), text: 'Your igloo is up. Welcome home.', system: true });
+      return null;
+    } catch (err) {
+      return err instanceof Error ? err.message : 'Could not build here.';
+    }
+  }
+
+  private notifyGuest() {
+    if (this.guestCoinNoticeShown) return;
+    this.guestCoinNoticeShown = true;
+    this.pushChat({
+      id: crypto.randomUUID(),
+      text: 'Connect a Solana wallet to gather, craft and collect $POG — guests can explore, but not earn.',
+      system: true,
+    });
   }
 
   say(text: string) {
@@ -285,14 +479,7 @@ export class PogGame {
     // A guest has no wallet to credit, so the coin stays on the ice for
     // someone who does. Say so once rather than silently doing nothing.
     if (this.opts.guest) {
-      if (!this.guestCoinNoticeShown) {
-        this.guestCoinNoticeShown = true;
-        this.pushChat({
-          id: crypto.randomUUID(),
-          text: 'Connect a Solana wallet to collect $POG — guests can explore, but not earn.',
-          system: true,
-        });
-      }
+      this.notifyGuest();
       return;
     }
 
@@ -300,11 +487,11 @@ export class PogGame {
     this.taken.add(coinId);
 
     api
-      .claimCoin(coinId)
+      .claimCoin(coinId, this.me.x, this.me.y)
       .then(({ pog }) => {
         this.me.pog = pog;
         const c = this.coins[coinId];
-        if (c) this.pickupFx.push({ x: c.x, y: c.y, t: performance.now() });
+        if (c) this.pickupFx.push({ x: c.x, y: c.y, t: performance.now(), label: "+1 $POG" });
         announceCoin(coinId);
       })
       .catch((err: Error) => {
@@ -322,6 +509,9 @@ export class PogGame {
     if (DIR_KEYS[e.code] || e.code === 'ShiftLeft' || e.code === 'ShiftRight') {
       this.keys.add(e.code);
       e.preventDefault();
+    } else if (e.code === 'KeyE') {
+      e.preventDefault();
+      this.interact();
     }
   };
 
@@ -469,6 +659,8 @@ export class PogGame {
       }
     }
 
+    this.nearNode = this.findNearNode();
+
     // position is published on its own timer by publishPresence()
     this.sinceHud += dt;
     if (this.sinceHud >= 0.2) {
@@ -478,6 +670,9 @@ export class PogGame {
         // few seconds — whichever is higher is closest to the truth
         online: Math.max(this.remotes.size + 1, this.mqttOnline, this.serverOnline),
         pog: this.me.pog,
+        inventory: this.inventory,
+        prompt: this.promptFor(this.nearNode),
+        busy: this.busy,
         status: presenceConnected() ? 'open' : 'connecting',
         x: Math.round(this.me.x),
         y: Math.round(this.me.y),
@@ -615,9 +810,32 @@ export class PogGame {
     type Item = { y: number; draw: () => void };
     const items: Item[] = [];
 
-    for (const p of this.props) {
-      if (p.x < minX || p.x > maxX || p.y < minY || p.y > maxY) continue;
-      items.push({ y: p.y, draw: () => drawProp(ctx, p, this.sx(p.x), this.sy(p.y), ZOOM, now) });
+    const wallClock = Date.now();
+    const isDepleted = (id: string) => (this.depleted.get(id) ?? 0) > wallClock;
+
+    this.props.forEach((p, i) => {
+      if (p.x < minX || p.x > maxX || p.y < minY || p.y > maxY) return;
+      const nodeId = this.treeNodeByProp.get(i);
+      if (nodeId && isDepleted(nodeId)) {
+        items.push({ y: p.y, draw: () => drawStump(ctx, this.sx(p.x), this.sy(p.y), ZOOM, p.scale) });
+      } else {
+        items.push({ y: p.y, draw: () => drawProp(ctx, p, this.sx(p.x), this.sy(p.y), ZOOM, now) });
+      }
+    });
+
+    for (const n of this.nodes) {
+      if (n.type === 'tree') continue; // drawn as part of the pine above
+      if (n.x < minX || n.x > maxX || n.y < minY || n.y > maxY) continue;
+      const out = isDepleted(n.id);
+      items.push({ y: n.y, draw: () => drawNode(ctx, n, this.sx(n.x), this.sy(n.y), ZOOM, now, out) });
+    }
+
+    for (const igloo of this.igloos.values()) {
+      if (igloo.x < minX || igloo.x > maxX || igloo.y < minY || igloo.y > maxY) continue;
+      items.push({
+        y: igloo.y,
+        draw: () => drawIgloo(ctx, this.sx(igloo.x), this.sy(igloo.y), ZOOM, igloo.style, igloo.owner),
+      });
     }
 
     for (const c of this.coins) {
@@ -644,7 +862,7 @@ export class PogGame {
       ctx.beginPath();
       ctx.ellipse(x, y, 20 * ZOOM, 8 * ZOOM, 0, 0, Math.PI * 2);
       ctx.fill();
-      blitPenguin(ctx, color, dir, frame, moving, x, y, PENGUIN_WORLD_HEIGHT * ZOOM);
+      blitPenguin(ctx, color, dir, frame, moving, x, y, PENGUIN_WORLD_HEIGHT * ZOOM, isSelf ? this.hat : null);
       this.drawNameTag(x, y - PENGUIN_WORLD_HEIGHT * ZOOM - 14, name, color, isSelf, guest);
       const bubble = this.bubbles.get(id);
       if (bubble && bubble.until > now) {
@@ -702,7 +920,7 @@ export class PogGame {
       ctx.fillStyle = '#ffd44d';
       ctx.font = `800 ${18 + t * 8}px "Baloo 2", system-ui, sans-serif`;
       ctx.textAlign = 'center';
-      ctx.fillText('+1 $POG', this.sx(fx.x), this.sy(fx.y) - 40 - t * 34);
+      ctx.fillText(fx.label, this.sx(fx.x), this.sy(fx.y) - 40 - t * 34);
       ctx.restore();
     }
   }

@@ -36,6 +36,7 @@ export interface Kv {
   del(key: string): Promise<void>;
   incrWithTtl(key: string, ttlSeconds: number): Promise<number>;
   hget<T = any>(key: string, field: string): Promise<T | null>;
+  hgetall<T = any>(key: string): Promise<Record<string, T> | null>;
   hset(key: string, field: string, value: any): Promise<void>;
   hdel(key: string, field: string): Promise<void>;
   zadd(key: string, score: number, member: string): Promise<void>;
@@ -75,6 +76,7 @@ async function redisKv(): Promise<Kv> {
       return n;
     },
     hget: (key, field) => r.hget(key, field) as any,
+    hgetall: (key) => r.hgetall(key) as any,
     hset: async (key, field, value) => {
       await r.hset(key, { [field]: value });
     },
@@ -152,6 +154,10 @@ const memoryKv: Kv = {
   },
   async hget(key, field) {
     return hashes.get(key)?.get(field) ?? null;
+  },
+  async hgetall(key) {
+    const h = hashes.get(key);
+    return h ? Object.fromEntries(h) : null;
   },
   async hset(key, field, value) {
     if (!hashes.has(key)) hashes.set(key, new Map());

@@ -21,6 +21,55 @@ game server to keep alive.
 Every visual is drawn procedurally with Canvas 2D — the penguin, the trees, the ice, the
 coins. No sprite sheets to ship and no third-party art licences to track.
 
+## The loop
+
+Chop pines for **wood**, saw blocks of **ice** out on the lakes, and fish the
+holes once you have a rod.
+
+```
+14 wood            ->  fishing rod   ->  fish the holes
+40 ice + 12 wood   ->  igloo kit     ->  raise your own igloo
+```
+
+Igloos are the one part of the world players author. Build one on clear snow
+and it is stored against your wallet, carries your name, and every other
+player sees it from then on.
+
+**$POG is cosmetic only.** Coins are scarce — 70 on the whole map with a
+four-minute respawn — and the only thing they buy is a hat in the shop.
+Nothing purchasable makes you gather faster; the real economy is wood, ice
+and fish.
+
+Guests can walk, slide and chat, but nothing they do is recorded: $POG is
+credited to a wallet address, and a guest has none.
+
+## Anti-automation
+
+The world is simulated in the browser, so the API cannot watch you play. What
+it can do is refuse anything a real player could not have done.
+
+| Rule | What it stops |
+|---|---|
+| Every action carries a position, checked against where you last acted and the time since | Teleporting between resource nodes |
+| The position must be within reach of the node you name | Working a node from across the map |
+| Minimum 800 ms between actions, plus per-minute caps per resource | Request bursts |
+| What a wallet may hold scales with minutes actually played, credited at most one per real minute | Pumping a freshly created wallet |
+| Node cooldowns live in a Redis sorted set, claimed with an atomic add | Two players banking the same tree |
+| Balances, skins and igloos are only ever written by the API | Anything forged on the MQTT presence channel |
+
+Two scripts keep this honest:
+
+```bash
+node tools/cheatcheck.mjs   # 19 attacks, every line must read PASS
+node tools/loopcheck.mjs    # the honest loop: chop, craft, fish, build
+```
+
+None of this makes cheating impossible — a determined attacker can simulate a
+player walking around. It makes cheating no faster than playing, which is the
+ceiling without an authoritative server. If the game ever needs a hard
+guarantee, the move is a stateful server process (the architecture this repo
+started from) or gating rewards on an on-chain balance.
+
 ## Architecture
 
 The whole point of this shape is that **nothing has to stay running**.

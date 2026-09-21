@@ -142,6 +142,103 @@ function drawFace(ctx: CanvasRenderingContext2D, dir: Dir) {
   drawBeak(ctx, 19 * s, -47, 13.5, 11);
 }
 
+
+/* ------------------------------------------------------------------ *
+ * Hats — the shop's whole inventory
+ * ------------------------------------------------------------------ */
+
+/** Drawn in head space: the crown of the skull sits at about y = -84. */
+function drawHat(ctx: CanvasRenderingContext2D, hat: string, dir: Dir) {
+  const back = dir === 'up';
+  ctx.save();
+  switch (hat) {
+    case 'beanie': {
+      ctx.fillStyle = '#2f6f8f';
+      ctx.beginPath();
+      ctx.ellipse(0, -76, 27, 20, 0, Math.PI, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#3d8cb3';
+      ctx.beginPath();
+      ctx.roundRect(-28, -78, 56, 9, 4);
+      ctx.fill();
+      ctx.fillStyle = '#eaf6ff';
+      ctx.beginPath();
+      ctx.arc(0, -96, 7, 0, Math.PI * 2);
+      ctx.fill();
+      break;
+    }
+    case 'santa': {
+      ctx.fillStyle = '#d3312f';
+      ctx.beginPath();
+      ctx.moveTo(-26, -76);
+      ctx.quadraticCurveTo(-6, -104, 26, -92);
+      ctx.quadraticCurveTo(6, -80, 26, -76);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = '#fbfbfb';
+      ctx.beginPath();
+      ctx.roundRect(-29, -80, 58, 10, 5);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(26, -92, 7, 0, Math.PI * 2);
+      ctx.fill();
+      break;
+    }
+    case 'earmuffs': {
+      ctx.strokeStyle = '#4b5563';
+      ctx.lineWidth = 5;
+      ctx.beginPath();
+      ctx.arc(0, -70, 29, Math.PI * 1.08, Math.PI * 1.92);
+      ctx.stroke();
+      ctx.fillStyle = '#f472b6';
+      ctx.beginPath();
+      ctx.ellipse(-28, -66, 9, 12, 0, 0, Math.PI * 2);
+      ctx.ellipse(28, -66, 9, 12, 0, 0, Math.PI * 2);
+      ctx.fill();
+      break;
+    }
+    case 'crown': {
+      ctx.fillStyle = 'rgba(190,232,248,0.95)';
+      ctx.beginPath();
+      ctx.moveTo(-24, -78);
+      ctx.lineTo(-24, -92);
+      ctx.lineTo(-12, -84);
+      ctx.lineTo(0, -100);
+      ctx.lineTo(12, -84);
+      ctx.lineTo(24, -92);
+      ctx.lineTo(24, -78);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      ctx.fillStyle = '#38bdf8';
+      ctx.beginPath();
+      ctx.arc(0, -82, 3.5, 0, Math.PI * 2);
+      ctx.fill();
+      break;
+    }
+    case 'cap': {
+      ctx.fillStyle = '#1f7a5a';
+      ctx.beginPath();
+      ctx.ellipse(0, -78, 27, 19, 0, Math.PI, Math.PI * 2);
+      ctx.fill();
+      if (!back) {
+        ctx.fillStyle = '#2a9c74';
+        ctx.beginPath();
+        ctx.ellipse(-30, -78, 14, 5, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.fillStyle = '#ff5c17';
+      ctx.beginPath();
+      ctx.arc(0, -95, 4, 0, Math.PI * 2);
+      ctx.fill();
+      break;
+    }
+  }
+  ctx.restore();
+}
+
 /**
  * Draw a penguin with its feet at the current origin, facing `dir`.
  * `frame` drives the waddle: a vertical bob plus an alternating body tilt.
@@ -151,7 +248,8 @@ export function drawPenguin(
   dir: Dir,
   frame: number,
   scarfColor: string,
-  moving: boolean
+  moving: boolean,
+  hat: string | null = null
 ) {
   const f = moving ? frame % FRAMES : 0;
   const bob = moving ? [0, -2.5, 0, -2.5][f] : 0;
@@ -175,6 +273,7 @@ export function drawPenguin(
   ctx.save();
   ctx.translate(headX, 0);
   drawFace(ctx, dir);
+  if (hat) drawHat(ctx, hat, dir);
   ctx.restore();
 
   ctx.restore();
@@ -186,8 +285,10 @@ export function drawPenguin(
 
 const sheets = new Map<string, HTMLCanvasElement>();
 
-export function getPenguinSheet(scarfColor: string): HTMLCanvasElement {
-  const cached = sheets.get(scarfColor);
+/** One sheet per look, keyed by scarf colour and hat. */
+export function getPenguinSheet(scarfColor: string, hat: string | null = null): HTMLCanvasElement {
+  const key = scarfColor + (hat ? '|' + hat : '');
+  const cached = sheets.get(key);
   if (cached) return cached;
 
   const canvas = document.createElement('canvas');
@@ -200,12 +301,12 @@ export function getPenguinSheet(scarfColor: string): HTMLCanvasElement {
     for (let col = 0; col < COLS; col++) {
       ctx.save();
       ctx.translate(col * CELL + CELL / 2, row * CELL + FOOT_Y);
-      drawPenguin(ctx, dir, col - 1, scarfColor, col > 0);
+      drawPenguin(ctx, dir, col - 1, scarfColor, col > 0, hat);
       ctx.restore();
     }
   });
 
-  sheets.set(scarfColor, canvas);
+  sheets.set(key, canvas);
   return canvas;
 }
 
@@ -218,9 +319,10 @@ export function blitPenguin(
   moving: boolean,
   x: number,
   y: number,
-  height: number
+  height: number,
+  hat: string | null = null
 ) {
-  const sheet = getPenguinSheet(scarfColor);
+  const sheet = getPenguinSheet(scarfColor, hat);
   const row = Math.max(0, DIRS.indexOf(dir));
   const col = moving ? 1 + (((frame % FRAMES) + FRAMES) % FRAMES) : 0;
   const scale = height / PENGUIN_HEIGHT;

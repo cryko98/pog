@@ -3,8 +3,24 @@ export interface Profile {
   name: string;
   color: string;
   pog: number;
+  wood: number;
+  ice: number;
+  fish: number;
+  items: Record<string, number>;
+  skins: string[];
+  skin: string;
+  playMinutes: number;
   createdAt?: number;
   updatedAt?: number;
+}
+
+export interface Igloo {
+  wallet: string;
+  owner: string;
+  x: number;
+  y: number;
+  style: string;
+  builtAt: number;
 }
 
 export interface LeaderboardEntry {
@@ -97,7 +113,33 @@ export const api = {
 
   takenCoins: () => request<{ taken: number[] }>('/world/coins'),
 
-  claimCoin: (id: number) => request<{ pog: number }>('/world/claim', post({ id })),
+  claimCoin: (id: number, x: number, y: number) =>
+    request<{ pog: number }>('/world/claim', post({ id, x: Math.round(x), y: Math.round(y) })),
 
   beat: (id: string) => request<{ count: number }>('/online/beat', post({ id })),
+
+  /* --- survival layer --- */
+
+  gameState: () =>
+    request<{ profile: Profile; depleted: string[]; igloos: Igloo[] }>('/game/state'),
+
+  gather: (node: string, x: number, y: number) =>
+    request<{ profile: Profile; gained: Record<string, number>; respawnAt: number }>(
+      '/game/gather',
+      post({ node, x: Math.round(x), y: Math.round(y) })
+    ),
+
+  craft: (recipe: string) => request<{ profile: Profile }>('/game/craft', post({ recipe })),
+
+  buildIgloo: (x: number, y: number, style: string) =>
+    request<{ igloo: Igloo; profile: Profile }>(
+      '/game/build',
+      post({ x: Math.round(x), y: Math.round(y), style })
+    ),
+
+  igloos: () => request<{ igloos: Igloo[] }>('/game/igloos'),
+
+  buySkin: (skin: string) => request<{ profile: Profile }>('/game/buy', post({ skin })),
+
+  equipSkin: (skin: string) => request<{ profile: Profile }>('/game/equip', post({ skin })),
 };

@@ -482,6 +482,225 @@ export function drawProp(
 }
 
 /* ------------------------------------------------------------------ *
+ * Resource nodes
+ * ------------------------------------------------------------------ */
+
+/** What is left of a pine once someone has chopped it. */
+export function drawStump(ctx: CanvasRenderingContext2D, sx: number, sy: number, zoom: number, scale: number) {
+  const r = 13 * scale * zoom;
+  shadow(ctx, sx, sy, r * 1.4);
+  ctx.save();
+  ctx.translate(sx, sy);
+
+  ctx.fillStyle = '#4a3827';
+  ctx.beginPath();
+  ctx.roundRect(-r * 0.7, -r * 1.1, r * 1.4, r * 1.1, r * 0.2);
+  ctx.fill();
+
+  ctx.fillStyle = '#8a6a48';
+  ctx.beginPath();
+  ctx.ellipse(0, -r * 1.1, r * 0.7, r * 0.3, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(74,56,39,0.6)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.ellipse(0, -r * 1.1, r * 0.38, r * 0.16, 0, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // sawdust in the snow
+  ctx.fillStyle = 'rgba(138,106,72,0.35)';
+  ctx.beginPath();
+  ctx.ellipse(0, r * 0.1, r * 1.5, r * 0.5, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+/** A thicker slab of ice you can saw blocks out of. */
+function drawIceBlock(ctx: CanvasRenderingContext2D, h: number, time: number, variant: number) {
+  const w = h * 1.25;
+  const shimmer = 0.75 + Math.sin(time * 0.002 + variant) * 0.12;
+
+  ctx.fillStyle = `rgba(255,255,255,${0.5 * shimmer})`;
+  ctx.beginPath();
+  ctx.ellipse(0, 0, w * 0.62, h * 0.3, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  const g = ctx.createLinearGradient(0, -h, 0, 0);
+  g.addColorStop(0, 'rgba(236,252,255,0.97)');
+  g.addColorStop(1, 'rgba(142,205,231,0.95)');
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.moveTo(-w * 0.44, 0);
+  ctx.lineTo(-w * 0.36, -h * 0.82);
+  ctx.lineTo(w * 0.36, -h * 0.82);
+  ctx.lineTo(w * 0.44, 0);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.fillStyle = 'rgba(255,255,255,0.95)';
+  ctx.beginPath();
+  ctx.moveTo(-w * 0.36, -h * 0.82);
+  ctx.lineTo(0, -h);
+  ctx.lineTo(w * 0.36, -h * 0.82);
+  ctx.lineTo(0, -h * 0.66);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+  ctx.lineWidth = 1.3;
+  ctx.beginPath();
+  ctx.moveTo(0, -h * 0.66);
+  ctx.lineTo(0, 0);
+  ctx.stroke();
+}
+
+/** A hole cut in the ice — fish live down there. */
+function drawFishingHole(ctx: CanvasRenderingContext2D, h: number, time: number, active: boolean) {
+  const w = h * 1.6;
+
+  ctx.fillStyle = 'rgba(255,255,255,0.92)';
+  ctx.beginPath();
+  ctx.ellipse(0, 0, w * 0.5, w * 0.24, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  const water = ctx.createRadialGradient(0, -w * 0.02, 1, 0, 0, w * 0.38);
+  water.addColorStop(0, '#07303f');
+  water.addColorStop(1, '#155a73');
+  ctx.fillStyle = water;
+  ctx.beginPath();
+  ctx.ellipse(0, 0, w * 0.38, w * 0.18, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  if (active) {
+    // slow ripples so a usable hole reads as alive
+    ctx.strokeStyle = 'rgba(190,235,255,0.6)';
+    ctx.lineWidth = 1.2;
+    for (let i = 0; i < 2; i++) {
+      const t = ((time * 0.0006 + i * 0.5) % 1);
+      ctx.globalAlpha = (1 - t) * 0.7;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, w * 0.12 + w * 0.24 * t, (w * 0.06 + w * 0.11 * t), 0, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+  }
+}
+
+export interface WorldNode {
+  id: string;
+  type: string;
+  x: number;
+  y: number;
+}
+
+const NODE_HEIGHT: Record<string, number> = { ice: 34, hole: 26 };
+
+export function drawNode(
+  ctx: CanvasRenderingContext2D,
+  node: WorldNode,
+  sx: number,
+  sy: number,
+  zoom: number,
+  time: number,
+  depleted: boolean
+) {
+  const h = (NODE_HEIGHT[node.type] ?? 30) * zoom;
+  ctx.save();
+  ctx.translate(sx, sy);
+  if (node.type === 'ice') {
+    if (depleted) {
+      // just the scar in the ice where the block was cut out
+      ctx.fillStyle = 'rgba(96,152,181,0.35)';
+      ctx.beginPath();
+      ctx.ellipse(0, 0, h * 0.8, h * 0.3, 0, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      shadow(ctx, 0, 0, h * 0.7);
+      drawIceBlock(ctx, h, time, node.x);
+    }
+  } else if (node.type === 'hole') {
+    drawFishingHole(ctx, h, time, !depleted);
+  }
+  ctx.restore();
+}
+
+/* ------------------------------------------------------------------ *
+ * Player-built igloos
+ * ------------------------------------------------------------------ */
+
+const IGLOO_TINT: Record<string, [string, string]> = {
+  classic: ['#eaf4fc', '#ffffff'],
+  frost: ['#dbeefb', '#f2fbff'],
+  amber: ['#fdf0dd', '#fffaf1'],
+};
+
+export function drawIgloo(
+  ctx: CanvasRenderingContext2D,
+  sx: number,
+  sy: number,
+  zoom: number,
+  style: string,
+  owner: string
+) {
+  const h = 96 * zoom;
+  const w = h * 1.75;
+  const [shade, light] = (Object.hasOwn(IGLOO_TINT, style) && IGLOO_TINT[style]) || IGLOO_TINT.classic;
+
+  shadow(ctx, sx, sy, w * 0.5);
+  ctx.save();
+  ctx.translate(sx, sy);
+
+  ctx.fillStyle = shade;
+  ctx.beginPath();
+  ctx.ellipse(0, 0, w / 2, h, Math.PI, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = light;
+  ctx.beginPath();
+  ctx.ellipse(-w * 0.12, -h * 0.1, w * 0.38, h * 0.8, 0, Math.PI, Math.PI * 2);
+  ctx.fill();
+
+  // snow-brick courses
+  ctx.strokeStyle = 'rgba(146,182,207,0.6)';
+  ctx.lineWidth = 1.3;
+  for (let i = 1; i <= 3; i++) {
+    ctx.beginPath();
+    ctx.ellipse(0, 0, (w / 2) * (1 - i * 0.2), h * (1 - i * 0.22), 0, Math.PI, Math.PI * 2);
+    ctx.stroke();
+  }
+  for (let i = -2; i <= 2; i++) {
+    ctx.beginPath();
+    ctx.moveTo((i * w) / 6, 0);
+    ctx.lineTo((i * w) / 8, -h * 0.72);
+    ctx.stroke();
+  }
+
+  // entrance tunnel
+  ctx.fillStyle = light;
+  ctx.beginPath();
+  ctx.ellipse(0, 0, w * 0.2, h * 0.42, 0, Math.PI, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#23414f';
+  ctx.beginPath();
+  ctx.ellipse(0, 0, w * 0.13, h * 0.3, 0, Math.PI, Math.PI * 2);
+  ctx.fill();
+
+  // nameplate
+  ctx.font = `700 ${12 * zoom}px Inter, system-ui, sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  const label = `${owner}'s igloo`;
+  const tw = ctx.measureText(label).width + 18;
+  ctx.fillStyle = 'rgba(9,41,48,0.7)';
+  ctx.beginPath();
+  ctx.roundRect(-tw / 2, -h - 24 * zoom, tw, 19 * zoom, 10);
+  ctx.fill();
+  ctx.fillStyle = '#eef6fb';
+  ctx.fillText(label, 0, -h - 14.5 * zoom);
+
+  ctx.restore();
+}
+
+/* ------------------------------------------------------------------ *
  * $POG pickup
  * ------------------------------------------------------------------ */
 

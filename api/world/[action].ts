@@ -31,7 +31,8 @@ export default async function handler(req: any, res: any) {
       const wallet = await walletForToken(bearer(req) || body(req).token);
       if (!wallet) return json(res, 401, { error: 'No valid session.' });
 
-      const result = await claimCoin(wallet, Number(body(req).id));
+      const b = body(req);
+      const result = await claimCoin(wallet, Number(b.id), b.x, b.y);
       if (result.error) return json(res, 409, { error: result.error });
       return json(res, 200, { pog: result.pog });
     }

@@ -6,8 +6,20 @@ import { api, type LeaderboardEntry } from '../lib/api';
 import { PogGame, type ChatLine, type HudState } from '../game/engine';
 import { PenguinMark } from '../components/PenguinMark';
 import { ProfileModal } from '../components/ProfileModal';
+import { BackpackPanel } from '../components/BackpackPanel';
+import { skinById } from '../../shared/world.js';
 
-const EMPTY_HUD: HudState = { online: 1, pog: 0, status: 'connecting', x: 0, y: 0, onIce: false };
+const EMPTY_HUD: HudState = {
+  online: 1,
+  pog: 0,
+  status: 'connecting',
+  x: 0,
+  y: 0,
+  onIce: false,
+  inventory: { pog: 0, wood: 0, ice: 0, fish: 0, items: {} },
+  prompt: '',
+  busy: false,
+};
 
 export function Play({ navigate }: { navigate: (r: Route) => void }) {
   const { identity, address, canPlay, restoring } = useSession();
@@ -22,6 +34,7 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
   const [draft, setDraft] = useState('');
   const [board, setBoard] = useState<LeaderboardEntry[]>([]);
   const [showBoard, setShowBoard] = useState(false);
+  const [showBag, setShowBag] = useState(false);
   const [editing, setEditing] = useState(false);
   const [fatal, setFatal] = useState('');
   const [booting, setBooting] = useState(true);
@@ -65,10 +78,6 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
   }, [canPlay, pushLine]);
 
   useEffect(() => {
-    if (identity) gameRef.current?.setIdentity(identity.name, identity.color);
-  }, [identity]);
-
-  useEffect(() => {
     if (!showBoard) return;
     let alive = true;
     const pull = () =>
@@ -103,6 +112,50 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
+
+  // Skins live on the wallet profile, so they refresh through the session
+  // rather than through the engine's own inventory snapshot.
+  const [profileSkins, setProfileSkins] = useState<string[]>(['default']);
+  const [equippedSkin, setEquippedSkin] = useState('default');
+
+  useEffect(() => {
+    if (!canPlay || identity?.guest) return;
+    api
+      .gameState()
+      .then(({ profile }) => {
+        setProfileSkins(profile.skins ?? ['default']);
+        setEquippedSkin(profile.skin ?? 'default');
+      })
+      .catch(() => {});
+  }, [canPlay, identity?.guest]);
+
+  // keep the penguin wearing what the profile says
+  useEffect(() => {
+    if (!identity) return;
+    gameRef.current?.setIdentity(identity.name, identity.color, skinById(equippedSkin).hat);
+  }, [identity, equippedSkin]);
+
+  const buySkin = async (skin: string): Promise<string | null> => {
+    try {
+      const { profile } = await api.buySkin(skin);
+      setProfileSkins(profile.skins);
+      setEquippedSkin(profile.skin);
+      gameRef.current?.applyProfile(profile);
+      return null;
+    } catch (err) {
+      return err instanceof Error ? err.message : 'Could not buy that.';
+    }
+  };
+
+  const equipSkin = async (skin: string): Promise<string | null> => {
+    try {
+      const { profile } = await api.equipSkin(skin);
+      setEquippedSkin(profile.skin);
+      return null;
+    } catch (err) {
+      return err instanceof Error ? err.message : 'Could not equip that.';
+    }
+  };
 
   const sendChat = (e?: React.FormEvent) => {
     e?.preventDefault();
@@ -195,6 +248,13 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
           >
             🏆
           </button>
+          <button
+            className={`icon-btn${showBag ? ' active' : ''}`}
+            title="Backpack, crafting and shop"
+            onClick={() => setShowBag((v) => !v)}
+          >
+            🎒
+          </button>
           <button className="icon-btn" title="Edit penguin" onClick={() => setEditing(true)}>
             🎨
           </button>
@@ -203,7 +263,21 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
           </button>
         </div>
 
-        {showBoard && (
+        {showBag && (
+          <BackpackPanel
+            inventory={hud.inventory}
+            skins={profileSkins}
+            equipped={equippedSkin}
+            guest={!!identity?.guest}
+            onCraft={(r) => gameRef.current?.craft(r) ?? Promise.resolve('Not in the world yet.')}
+            onBuild={(s) => gameRef.current?.buildIgloo(s) ?? Promise.resolve('Not in the world yet.')}
+            onBuy={buySkin}
+            onEquip={equipSkin}
+            onClose={() => setShowBag(false)}
+          />
+        )}
+
+        {showBoard && !showBag && (
           <div className="panel side-panel">
             <h4>🏆 Top holders on ice</h4>
             {board.length === 0 && <p style={{ fontSize: '0.85rem' }}>No coins banked yet.</p>}
@@ -254,8 +328,16 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
           </form>
         </div>
 
+        {hud.prompt && (
+          <div className="hud-prompt">
+            {/* only badge the key when pressing it would actually do something */}
+            {hud.busy ? <span className="mini-spin" /> : hud.prompt.startsWith('Press E') && <kbd>E</kbd>}
+            {hud.prompt.replace(/^Press E to /, '')}
+          </div>
+        )}
+
         <div className="hud-hint">
-          WASD / arrows to waddle · Shift to sprint · {hud.onIce ? '🧊 slippery ice!' : 'Enter to chat'}
+          WASD to waddle · Shift to sprint · E to gather · {hud.onIce ? '🧊 slippery ice!' : 'Enter to chat'}
         </div>
 
         <div className="panel hud-minimap">

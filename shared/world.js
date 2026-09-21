@@ -20,13 +20,69 @@ export const PLAYER = {
   iceGrip: 1.4,
 };
 
+/**
+ * $POG coins are the cosmetic currency — the only thing they buy is skins.
+ * They are deliberately scarce: the day-to-day loop is gathering wood, ice
+ * and fish, not hoovering up coins.
+ */
 export const COIN = {
   radius: 18,
   pickupRadius: 52,
-  respawnMs: 45000,
-  count: 260,
+  respawnMs: 240000,
+  count: 70,
   value: 1,
 };
+
+/* ------------------------------------------------------------------ *
+ * Gathering, crafting and building
+ * ------------------------------------------------------------------ */
+
+export const GATHER = {
+  /** how close you must stand to work a node */
+  range: 86,
+  tree: { yields: { wood: 2 }, respawnMs: 150000, label: 'Chop', verb: 'chopping' },
+  ice: { yields: { ice: 2 }, respawnMs: 110000, label: 'Cut ice', verb: 'cutting ice' },
+  hole: { yields: { fish: 1 }, respawnMs: 70000, label: 'Fish', verb: 'fishing', needs: 'rod' },
+};
+
+/** Per-minute ceilings. Generous for honest play, tight against a script. */
+export const GATHER_PER_MIN = { tree: 24, ice: 24, hole: 10 };
+
+export const RECIPES = {
+  rod: {
+    id: 'rod',
+    label: 'Fishing rod',
+    blurb: 'Lets you fish the holes out on the lakes.',
+    cost: { wood: 14 },
+    gives: { rod: 1 },
+  },
+  iglooKit: {
+    id: 'iglooKit',
+    label: 'Igloo kit',
+    blurb: 'Everything you need to raise your own igloo on the snow.',
+    cost: { ice: 40, wood: 12 },
+    gives: { iglooKit: 1 },
+  },
+};
+
+export const IGLOO = {
+  /** an igloo needs this much clear snow around it */
+  clearance: 150,
+  /** and this much distance from the spawn plaza */
+  plazaGap: 120,
+  styles: ['classic', 'frost', 'amber'],
+};
+
+export const SKINS = [
+  { id: 'default', label: 'Plain penguin', price: 0, kind: 'hat', hat: null },
+  { id: 'beanie', label: 'Wool beanie', price: 12, kind: 'hat', hat: 'beanie' },
+  { id: 'santa', label: 'Santa hat', price: 20, kind: 'hat', hat: 'santa' },
+  { id: 'earmuffs', label: 'Earmuffs', price: 16, kind: 'hat', hat: 'earmuffs' },
+  { id: 'crown', label: 'Ice crown', price: 45, kind: 'hat', hat: 'crown' },
+  { id: 'cap', label: 'Backwards cap', price: 18, kind: 'hat', hat: 'cap' },
+];
+
+export const skinById = (id) => SKINS.find((s) => s.id === id) || SKINS[0];
 
 /* ------------------------------------------------------------------ *
  * Tiny deterministic PRNG + value noise
@@ -359,6 +415,77 @@ export function resolveCollisions(x, y, radius = PLAYER.radius) {
  * ------------------------------------------------------------------ */
 
 let _coins = null;
+
+/* ------------------------------------------------------------------ *
+ * Resource nodes
+ *
+ * Derived from the same seed, so the client and the API agree on which
+ * node ids exist and where they are. The API cannot see you standing
+ * there, but it can check the node is real and that you claimed to be
+ * within range of it.
+ * ------------------------------------------------------------------ */
+
+let _nodes = null;
+let _nodeById = null;
+
+export function getNodes() {
+  if (_nodes) return _nodes;
+  const nodes = [];
+
+  // Every pine is choppable.
+  getProps().forEach((p, i) => {
+    if (p.type === 'pine') nodes.push({ id: 't' + i, type: 'tree', x: p.x, y: p.y });
+  });
+
+  // Ice blocks and fishing holes sit out on the frozen lakes.
+  getLakes().forEach((lake, li) => {
+    const rnd = mulberry32((WORLD.seed ^ 0xf1a5) + li * 7919);
+    const placed = [];
+    const spot = (maxTries) => {
+      for (let i = 0; i < maxTries; i++) {
+        // keep clear of the shoreline so nodes never poke out onto snow
+        const a = rnd() * Math.PI * 2;
+        const r = Math.sqrt(rnd()) * 0.78;
+        const lx = Math.cos(a) * lake.rx * r;
+        const ly = Math.sin(a) * lake.ry * r;
+        const cos = Math.cos(lake.rot);
+        const sin = Math.sin(lake.rot);
+        const x = lake.x + lx * cos - ly * sin;
+        const y = lake.y + lx * sin + ly * cos;
+        if (placed.every((p) => Math.hypot(p.x - x, p.y - y) > 130)) {
+          placed.push({ x, y });
+          return { x, y };
+        }
+      }
+      return null;
+    };
+
+    const holes = 1 + Math.floor(rnd() * 2);
+    for (let i = 0; i < holes; i++) {
+      const s = spot(30);
+      if (s) nodes.push({ id: `h${li}_${i}`, type: 'hole', x: s.x, y: s.y });
+    }
+    const blocks = 4 + Math.floor(rnd() * 4);
+    for (let i = 0; i < blocks; i++) {
+      const s = spot(30);
+      if (s) nodes.push({ id: `i${li}_${i}`, type: 'ice', x: s.x, y: s.y });
+    }
+  });
+
+  _nodes = nodes;
+  _nodeById = new Map(nodes.map((n) => [n.id, n]));
+  return nodes;
+}
+
+export function getNode(id) {
+  if (!_nodeById) getNodes();
+  return _nodeById.get(id) || null;
+}
+
+/** Nodes near a point, for the client's "what can I interact with" check. */
+export function nodesNear(x, y, radius) {
+  return getNodes().filter((n) => Math.hypot(n.x - x, n.y - y) <= radius);
+}
 
 /** Coins keep this far from each other so two never render as one blob. */
 const COIN_GAP = 150;

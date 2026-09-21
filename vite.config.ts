@@ -8,7 +8,7 @@ export default defineConfig({
     fs: { allow: ['..'] },
   },
   build: {
-    target: 'es2020',
+    target: 'es2022',
     outDir: 'dist',
   },
 });
