@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Route } from '../App';
 import { useSession } from '../state/session';
 import { shortAddress } from '../lib/wallet';
-import { api, storedToken, type LeaderboardEntry } from '../lib/api';
+import { api, type LeaderboardEntry } from '../lib/api';
 import { PogGame, type ChatLine, type HudState } from '../game/engine';
 import { PenguinMark } from '../components/PenguinMark';
 import { ProfileModal } from '../components/ProfileModal';
@@ -43,8 +43,9 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
     const me = profileRef.current;
     if (!canPlay || !me || !canvasRef.current || gameRef.current) return;
 
+    setLines([]); // a remount must not stack another copy of the intro line
     const game = new PogGame(canvasRef.current, {
-      token: storedToken(),
+      wallet: address,
       name: me.name,
       color: me.color,
       pog: me.pog ?? 0,
@@ -255,3 +256,5 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
     </div>
   );
 }
+
+export default Play;

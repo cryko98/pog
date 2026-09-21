@@ -11,15 +11,26 @@ import {
   getLakes,
   isOnIce,
   resolveCollisions,
-} from '../../../shared/world.js';
+} from '../../shared/world.js';
 import { blitPenguin, type Dir } from './penguin';
 import { CHUNK, drawCoin, drawProp, getGroundChunk, type Prop } from './scenery';
-import { PogSocket, type NetPlayer, type StateTuple } from './net';
+import {
+  announceCoin,
+  presenceConnected,
+  publishPresence,
+  sendChat,
+  subscribeChat,
+  subscribeCoins,
+  subscribePresence,
+  trackOnline,
+  type Presence,
+} from './presence';
+import { api } from '../lib/api';
 
 export const Y_SCALE = 0.62;
 const ZOOM = 1;
-const SEND_HZ = 15;
 const PENGUIN_WORLD_HEIGHT = 78;
+const HEARTBEAT_MS = 25_000;
 
 export interface HudState {
   online: number;
@@ -38,7 +49,7 @@ export interface ChatLine {
   system?: boolean;
 }
 
-interface Remote extends NetPlayer {
+interface Remote extends Presence {
   rx: number; // rendered position, lerped toward x/y
   ry: number;
   frame: number;
@@ -46,7 +57,8 @@ interface Remote extends NetPlayer {
 }
 
 interface Options {
-  token: string;
+  /** the player's wallet address — doubles as their id on the presence channel */
+  wallet: string;
   name: string;
   color: string;
   pog: number;
@@ -77,8 +89,11 @@ export class PogGame {
   private w = 0;
   private h = 0;
 
-  private socket: PogSocket;
-  private selfId = 0;
+  private selfId: string;
+  private detach: Array<() => void> = [];
+  private heartbeatTimer = 0;
+  private serverOnline = 0;
+  private mqttOnline = 1;
   private keys = new Set<string>();
   private touch: { active: boolean; baseX: number; baseY: number; x: number; y: number; id: number } = {
     active: false,
@@ -102,14 +117,13 @@ export class PogGame {
   };
 
   private cam = { x: WORLD.spawn.x, y: WORLD.spawn.y };
-  private remotes = new Map<number, Remote>();
+  private remotes = new Map<string, Remote>();
   private taken = new Set<number>();
-  private bubbles = new Map<number, { text: string; until: number }>();
+  private claiming = new Set<number>();
+  private bubbles = new Map<string, { text: string; until: number }>();
   private pickupFx: Array<{ x: number; y: number; t: number }> = [];
   private snow: Array<{ x: number; y: number; r: number; s: number; d: number }> = [];
-  private sinceSend = 0;
   private sinceHud = 0;
-  private status: HudState['status'] = 'connecting';
 
   private props: Prop[] = getProps() as Prop[];
   private coins = getCoins() as Array<{ id: number; x: number; y: number }>;
@@ -117,64 +131,15 @@ export class PogGame {
   constructor(private canvas: HTMLCanvasElement, private opts: Options) {
     this.ctx = canvas.getContext('2d', { alpha: false })!;
     this.me.pog = opts.pog;
-    this.socket = new PogSocket(opts.token, {
-      onStatus: (s) => {
-        this.status = s;
-      },
-      onWelcome: (msg) => {
-        this.selfId = msg.id;
-        this.me.x = msg.you.x;
-        this.me.y = msg.you.y;
-        this.me.pog = msg.you.pog;
-        this.cam.x = this.me.x;
-        this.cam.y = this.me.y;
-        this.remotes.clear();
-        msg.players.forEach((p) => this.addRemote(p));
-        this.taken = new Set(msg.takenCoins);
-        this.pushChat({ id: crypto.randomUUID(), text: 'You are on the ice. Happy hunting!', system: true });
-      },
-      onSpawn: (p) => this.addRemote(p),
-      onDespawn: (id) => {
-        this.remotes.delete(id);
-        this.bubbles.delete(id);
-      },
-      onState: (list: StateTuple[]) => {
-        for (const [id, x, y, dir, moving] of list) {
-          if (id === this.selfId) continue;
-          const r = this.remotes.get(id);
-          if (!r) continue;
-          r.x = x;
-          r.y = y;
-          r.dir = dir;
-          r.moving = !!moving;
-        }
-      },
-      onProfile: ({ id, name, color }) => {
-        const r = this.remotes.get(id);
-        if (r) {
-          r.name = name;
-          r.color = color;
-        }
-      },
-      onChat: ({ id, name, color, text }) => {
-        this.bubbles.set(id, { text, until: performance.now() + 5200 });
-        this.pushChat({ id: crypto.randomUUID(), name, color, text });
-      },
-      onSystem: (text) => this.pushChat({ id: crypto.randomUUID(), text, system: true }),
-      onCoin: (id, isTaken) => {
-        if (isTaken) this.taken.add(id);
-        else this.taken.delete(id);
-      },
-      onPog: (pog, coin) => {
-        this.me.pog = pog;
-        const c = this.coins[coin];
-        if (c) this.pickupFx.push({ x: c.x, y: c.y, t: performance.now() });
-      },
-      onError: (code, message) => {
-        if (code === 'auth' || code === 'noprofile') this.opts.onFatal(message);
-        else this.pushChat({ id: crypto.randomUUID(), text: message, system: true });
-      },
-    });
+    this.selfId = opts.wallet;
+
+    // spread arrivals around the plaza instead of stacking everyone on one spot
+    const angle = Math.random() * Math.PI * 2;
+    const dist = Math.random() * (WORLD.spawnRadius - 90);
+    this.me.x = WORLD.spawn.x + Math.cos(angle) * dist;
+    this.me.y = WORLD.spawn.y + Math.sin(angle) * dist * 0.75;
+    this.cam.x = this.me.x;
+    this.cam.y = this.me.y;
   }
 
   /* ---------------- lifecycle ---------------- */
@@ -196,9 +161,70 @@ export class PogGame {
     window.addEventListener('pointercancel', this.onPointerUp);
     this.canvas.addEventListener('lostpointercapture', this.onPointerUp);
 
-    this.socket.connect();
+    this.connect();
     this.last = performance.now();
     this.raf = requestAnimationFrame(this.loop);
+  }
+
+  /** Join the presence channel and pull the shared bits from the API. */
+  private connect() {
+    this.detach.push(
+      publishPresence(() => ({
+        id: this.selfId,
+        name: this.opts.name,
+        color: this.opts.color,
+        x: this.me.x,
+        y: this.me.y,
+        dir: this.me.dir,
+        moving: this.me.moving,
+      })),
+
+      subscribePresence(this.selfId, (players) => {
+        const seen = new Set<string>();
+        for (const p of players) {
+          seen.add(p.id);
+          const existing = this.remotes.get(p.id);
+          if (existing) Object.assign(existing, p);
+          else this.remotes.set(p.id, { ...p, rx: p.x, ry: p.y, frame: 0, anim: 0 });
+        }
+        // anyone who stopped broadcasting has left the ice
+        for (const id of [...this.remotes.keys()]) {
+          if (!seen.has(id)) {
+            this.remotes.delete(id);
+            this.bubbles.delete(id);
+          }
+        }
+      }),
+
+      subscribeChat((m) => {
+        this.bubbles.set(m.id, { text: m.text, until: performance.now() + 5200 });
+        this.pushChat({ id: crypto.randomUUID(), name: m.name, color: m.color, text: m.text });
+      }),
+
+      subscribeCoins((id) => this.taken.add(id)),
+
+      trackOnline(this.selfId, (count) => {
+        this.mqttOnline = count;
+      })
+    );
+
+    // coins already picked up before we arrived
+    api
+      .takenCoins()
+      .then(({ taken }) => taken.forEach((id) => this.taken.add(id)))
+      .catch(() => {});
+
+    const beat = () =>
+      api
+        .beat(this.selfId)
+        .then(({ count }) => {
+          this.serverOnline = count;
+        })
+        .catch(() => {});
+    beat();
+    this.heartbeatTimer = window.setInterval(beat, HEARTBEAT_MS);
+
+    this.pushChat({ id: crypto.randomUUID(), text: 'You are on the ice. Happy hunting!', system: true });
   }
 
   stop() {
@@ -213,7 +239,9 @@ export class PogGame {
     window.removeEventListener('pointerup', this.onPointerUp);
     window.removeEventListener('pointercancel', this.onPointerUp);
     this.canvas.removeEventListener('lostpointercapture', this.onPointerUp);
-    this.socket.close();
+    clearInterval(this.heartbeatTimer);
+    this.detach.forEach((fn) => fn());
+    this.detach = [];
   }
 
   /** Rename / recolour without tearing down the session. */
@@ -223,9 +251,9 @@ export class PogGame {
   }
 
   say(text: string) {
-    this.socket.chat(text);
-    this.bubbles.set(this.selfId, { text, until: performance.now() + 5200 });
-    this.pushChat({ id: crypto.randomUUID(), name: this.opts.name, color: this.opts.color, text });
+    // the broker echoes our own message back, which is what renders the
+    // bubble and the log line — no local echo needed
+    sendChat({ id: this.selfId, name: this.opts.name, color: this.opts.color, text });
   }
 
   /** Chat input steals the keyboard; make sure we are not left walking. */
@@ -238,8 +266,30 @@ export class PogGame {
     this.opts.onChat(line);
   }
 
-  private addRemote(p: NetPlayer) {
-    this.remotes.set(p.id, { ...p, rx: p.x, ry: p.y, frame: 0, anim: 0 });
+  /**
+   * Optimistically hide the coin, then let the API decide. It is the only
+   * thing that can credit $POG, and it refuses a coin somebody else already
+   * claimed — in which case the coin stays gone for us too, since it really
+   * is gone.
+   */
+  private claim(coinId: number) {
+    if (this.claiming.has(coinId)) return;
+    this.claiming.add(coinId);
+    this.taken.add(coinId);
+
+    api
+      .claimCoin(coinId)
+      .then(({ pog }) => {
+        this.me.pog = pog;
+        const c = this.coins[coinId];
+        if (c) this.pickupFx.push({ x: c.x, y: c.y, t: performance.now() });
+        announceCoin(coinId);
+      })
+      .catch((err: Error) => {
+        // a session that no longer works needs a fresh wallet login
+        if (/session/i.test(err.message)) this.opts.onFatal(err.message);
+      })
+      .finally(() => this.claiming.delete(coinId));
   }
 
   /* ---------------- input ---------------- */
@@ -360,28 +410,24 @@ export class PogGame {
       r.frame = Math.floor(r.anim) % 4;
     }
 
-    // coin pickups (optimistic, the server has the final say)
+    // coin pickups — the API decides, this only starts the request
     for (const coin of this.coins) {
       if (this.taken.has(coin.id)) continue;
       if (Math.hypot(this.me.x - coin.x, this.me.y - coin.y) < COIN.pickupRadius) {
-        this.taken.add(coin.id);
-        this.socket.pickup(coin.id);
+        this.claim(coin.id);
       }
     }
 
-    // network + hud
-    this.sinceSend += dt;
-    if (this.sinceSend >= 1 / SEND_HZ) {
-      this.sinceSend = 0;
-      this.socket.move(this.me.x, this.me.y, this.me.dir, this.me.moving);
-    }
+    // position is published on its own timer by publishPresence()
     this.sinceHud += dt;
     if (this.sinceHud >= 0.2) {
       this.sinceHud = 0;
       this.opts.onHud({
-        online: this.remotes.size + 1,
+        // the broker count can dip during a reconnect, the API count lags a
+        // few seconds — whichever is higher is closest to the truth
+        online: Math.max(this.remotes.size + 1, this.mqttOnline, this.serverOnline),
         pog: this.me.pog,
-        status: this.status,
+        status: presenceConnected() ? 'open' : 'connecting',
         x: Math.round(this.me.x),
         y: Math.round(this.me.y),
         onIce,
@@ -529,7 +575,7 @@ export class PogGame {
       moving: boolean,
       color: string,
       name: string,
-      id: number,
+      id: string,
       isSelf: boolean
     ) => {
       const x = this.sx(wx);

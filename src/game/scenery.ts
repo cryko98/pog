@@ -1,7 +1,7 @@
 // Everything in the frozen world is drawn procedurally: no sprite downloads,
 // no licences to track, and the whole map is a few kilobytes of code.
 
-import { WORLD, fbm, hash2, getLakes } from '../../../shared/world.js';
+import { WORLD, fbm, hash2, getLakes } from '../../shared/world.js';
 
 export const CHUNK = 512;
 

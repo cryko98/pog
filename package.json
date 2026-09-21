@@ -1,19 +1,35 @@
 {
   "name": "pog-game",
   "private": true,
-  "version": "0.1.0",
-  "description": "$POG — winter open-world multiplayer P2E game for the POG Solana memecoin",
+  "version": "0.2.0",
   "type": "module",
-  "workspaces": ["client", "server"],
+  "description": "$POG — winter open-world multiplayer P2E game for the POG Solana memecoin",
   "scripts": {
-    "dev": "concurrently -n server,client -c magenta,cyan \"npm:dev:server\" \"npm:dev:client\"",
-    "dev:server": "npm --workspace server run dev",
-    "dev:client": "npm --workspace client run dev",
-    "build": "npm --workspace client run build",
-    "start": "npm --workspace server run start"
+    "dev": "tsx server.ts",
+    "build": "vite build",
+    "preview": "vite preview",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@upstash/redis": "^1.35.0",
+    "@wallet-standard/app": "^1.1.0",
+    "bs58": "^6.0.0",
+    "mqtt": "^5.13.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "tweetnacl": "^1.0.3"
   },
   "devDependencies": {
-    "concurrently": "^9.1.2"
+    "@types/express": "^4.17.21",
+    "@types/node": "^22.20.4",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "dotenv": "^17.0.0",
+    "express": "^4.21.2",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.7"
   },
   "engines": { "node": ">=20" }
 }

@@ -94,7 +94,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         setStatus('signing');
         const { message } = await api.nonce(link.address);
         const signature = await signMessage(link, message);
-        const { token, profile: p } = await api.auth(link.address, signature);
+        const { token, profile: p } = await api.verify(link.address, signature);
 
         saveSession(token, link.address);
         setProfile(p);
