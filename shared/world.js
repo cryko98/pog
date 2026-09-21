@@ -40,13 +40,19 @@ export const COIN = {
 export const GATHER = {
   /** how close you must stand to work a node */
   range: 86,
-  tree: { yields: { wood: 2 }, respawnMs: 300000, label: 'Chop', verb: 'chopping' },
-  ice: { yields: { ice: 2 }, respawnMs: 240000, label: 'Cut ice', verb: 'cutting ice' },
-  hole: { yields: { fish: 1 }, respawnMs: 180000, label: 'Fish', verb: 'fishing', needs: 'rod' },
+  /** how long a swing takes, and how many land before the node gives way */
+  swingMs: 420,
+  tree: { yields: { wood: 2 }, respawnMs: 300000, hits: 5, label: 'Chop', verb: 'chopping' },
+  ice: { yields: { ice: 2 }, respawnMs: 240000, hits: 3, label: 'Cut ice', verb: 'cutting ice' },
+  hole: { yields: { fish: 1 }, respawnMs: 180000, hits: 3, label: 'Fish', verb: 'reeling in', needs: 'rod' },
 };
 
-/** Per-minute ceilings. Generous for honest play, tight against a script. */
+/**
+ * Per-minute ceilings on COMPLETED gathers — the individual swings that
+ * lead up to one are bounded separately, by SWINGS_PER_MIN.
+ */
 export const GATHER_PER_MIN = { tree: 12, ice: 12, hole: 6 };
+export const SWINGS_PER_MIN = 110;
 
 export const RECIPES = {
   rod: {

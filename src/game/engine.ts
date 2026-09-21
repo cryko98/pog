@@ -14,6 +14,7 @@ import {
   resolveCollisions,
   GATHER,
   IGLOO,
+  RECIPES,
   canBuildAt,
 } from '../../shared/world.js';
 import { blitPenguin, type Dir } from './penguin';
@@ -181,6 +182,12 @@ export class PogGame {
   private busy = false;
   private inventory: Inventory = { pog: 0, wood: 0, ice: 0, fish: 0, items: {} };
   private hat: string | null = null;
+  /** swings landed on the node under us, as the API counts them */
+  private hits = new Map<string, { hits: number; needed: number; at: number }>();
+  private swingUntil = 0;
+  private lastRodNotice = -Infinity;
+  private shake = new Map<string, number>();
+  private chips: Array<{ x: number; y: number; vx: number; vy: number; life: number; color: string }> = [];
   private building: { style: string } | null = null;
   private buildCheck = { ok: false, reason: '' };
 
@@ -385,7 +392,9 @@ export class PogGame {
     if (!rule) return '';
     if (this.opts.guest) return 'Connect a wallet to gather';
     if (node.type === 'hole' && !(this.inventory.items.rod > 0)) return 'You need a fishing rod';
-    return `Press E to ${rule.label.toLowerCase()}`;
+    const progress = this.hits.get(node.id);
+    if (progress) return `${rule.label} — ${progress.hits}/${progress.needed}`;
+    return `Press E to ${rule.label.toLowerCase()} (${rule.hits} hits)`;
   }
 
   /** Work the node the player is standing at. */
@@ -405,34 +414,118 @@ export class PogGame {
     const until = this.depleted.get(node.id);
     if (until && until > Date.now()) return;
     if (node.type === 'hole' && !(this.inventory.items.rod > 0)) {
-      this.pushChat({
-        id: crypto.randomUUID(),
-        text: 'Craft a fishing rod first — 14 wood at the workbench.',
-        system: true,
-      });
+      // do not repeat this every time the key repeats
+      if (performance.now() - this.lastRodNotice > 8000) {
+        this.lastRodNotice = performance.now();
+        this.pushChat({
+          id: crypto.randomUUID(),
+          text: `Craft a fishing rod first — ${RECIPES.rod.cost.wood} wood at the workbench.`,
+          system: true,
+        });
+      }
       return;
     }
 
     this.busy = true;
-    // hide it straight away; the API decides whether it really happened
-    this.depleted.set(node.id, Date.now() + 2000);
+    this.swingUntil = performance.now() + GATHER.swingMs;
+
+    // land the blow locally straight away: the shake and the chips should
+    // not wait on a round trip
+    this.shake.set(node.id, performance.now());
+    this.throwChips(node);
+    this.me.dir = Math.abs(node.x - this.me.x) > Math.abs(node.y - this.me.y)
+      ? node.x < this.me.x ? 'left' : 'right'
+      : node.y < this.me.y ? 'up' : 'down';
 
     api
       .gather(node.id, this.me.x, this.me.y)
-      .then(({ profile, gained, respawnAt }) => {
-        this.applyProfile(profile);
-        this.depleted.set(node.id, respawnAt);
-        announceNode(node.id, respawnAt);
-        const parts = Object.entries(gained).map(([k, v]) => `+${v} ${k}`);
-        this.pickupFx.push({ x: node.x, y: node.y, t: performance.now(), label: parts.join(' ') });
+      .then(({ hits, needed, profile, gained, respawnAt }) => {
+        if (profile && gained && respawnAt) {
+          this.hits.delete(node.id);
+          this.applyProfile(profile);
+          this.depleted.set(node.id, respawnAt);
+          announceNode(node.id, respawnAt);
+          const parts = Object.entries(gained).map(([k, v]) => `+${v} ${k}`);
+          this.pickupFx.push({ x: node.x, y: node.y, t: performance.now(), label: parts.join(' ') });
+        } else if (typeof hits === 'number' && typeof needed === 'number') {
+          this.hits.set(node.id, { hits, needed, at: performance.now() });
+        }
       })
       .catch((err: Error) => {
-        this.depleted.delete(node.id);
-        this.pushChat({ id: crypto.randomUUID(), text: err.message, system: true });
+        this.hits.delete(node.id);
+        // a refusal is normal here (rate caps, someone beat you to it), so
+        // only surface the ones a player can act on
+        if (!/Slow down/i.test(err.message)) {
+          this.pushChat({ id: crypto.randomUUID(), text: err.message, system: true });
+        }
       })
       .finally(() => {
         this.busy = false;
       });
+  }
+
+  /** A short sideways judder on whatever just took a hit. */
+  private shakeOffset(nodeId: string, now: number): number {
+    const at = this.shake.get(nodeId);
+    if (at === undefined) return 0;
+    const t = now - at;
+    if (t > 260) {
+      this.shake.delete(nodeId);
+      return 0;
+    }
+    return Math.sin(t * 0.06) * 5 * (1 - t / 260) * ZOOM;
+  }
+
+  /** Little pips over a node showing swings landed out of swings needed. */
+  private drawHitGauge(x: number, y: number, hits: number, needed: number) {
+    const ctx = this.ctx;
+    const r = 4 * ZOOM;
+    const gap = 11 * ZOOM;
+    const total = (needed - 1) * gap;
+
+    ctx.save();
+    for (let i = 0; i < needed; i++) {
+      const px = x - total / 2 + i * gap;
+      ctx.beginPath();
+      ctx.arc(px, y, r, 0, Math.PI * 2);
+      if (i < hits) {
+        ctx.fillStyle = '#ffc93c';
+        ctx.fill();
+      } else {
+        ctx.fillStyle = 'rgba(9,41,48,0.45)';
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(255,255,255,0.6)';
+        ctx.lineWidth = 1.3;
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
+  }
+
+  /** Can we actually put a swing into this right now? */
+  private canWork(node: WorldNode): boolean {
+    if (this.opts.guest) return false;
+    const until = this.depleted.get(node.id);
+    if (until && until > Date.now()) return false;
+    if (node.type === 'hole' && !(this.inventory.items.rod > 0)) return false;
+    return true;
+  }
+
+  /** Splinters, ice shards or spray, depending on what you just hit. */
+  private throwChips(node: WorldNode) {
+    const color = node.type === 'tree' ? '#8a6a48' : node.type === 'ice' ? '#dff3ff' : '#7fd4f0';
+    for (let i = 0; i < 7; i++) {
+      const a = -Math.PI / 2 + (Math.random() - 0.5) * 2.2;
+      const speed = 70 + Math.random() * 120;
+      this.chips.push({
+        x: node.x,
+        y: node.y - 10,
+        vx: Math.cos(a) * speed,
+        vy: Math.sin(a) * speed * 0.55,
+        life: 0.35 + Math.random() * 0.3,
+        color,
+      });
+    }
   }
 
   /** Craft a recipe, then reflect the new inventory. */
@@ -573,6 +666,8 @@ export class PogGame {
       e.preventDefault();
     } else if (e.code === 'KeyE') {
       e.preventDefault();
+      if (e.repeat) return; // the loop handles held-down swinging
+      this.keys.add('KeyE');
       if (this.building) void this.confirmBuild();
       else this.interact();
     } else if (e.code === 'Escape' && this.building) {
@@ -582,6 +677,16 @@ export class PogGame {
   };
 
   private onKeyUp = (e: KeyboardEvent) => this.keys.delete(e.code);
+
+  /** Holding E keeps swinging at whatever you are standing next to. */
+  private autoSwing() {
+    if (this.building || !this.keys.has('KeyE')) return;
+    if (performance.now() < this.swingUntil) return;
+    const node = this.nearNode;
+    if (!node || node.type === 'craft' || node.type === 'shop') return;
+    if (!this.canWork(node)) return;
+    this.interact();
+  }
 
   // Only real touch/pen input drives the virtual stick. Capturing the pointer
   // guarantees we still get pointerup if the finger slides off the canvas —
@@ -726,6 +831,15 @@ export class PogGame {
     }
 
     this.nearNode = this.findNearNode();
+    this.autoSwing();
+
+    for (const c of this.chips) {
+      c.x += c.vx * dt;
+      c.y += c.vy * dt;
+      c.vy += 220 * dt; // chips fall back to the snow
+      c.life -= dt;
+    }
+    if (this.chips.length) this.chips = this.chips.filter((c) => c.life > 0);
     if (this.building) this.buildCheck = canBuildAt(this.me.x, this.me.y, this.otherIgloos());
 
     // position is published on its own timer by publishPresence()
@@ -889,7 +1003,8 @@ export class PogGame {
       if (nodeId && isDepleted(nodeId)) {
         items.push({ y: p.y, draw: () => drawStump(ctx, this.sx(p.x), this.sy(p.y), ZOOM, p.scale) });
       } else {
-        items.push({ y: p.y, draw: () => drawProp(ctx, p, this.sx(p.x), this.sy(p.y), ZOOM, now) });
+        const wobble = nodeId ? this.shakeOffset(nodeId, now) : 0;
+        items.push({ y: p.y, draw: () => drawProp(ctx, p, this.sx(p.x) + wobble, this.sy(p.y), ZOOM, now) });
       }
     });
 
@@ -897,7 +1012,8 @@ export class PogGame {
       if (n.type === 'tree') continue; // drawn as part of the pine above
       if (n.x < minX || n.x > maxX || n.y < minY || n.y > maxY) continue;
       const out = isDepleted(n.id);
-      items.push({ y: n.y, draw: () => drawNode(ctx, n, this.sx(n.x), this.sy(n.y), ZOOM, now, out) });
+      const wobble = this.shakeOffset(n.id, now);
+      items.push({ y: n.y, draw: () => drawNode(ctx, n, this.sx(n.x) + wobble, this.sy(n.y), ZOOM, now, out) });
     }
 
     if (this.building) {
@@ -976,6 +1092,28 @@ export class PogGame {
 
     items.sort((a, b) => a.y - b.y);
     for (const item of items) item.draw();
+
+    // wood splinters and ice shards from the last swing
+    if (this.chips.length) {
+      ctx.save();
+      for (const c of this.chips) {
+        ctx.globalAlpha = Math.min(1, c.life * 3);
+        ctx.fillStyle = c.color;
+        ctx.fillRect(this.sx(c.x) - 2, this.sy(c.y) - 2, 4 * ZOOM, 4 * ZOOM);
+      }
+      ctx.restore();
+    }
+
+    // how far through the node we are
+    for (const [id, progress] of this.hits) {
+      if (now - progress.at > 8000) {
+        this.hits.delete(id);
+        continue;
+      }
+      const node = this.nodes.find((n) => n.id === id);
+      if (!node) continue;
+      this.drawHitGauge(this.sx(node.x), this.sy(node.y) - 64 * ZOOM, progress.hits, progress.needed);
+    }
 
     // ice spray sits on the ground, under the name tags and coins
     if (this.spray.length) {

@@ -11,6 +11,7 @@ import {
   COIN,
   GATHER,
   GATHER_PER_MIN,
+  SWINGS_PER_MIN,
   IGLOO,
   PLAYER,
   RECIPES,
@@ -45,6 +46,9 @@ const K = {
   online: 'pog:online', // clientId -> last heartbeat
   rate: (wallet: string) => `pog:rate:${wallet}`,
   gatherRate: (wallet: string, kind: string) => `pog:rate:${kind}:${wallet}`,
+  swingRate: (wallet: string) => `pog:swings:${wallet}`,
+  /** swings landed on one node, cleared when it gives way or times out */
+  hits: (wallet: string, nodeId: string) => `pog:hits:${wallet}:${nodeId}`,
   /** last position we accepted an action from, with its timestamp */
   track: (wallet: string) => `pog:track:${wallet}`,
   /** last minute of play credited, so playtime cannot be spammed upward */
@@ -98,13 +102,18 @@ interface Track {
  * Accept an action at (x, y) only if the wallet could plausibly be there.
  * Returns an error string, or null when the move checks out.
  */
-async function trackMovement(wallet: string, x: number, y: number): Promise<string | null> {
+async function trackMovement(
+  wallet: string,
+  x: number,
+  y: number,
+  minGapMs = MIN_ACTION_GAP_MS
+): Promise<string | null> {
   const store = await kv();
   const now = Date.now();
   const last = await store.get<Track>(K.track(wallet));
 
   if (last) {
-    if (now - last.t < MIN_ACTION_GAP_MS) return 'Slow down.';
+    if (now - last.t < minGapMs) return 'Slow down.';
 
     // Rejoining always puts you back on the spawn plaza, so that one jump
     // is legitimate. Everything else has to be walkable.
@@ -382,6 +391,10 @@ export async function claimCoin(
  * ------------------------------------------------------------------ */
 
 export interface GatherResult {
+  /** swings landed on this node so far, and how many it takes */
+  hits?: number;
+  needed?: number;
+  /** only present on the swing that finally fells it */
   profile?: Profile;
   gained?: Record<string, number>;
   respawnAt?: number;
@@ -406,7 +419,7 @@ export async function gather(
 
   // one shape for all three node kinds; only fishing carries a `needs`
   const rule = (Object.hasOwn(GATHER, node.type) ? GATHER[node.type as 'tree' | 'ice' | 'hole'] : undefined) as
-    | { yields: Record<string, number>; respawnMs: number; needs?: string }
+    | { yields: Record<string, number>; respawnMs: number; hits: number; needs?: string }
     | undefined;
   if (!rule) return { error: 'Nothing to do here.' };
 
@@ -417,27 +430,51 @@ export async function gather(
     return { error: `You need a ${rule.needs} for that.` };
   }
 
-  // you have to have been able to walk here since your last action
-  const moveError = await trackMovement(wallet, px, py);
+  const store = await kv();
+  const now = Date.now();
+
+  // nothing to swing at if someone already felled it
+  await store.zremRangeByScore(K.nodes, 0, now);
+  const cooling = await store.zrangeByScore(K.nodes, now, Number.MAX_SAFE_INTEGER);
+  if (cooling.includes(node.id)) return { error: 'Someone just worked this spot.' };
+
+  // A swing is an action like any other: you must be in range, and you must
+  // have been able to walk here. The gap is shorter than for other actions
+  // because swinging is meant to be a rhythm, not a single click.
+  const moveError = await trackMovement(wallet, px, py, Math.floor(GATHER.swingMs * 0.6));
   if (moveError) return { error: moveError };
 
-  const store = await kv();
+  // bound raw swings separately from completed gathers
+  const swings = await store.incrWithTtl(K.swingRate(wallet), 60);
+  if (swings > SWINGS_PER_MIN) return { error: 'Catch your breath.' };
+
+  // Count the blow. Half-finished work expires, so you cannot chip a tree
+  // now and come back in an hour to collect it.
+  const needed = Math.max(1, rule.hits || 1);
+  const landed = await store.incrWithTtl(K.hits(wallet, node.id), 90);
+  if (landed < needed) return { hits: landed, needed };
+
+  // The felling blow: now the expensive checks apply.
   const perMin = GATHER_PER_MIN[node.type as keyof typeof GATHER_PER_MIN] ?? 20;
-  const hits = await store.incrWithTtl(K.gatherRate(wallet, node.type), 60);
-  if (hits > perMin) return { error: 'Catch your breath.' };
+  const completions = await store.incrWithTtl(K.gatherRate(wallet, node.type), 60);
+  if (completions > perMin) {
+    await store.del(K.hits(wallet, node.id));
+    return { error: 'Catch your breath.' };
+  }
 
   const cap = holdCap(profile);
   const held = profile.wood + profile.ice + profile.fish;
   if (held >= cap) {
+    await store.del(K.hits(wallet, node.id));
     return { error: 'Your pack is as full as your playtime allows. Keep playing to carry more.' };
   }
 
-  const now = Date.now();
-  await store.zremRangeByScore(K.nodes, 0, now);
-  const respawnAt = now + rule.respawnMs;
+  const respawnAt = Date.now() + rule.respawnMs;
   if (!(await store.zaddnx(K.nodes, respawnAt, node.id))) {
+    await store.del(K.hits(wallet, node.id));
     return { error: 'Someone just worked this spot.' };
   }
+  await store.del(K.hits(wallet, node.id));
 
   const gained: Record<string, number> = {};
   for (const [res, amount] of Object.entries(rule.yields)) {
@@ -446,7 +483,7 @@ export async function gather(
     gained[res] = amount as number;
   }
 
-  return { profile: await putProfile(profile), gained, respawnAt };
+  return { profile: await putProfile(profile), gained, respawnAt, hits: needed, needed };
 }
 
 /** Node ids currently on cooldown, so a joining client hides them too. */

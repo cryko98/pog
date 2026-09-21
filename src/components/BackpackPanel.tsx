@@ -32,6 +32,8 @@ interface Props {
   onEquip: (skin: string) => Promise<string | null>;
   onClose: () => void;
   initialTab?: Tab;
+  onHoverIn?: () => void;
+  onHoverOut?: () => void;
 }
 
 const RESOURCES: Array<{ key: keyof Inventory; icon: IconName; label: string }> = [
@@ -58,6 +60,8 @@ export function BackpackPanel({
   onEquip,
   onClose,
   initialTab = 'bag',
+  onHoverIn,
+  onHoverOut,
 }: Props) {
   const [tab, setTab] = useState<Tab>(initialTab);
   const [style, setStyle] = useState<string>((IGLOO.styles as string[])[0]);
@@ -79,7 +83,11 @@ export function BackpackPanel({
     Object.entries(cost).every(([res, need]) => (inventory[res as keyof Inventory] as number) >= need);
 
   return (
-    <div className="panel side-panel backpack">
+    <div
+      className="panel side-panel backpack"
+      onMouseEnter={onHoverIn}
+      onMouseLeave={onHoverOut}
+    >
       <div className="bp-head">
         <h4>Backpack</h4>
         <button className="bp-close" onClick={onClose} aria-label="Close">

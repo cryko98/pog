@@ -102,7 +102,42 @@ console.log('\n--- gathering ---');
     token: me.token,
     body: { node: trees[0].id, x: trees[0].x, y: trees[0].y },
   });
-  check('an honest chop next to a tree works', r.status === 200, JSON.stringify(r.json.gained || r.json));
+  check('an honest swing lands', r.status === 200, JSON.stringify(r.json));
+  check(
+    'one swing does not fell a tree',
+    r.status === 200 && !r.json.gained && r.json.needed > 1,
+    `hits ${r.json.hits}/${r.json.needed}`
+  );
+}
+{
+  // a burst cannot skip the remaining swings: the minimum gap between
+  // actions rejects most of them outright
+  const rs = await Promise.all(
+    [0, 1, 2, 3, 4, 5, 6, 7].map(() =>
+      call('/api/game/gather', {
+        method: 'POST',
+        token: me.token,
+        body: { node: trees[0].id, x: trees[0].x, y: trees[0].y },
+      })
+    )
+  );
+  const landed = rs.filter((r) => r.status === 200).length;
+  const felled = rs.filter((r) => r.status === 200 && r.json.gained).length;
+  check('a burst of 8 swings cannot fell the tree', felled === 0, `${landed} landed, ${felled} felled`);
+}
+{
+  // ...but swinging at a human pace does
+  let gained = null;
+  for (let i = 0; i < 8 && !gained; i++) {
+    await sleep(320);
+    const r = await call('/api/game/gather', {
+      method: 'POST',
+      token: me.token,
+      body: { node: trees[0].id, x: trees[0].x, y: trees[0].y },
+    });
+    if (r.json.gained) gained = r.json.gained;
+  }
+  check('swinging at a human pace fells it', !!gained, JSON.stringify(gained));
 }
 {
   // wait past the minimum action gap so this tests the distance rule,
@@ -125,20 +160,6 @@ console.log('\n--- gathering ---');
     body: { node: trees[1].id, x: trees[0].x, y: trees[0].y },
   });
   check('chopping a tree you are not standing near is rejected', r.status === 409, r.json.error);
-}
-{
-  await sleep(900);
-  const rs = await Promise.all(
-    [0, 1, 2, 3, 4].map(() =>
-      call('/api/game/gather', {
-        method: 'POST',
-        token: me.token,
-        body: { node: trees[0].id, x: trees[0].x, y: trees[0].y },
-      })
-    )
-  );
-  const ok = rs.filter((r) => r.status === 200).length;
-  check('a burst of 5 simultaneous chops yields at most 1', ok <= 1, `${ok} accepted`);
 }
 {
   const r = await call('/api/game/gather', {

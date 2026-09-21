@@ -33,10 +33,15 @@ plaza; the stall next to it sells hats.
 300 wood + 120 ice   ->  igloo kit    ->  raise your own igloo
 ```
 
-The rates are deliberately unkind. A tree gives 2 wood and takes five
-minutes to grow back, ice takes four, and no wallet may bank more than 12
-of any resource per minute. An igloo is therefore about twenty minutes of
-real work — a session goal, not a click.
+Nothing gives way in one press. A pine takes **five swings**, ice three,
+and a fish three — counted on the server, one per request, so a bot has to
+swing as often as you do. Hold E to keep swinging; pips over the node show
+how far through you are.
+
+The rates are deliberately unkind on top of that. A tree gives 2 wood and
+takes five minutes to grow back, ice takes four, and no wallet may bank
+more than 12 of any resource per minute. An igloo is therefore about
+twenty minutes of real work — a session goal, not a click.
 
 Placement is a mode, not a button: you carry a translucent igloo and the
 ground reads green or red as you walk, with the reason stated. Client and
@@ -71,7 +76,7 @@ it can do is refuse anything a real player could not have done.
 Two scripts keep this honest:
 
 ```bash
-node tools/cheatcheck.mjs   # 19 attacks, every line must read PASS
+node tools/cheatcheck.mjs   # 21 attacks, every line must read PASS
 node tools/loopcheck.mjs    # the honest loop: chop, craft, fish, build
 ```
 

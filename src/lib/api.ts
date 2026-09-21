@@ -123,11 +123,18 @@ export const api = {
   gameState: () =>
     request<{ profile: Profile; depleted: string[]; igloos: Igloo[] }>('/game/state'),
 
+  /**
+   * One swing. The profile, yield and respawn only come back on the blow
+   * that finally fells the node; before that it reports progress.
+   */
   gather: (node: string, x: number, y: number) =>
-    request<{ profile: Profile; gained: Record<string, number>; respawnAt: number }>(
-      '/game/gather',
-      post({ node, x: Math.round(x), y: Math.round(y) })
-    ),
+    request<{
+      hits?: number;
+      needed?: number;
+      profile?: Profile;
+      gained?: Record<string, number>;
+      respawnAt?: number;
+    }>('/game/gather', post({ node, x: Math.round(x), y: Math.round(y) })),
 
   craft: (recipe: string) => request<{ profile: Profile }>('/game/craft', post({ recipe })),
 

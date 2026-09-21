@@ -73,6 +73,7 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
       onFatal: setFatal,
       onStation: (which) => {
         setBagTab(which === 'craft' ? 'craft' : 'shop');
+        setBagPinned(true); // opened from a station, so it stays until closed
         setShowBag(true);
       },
     });
@@ -165,6 +166,28 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
       return err instanceof Error ? err.message : 'Could not equip that.';
     }
   };
+
+  /**
+   * The bag opens on hover and closes when the pointer leaves both the
+   * button and the panel. A short grace period covers the gap between the
+   * two, and clicking pins it open so it survives the pointer wandering.
+   */
+  const [bagPinned, setBagPinned] = useState(false);
+  const bagTimer = useRef(0);
+
+  const hoverOpenBag = useCallback(() => {
+    clearTimeout(bagTimer.current);
+    setShowBag(true);
+  }, []);
+
+  const hoverCloseBag = useCallback(() => {
+    clearTimeout(bagTimer.current);
+    bagTimer.current = window.setTimeout(() => {
+      setShowBag((open) => (bagPinned ? open : false));
+    }, 220);
+  }, [bagPinned]);
+
+  useEffect(() => () => clearTimeout(bagTimer.current), []);
 
   const sendChat = (e?: React.FormEvent) => {
     e?.preventDefault();
@@ -284,8 +307,12 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
           <button
             className={`icon-btn${showBag ? ' active' : ''}`}
             title="Backpack, crafting and shop"
+            onMouseEnter={hoverOpenBag}
+            onMouseLeave={hoverCloseBag}
             onClick={() => {
+              // a click pins it, so it survives the pointer wandering off
               setBagTab('bag');
+              setBagPinned((v) => !v);
               setShowBag((v) => !v);
             }}
           >
@@ -303,6 +330,8 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
           <BackpackPanel
             key={bagTab}
             initialTab={bagTab}
+            onHoverIn={hoverOpenBag}
+            onHoverOut={hoverCloseBag}
             inventory={hud.inventory}
             scarf={identity!.color}
             skins={profileSkins}
@@ -312,7 +341,10 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
             onBuild={(s) => gameRef.current?.startBuilding(s)}
             onBuy={buySkin}
             onEquip={equipSkin}
-            onClose={() => setShowBag(false)}
+            onClose={() => {
+              setBagPinned(false);
+              setShowBag(false);
+            }}
           />
         )}
 

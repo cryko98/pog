@@ -601,7 +601,7 @@ export interface WorldNode {
   y: number;
 }
 
-const NODE_HEIGHT: Record<string, number> = { ice: 34, hole: 26 };
+const NODE_HEIGHT: Record<string, number> = { ice: 34, hole: 38 };
 
 export function drawNode(
   ctx: CanvasRenderingContext2D,
