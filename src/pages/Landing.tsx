@@ -122,8 +122,13 @@ export function Landing({ navigate }: { navigate: (r: Route) => void }) {
 
       {!serverUp && (
         <div className="server-down">
-          ⚠️ The game server is not responding. Wallet connect and the world need it —
-          run <code>npm run dev</code> (or <code>npm start</code> for a build).
+          ⚠️ The $POG API is not responding, so wallet login is unavailable right now.
+          {location.hostname === 'localhost' && (
+            <>
+              {' '}
+              Start it with <code>npm run dev</code>.
+            </>
+          )}
         </div>
       )}
 

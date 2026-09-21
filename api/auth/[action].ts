@@ -10,8 +10,8 @@
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-import { actionOf, bearer, body, json, query } from '../_shared';
-import { dropSession, getProfile, isValidWallet, issueNonce, loginMessage, verifyLogin } from '../../src/server/game';
+import { actionOf, bearer, body, json, query } from '../_shared.js';
+import { dropSession, getProfile, isValidWallet, issueNonce, loginMessage, verifyLogin } from '../../src/server/game.js';
 
 export default async function handler(req: any, res: any) {
   const action = actionOf(req, 'auth');

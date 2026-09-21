@@ -6,7 +6,7 @@
 
 import nacl from 'tweetnacl';
 import bs58 from 'bs58';
-import { kv } from './kv';
+import { kv } from './kv.js';
 import { COIN, getCoins } from '../../shared/world.js';
 
 export const SCARF_COLORS = [

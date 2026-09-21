@@ -9,8 +9,8 @@
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-import { actionOf, body, json } from '../_shared';
-import { heartbeat, onlineCount } from '../../src/server/game';
+import { actionOf, body, json } from '../_shared.js';
+import { heartbeat, onlineCount } from '../../src/server/game.js';
 
 export default async function handler(req: any, res: any) {
   const action = actionOf(req, 'online');

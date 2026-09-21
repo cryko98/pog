@@ -9,10 +9,10 @@
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-import { actionOf, bearer, body, json } from '../_shared';
+import { actionOf, bearer, body, json } from '../_shared.js';
 import { COIN } from '../../shared/world.js';
-import { claimCoin, onlineCount, takenCoins, walletCount, walletForToken } from '../../src/server/game';
-import { kvEnabled } from '../../src/server/kv';
+import { claimCoin, onlineCount, takenCoins, walletCount, walletForToken } from '../../src/server/game.js';
+import { kvEnabled } from '../../src/server/kv.js';
 
 export default async function handler(req: any, res: any) {
   const action = actionOf(req, 'world');
