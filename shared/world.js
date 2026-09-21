@@ -40,27 +40,27 @@ export const COIN = {
 export const GATHER = {
   /** how close you must stand to work a node */
   range: 86,
-  tree: { yields: { wood: 2 }, respawnMs: 150000, label: 'Chop', verb: 'chopping' },
-  ice: { yields: { ice: 2 }, respawnMs: 110000, label: 'Cut ice', verb: 'cutting ice' },
-  hole: { yields: { fish: 1 }, respawnMs: 70000, label: 'Fish', verb: 'fishing', needs: 'rod' },
+  tree: { yields: { wood: 2 }, respawnMs: 300000, label: 'Chop', verb: 'chopping' },
+  ice: { yields: { ice: 2 }, respawnMs: 240000, label: 'Cut ice', verb: 'cutting ice' },
+  hole: { yields: { fish: 1 }, respawnMs: 180000, label: 'Fish', verb: 'fishing', needs: 'rod' },
 };
 
 /** Per-minute ceilings. Generous for honest play, tight against a script. */
-export const GATHER_PER_MIN = { tree: 24, ice: 24, hole: 10 };
+export const GATHER_PER_MIN = { tree: 12, ice: 12, hole: 6 };
 
 export const RECIPES = {
   rod: {
     id: 'rod',
     label: 'Fishing rod',
     blurb: 'Lets you fish the holes out on the lakes.',
-    cost: { wood: 14 },
+    cost: { wood: 25 },
     gives: { rod: 1 },
   },
   iglooKit: {
     id: 'iglooKit',
     label: 'Igloo kit',
-    blurb: 'Everything you need to raise your own igloo on the snow.',
-    cost: { ice: 40, wood: 12 },
+    blurb: 'A season of logging and ice-cutting. Raise your own igloo on the snow.',
+    cost: { wood: 300, ice: 120 },
     gives: { iglooKit: 1 },
   },
 };
@@ -70,8 +70,39 @@ export const IGLOO = {
   clearance: 150,
   /** and this much distance from the spawn plaza */
   plazaGap: 120,
+  /** and this much room from trees, rocks and the like */
+  propGap: 70,
   styles: ['classic', 'frost', 'amber'],
 };
+
+/**
+ * Can an igloo stand here? Shared so the ghost preview the player drags
+ * around and the API that finally accepts the build apply the same rules —
+ * no "it looked fine and then the server said no".
+ *
+ * `others` is every igloo already standing, excluding your own.
+ */
+export function canBuildAt(x, y, others = []) {
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return { ok: false, reason: 'Where are you?' };
+  if (x < 120 || y < 120 || x > WORLD.width - 120 || y > WORLD.height - 120) {
+    return { ok: false, reason: 'Too close to the edge of the world.' };
+  }
+  if (isOnIce(x, y, 40)) return { ok: false, reason: 'You cannot build on a frozen lake.' };
+  if (Math.hypot(x - WORLD.spawn.x, y - WORLD.spawn.y) < WORLD.spawnRadius + IGLOO.plazaGap) {
+    return { ok: false, reason: 'The spawn plaza has to stay clear.' };
+  }
+  for (const p of solidsNear(x, y)) {
+    if (Math.hypot(x - p.x, y - p.y) < p.r * p.scale + IGLOO.propGap) {
+      return { ok: false, reason: 'Something is in the way.' };
+    }
+  }
+  for (const other of others) {
+    if (Math.hypot(x - other.x, y - other.y) < IGLOO.clearance) {
+      return { ok: false, reason: `${other.owner || 'Someone'} already built here.` };
+    }
+  }
+  return { ok: true, reason: '' };
+}
 
 export const SKINS = [
   { id: 'default', label: 'Plain penguin', price: 0, kind: 'hat', hat: null },
@@ -228,6 +259,8 @@ const FOOTPRINT = {
   snowman: 24,
   lantern: 18,
   banner: 80,
+  workbench: 46,
+  stall: 52,
 };
 
 const footprintOf = (p) => (FOOTPRINT[p.type] ?? 24) * p.scale;
@@ -281,6 +314,9 @@ export function getProps() {
   const sy = WORLD.spawn.y;
   const landmarks = [
     { type: 'banner', x: sx, y: sy - 215, r: 16, scale: 1, variant: 0 },
+    // the two places you actually do business
+    { type: 'workbench', x: sx - 205, y: sy - 55, r: 30, scale: 1, variant: 0 },
+    { type: 'stall', x: sx + 205, y: sy - 55, r: 32, scale: 1, variant: 0 },
     { type: 'snowman', x: sx - 118, y: sy + 150, r: 16, scale: 1.2, variant: 3 },
     { type: 'snowman', x: sx + 132, y: sy + 152, r: 16, scale: 1.1, variant: 7 },
     { type: 'pine', x: sx - 322, y: sy + 252, r: 16, scale: 1.3, variant: 4 },
@@ -431,6 +467,13 @@ let _nodeById = null;
 export function getNodes() {
   if (_nodes) return _nodes;
   const nodes = [];
+
+  // The plaza stations are interactable the same way resource nodes are —
+  // walk up, press E — they just open a panel instead of yielding anything.
+  nodes.push(
+    { id: 'station-craft', type: 'craft', x: WORLD.spawn.x - 205, y: WORLD.spawn.y - 55 },
+    { id: 'station-shop', type: 'shop', x: WORLD.spawn.x + 205, y: WORLD.spawn.y - 55 }
+  );
 
   // Every pine is choppable.
   getProps().forEach((p, i) => {

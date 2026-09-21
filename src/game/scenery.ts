@@ -207,6 +207,8 @@ const PROP_HEIGHT: Record<string, number> = {
   snowman: 66,
   lantern: 46,
   banner: 132,
+  workbench: 62,
+  stall: 86,
 };
 
 export const propHeight = (p: Prop) => (PROP_HEIGHT[p.type] ?? 40) * p.scale;
@@ -477,6 +479,12 @@ export function drawProp(
     case 'banner':
       drawBanner(ctx, h);
       break;
+    case 'workbench':
+      drawWorkbench(ctx, h);
+      break;
+    case 'stall':
+      drawStall(ctx, h);
+      break;
   }
   ctx.restore();
 }
@@ -628,11 +636,160 @@ export function drawNode(
  * Player-built igloos
  * ------------------------------------------------------------------ */
 
-const IGLOO_TINT: Record<string, [string, string]> = {
-  classic: ['#eaf4fc', '#ffffff'],
-  frost: ['#dbeefb', '#f2fbff'],
-  amber: ['#fdf0dd', '#fffaf1'],
+interface IglooStyle {
+  /** dome shading, lit from the upper left */
+  lit: string;
+  mid: string;
+  shade: string;
+  /** brick mortar lines */
+  mortar: string;
+  /** light spilling out of the doorway */
+  glow: string;
+  icicles: boolean;
+}
+
+const IGLOO_STYLES: Record<string, IglooStyle> = {
+  classic: {
+    lit: '#ffffff',
+    mid: '#e6f1fa',
+    shade: '#c3daea',
+    mortar: 'rgba(120,162,190,0.55)',
+    glow: 'rgba(255,196,110,0.85)',
+    icicles: false,
+  },
+  frost: {
+    lit: '#f4fcff',
+    mid: '#d8eefc',
+    shade: '#a9cee5',
+    mortar: 'rgba(92,146,180,0.6)',
+    glow: 'rgba(150,220,255,0.85)',
+    icicles: true,
+  },
+  amber: {
+    lit: '#fffaf0',
+    mid: '#f7e9d4',
+    shade: '#dcc4a3',
+    mortar: 'rgba(176,142,102,0.5)',
+    glow: 'rgba(255,170,70,0.95)',
+    icicles: false,
+  },
 };
+
+/** The dome, its brick courses and the doorway arch. */
+function iglooDome(ctx: CanvasRenderingContext2D, w: number, h: number, st: IglooStyle) {
+  // shading across the dome: bright at the upper left, deep at the lower right
+  const g = ctx.createRadialGradient(-w * 0.2, -h * 0.72, h * 0.08, 0, -h * 0.1, w * 0.72);
+  g.addColorStop(0, st.lit);
+  g.addColorStop(0.5, st.mid);
+  g.addColorStop(1, st.shade);
+
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.ellipse(0, 0, w / 2, h, Math.PI, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Snow-brick courses, drawn as arcs that follow the dome rather than
+  // straight lines across it — that is what sells the curvature.
+  ctx.save();
+  ctx.beginPath();
+  ctx.ellipse(0, 0, w / 2, h, Math.PI, 0, Math.PI * 2);
+  ctx.clip();
+
+  ctx.strokeStyle = st.mortar;
+  ctx.lineWidth = 1.5;
+  const courses = 5;
+  for (let i = 1; i < courses; i++) {
+    const t = i / courses;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, (w / 2) * (1 - t * t * 0.55), h * (1 - t), 0, Math.PI, Math.PI * 2);
+    ctx.stroke();
+  }
+  // staggered vertical joints, denser toward the base
+  for (let i = 0; i < courses; i++) {
+    const tTop = i / courses;
+    const tBot = (i + 1) / courses;
+    const rTop = h * (1 - tTop);
+    const rBot = h * (1 - tBot);
+    const wTop = (w / 2) * (1 - tTop * tTop * 0.55);
+    const wBot = (w / 2) * (1 - tBot * tBot * 0.55);
+    const joints = 7 - i;
+    for (let j = 0; j <= joints; j++) {
+      const a = Math.PI + (Math.PI * (j + (i % 2 ? 0.5 : 0))) / joints;
+      ctx.beginPath();
+      ctx.moveTo(Math.cos(a) * wTop, Math.sin(a) * rTop);
+      ctx.lineTo(Math.cos(a) * wBot, Math.sin(a) * rBot);
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
+
+  // crisp silhouette so a white dome does not vanish into white snow
+  ctx.strokeStyle = 'rgba(74,120,148,0.8)';
+  ctx.lineWidth = 2.2;
+  ctx.beginPath();
+  ctx.ellipse(0, 0, w / 2, h, Math.PI, 0, Math.PI * 2);
+  ctx.stroke();
+}
+
+/** The tunnel you actually walk in through, pushed toward the camera. */
+function iglooEntrance(ctx: CanvasRenderingContext2D, w: number, h: number, st: IglooStyle) {
+  const tw = w * 0.34;
+  const th = h * 0.52;
+
+  // warm light pooling on the snow in front of the door
+  const pool = ctx.createRadialGradient(0, th * 0.2, 2, 0, th * 0.2, tw * 1.5);
+  pool.addColorStop(0, st.glow);
+  pool.addColorStop(1, 'rgba(255,190,110,0)');
+  ctx.globalAlpha = 0.45;
+  ctx.fillStyle = pool;
+  ctx.beginPath();
+  ctx.ellipse(0, th * 0.18, tw * 1.5, tw * 0.6, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.globalAlpha = 1;
+
+  // the tunnel body
+  const g = ctx.createLinearGradient(-tw / 2, 0, tw / 2, 0);
+  g.addColorStop(0, st.mid);
+  g.addColorStop(0.35, st.lit);
+  g.addColorStop(1, st.shade);
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.moveTo(-tw / 2, th * 0.2);
+  ctx.lineTo(-tw / 2, -th * 0.35);
+  ctx.quadraticCurveTo(0, -th * 1.05, tw / 2, -th * 0.35);
+  ctx.lineTo(tw / 2, th * 0.2);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(74,120,148,0.8)';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  // the dark opening, with light leaking from inside
+  ctx.fillStyle = '#16323f';
+  ctx.beginPath();
+  ctx.moveTo(-tw * 0.3, th * 0.2);
+  ctx.lineTo(-tw * 0.3, -th * 0.25);
+  ctx.quadraticCurveTo(0, -th * 0.78, tw * 0.3, -th * 0.25);
+  ctx.lineTo(tw * 0.3, th * 0.2);
+  ctx.closePath();
+  ctx.fill();
+
+  const inner = ctx.createLinearGradient(0, th * 0.2, 0, -th * 0.5);
+  inner.addColorStop(0, st.glow);
+  inner.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.globalAlpha = 0.6;
+  ctx.fillStyle = inner;
+  ctx.fill();
+  ctx.globalAlpha = 1;
+
+  // brick line over the arch
+  ctx.strokeStyle = st.mortar;
+  ctx.lineWidth = 1.4;
+  ctx.beginPath();
+  ctx.moveTo(-tw * 0.42, -th * 0.3);
+  ctx.quadraticCurveTo(0, -th * 0.95, tw * 0.42, -th * 0.3);
+  ctx.stroke();
+}
 
 export function drawIgloo(
   ctx: CanvasRenderingContext2D,
@@ -640,49 +797,60 @@ export function drawIgloo(
   sy: number,
   zoom: number,
   style: string,
-  owner: string
+  owner: string,
+  time = 0
 ) {
   const h = 96 * zoom;
   const w = h * 1.75;
-  const [shade, light] = (Object.hasOwn(IGLOO_TINT, style) && IGLOO_TINT[style]) || IGLOO_TINT.classic;
+  const st = (Object.hasOwn(IGLOO_STYLES, style) && IGLOO_STYLES[style]) || IGLOO_STYLES.classic;
 
-  shadow(ctx, sx, sy, w * 0.5);
+  shadow(ctx, sx, sy, w * 0.52);
   ctx.save();
   ctx.translate(sx, sy);
 
-  ctx.fillStyle = shade;
+  // drift of snow banked against the base
+  ctx.fillStyle = 'rgba(255,255,255,0.8)';
   ctx.beginPath();
-  ctx.ellipse(0, 0, w / 2, h, Math.PI, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.fillStyle = light;
-  ctx.beginPath();
-  ctx.ellipse(-w * 0.12, -h * 0.1, w * 0.38, h * 0.8, 0, Math.PI, Math.PI * 2);
+  ctx.ellipse(0, 0, w * 0.58, h * 0.16, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  // snow-brick courses
-  ctx.strokeStyle = 'rgba(146,182,207,0.6)';
-  ctx.lineWidth = 1.3;
+  iglooDome(ctx, w, h, st);
+
+  // a vent at the crown, with a thread of smoke
+  ctx.fillStyle = st.shade;
+  ctx.beginPath();
+  ctx.ellipse(w * 0.06, -h * 0.94, w * 0.05, h * 0.035, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.save();
+  ctx.globalAlpha = 0.3;
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = 2.6 * zoom;
+  ctx.beginPath();
+  ctx.moveTo(w * 0.06, -h * 0.96);
   for (let i = 1; i <= 3; i++) {
-    ctx.beginPath();
-    ctx.ellipse(0, 0, (w / 2) * (1 - i * 0.2), h * (1 - i * 0.22), 0, Math.PI, Math.PI * 2);
-    ctx.stroke();
+    const t = i / 3;
+    ctx.lineTo(w * 0.06 + Math.sin(time * 0.0012 + i) * 7 * zoom, -h * (0.96 + t * 0.28));
   }
-  for (let i = -2; i <= 2; i++) {
-    ctx.beginPath();
-    ctx.moveTo((i * w) / 6, 0);
-    ctx.lineTo((i * w) / 8, -h * 0.72);
-    ctx.stroke();
+  ctx.stroke();
+  ctx.restore();
+
+  if (st.icicles) {
+    ctx.fillStyle = 'rgba(226,247,255,0.9)';
+    for (let i = -3; i <= 3; i++) {
+      const a = Math.PI + (Math.PI * (i + 3.5)) / 7;
+      const px = Math.cos(a) * (w / 2) * 0.94;
+      const py = Math.sin(a) * h * 0.94;
+      const len = 8 + ((i * 37) % 9);
+      ctx.beginPath();
+      ctx.moveTo(px - 2.4, py);
+      ctx.lineTo(px + 2.4, py);
+      ctx.lineTo(px, py + len * zoom);
+      ctx.closePath();
+      ctx.fill();
+    }
   }
 
-  // entrance tunnel
-  ctx.fillStyle = light;
-  ctx.beginPath();
-  ctx.ellipse(0, 0, w * 0.2, h * 0.42, 0, Math.PI, Math.PI * 2);
-  ctx.fill();
-  ctx.fillStyle = '#23414f';
-  ctx.beginPath();
-  ctx.ellipse(0, 0, w * 0.13, h * 0.3, 0, Math.PI, Math.PI * 2);
-  ctx.fill();
+  iglooEntrance(ctx, w, h, st);
 
   // nameplate
   ctx.font = `700 ${12 * zoom}px Inter, system-ui, sans-serif`;
@@ -690,12 +858,166 @@ export function drawIgloo(
   ctx.textBaseline = 'middle';
   const label = `${owner}'s igloo`;
   const tw = ctx.measureText(label).width + 18;
-  ctx.fillStyle = 'rgba(9,41,48,0.7)';
+  ctx.fillStyle = 'rgba(9,41,48,0.78)';
   ctx.beginPath();
-  ctx.roundRect(-tw / 2, -h - 24 * zoom, tw, 19 * zoom, 10);
+  ctx.roundRect(-tw / 2, -h - 26 * zoom, tw, 19 * zoom, 10);
   ctx.fill();
   ctx.fillStyle = '#eef6fb';
-  ctx.fillText(label, 0, -h - 14.5 * zoom);
+  ctx.fillText(label, 0, -h - 16.5 * zoom);
+
+  ctx.restore();
+}
+
+/* ------------------------------------------------------------------ *
+ * Plaza stations
+ * ------------------------------------------------------------------ */
+
+/** Crafting bench: a log table with tools and a stack of cut timber. */
+function drawWorkbench(ctx: CanvasRenderingContext2D, h: number) {
+  const w = h * 1.5;
+
+  // legs and top
+  ctx.fillStyle = '#5b4632';
+  ctx.fillRect(-w * 0.4, -h * 0.42, w * 0.09, h * 0.42);
+  ctx.fillRect(w * 0.31, -h * 0.42, w * 0.09, h * 0.42);
+  ctx.fillStyle = '#8a6a48';
+  ctx.beginPath();
+  ctx.roundRect(-w / 2, -h * 0.56, w, h * 0.16, 3);
+  ctx.fill();
+  ctx.strokeStyle = '#4a3827';
+  ctx.lineWidth = 1.3;
+  ctx.stroke();
+
+  // stacked logs underneath
+  ctx.fillStyle = '#7a5738';
+  for (let i = 0; i < 3; i++) {
+    ctx.beginPath();
+    ctx.ellipse(-w * 0.22 + i * w * 0.15, -h * 0.12, w * 0.075, h * 0.07, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // an axe leaning on the bench
+  ctx.strokeStyle = '#6b5136';
+  ctx.lineWidth = h * 0.05;
+  ctx.beginPath();
+  ctx.moveTo(w * 0.2, -h * 0.05);
+  ctx.lineTo(w * 0.34, -h * 0.8);
+  ctx.stroke();
+  ctx.fillStyle = '#b9c4cc';
+  ctx.beginPath();
+  ctx.moveTo(w * 0.34, -h * 0.82);
+  ctx.lineTo(w * 0.52, -h * 0.74);
+  ctx.lineTo(w * 0.36, -h * 0.6);
+  ctx.closePath();
+  ctx.fill();
+
+  // snow on the bench top
+  ctx.fillStyle = 'rgba(255,255,255,0.92)';
+  ctx.beginPath();
+  ctx.ellipse(-w * 0.1, -h * 0.57, w * 0.3, h * 0.05, 0, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+/** Market stall: a striped awning over a counter with a coin sign. */
+function drawStall(ctx: CanvasRenderingContext2D, h: number) {
+  const w = h * 1.6;
+
+  // posts
+  ctx.fillStyle = '#5b4632';
+  ctx.fillRect(-w * 0.46, -h * 0.9, w * 0.07, h * 0.9);
+  ctx.fillRect(w * 0.39, -h * 0.9, w * 0.07, h * 0.9);
+
+  // counter
+  ctx.fillStyle = '#8a6a48';
+  ctx.beginPath();
+  ctx.roundRect(-w / 2, -h * 0.42, w, h * 0.14, 3);
+  ctx.fill();
+  ctx.strokeStyle = '#4a3827';
+  ctx.lineWidth = 1.3;
+  ctx.stroke();
+
+  // striped awning
+  const stripes = 6;
+  for (let i = 0; i < stripes; i++) {
+    ctx.fillStyle = i % 2 ? '#ff7a3d' : '#f6f2ea';
+    ctx.beginPath();
+    ctx.moveTo(-w * 0.55 + (i * w * 1.1) / stripes, -h * 0.92);
+    ctx.lineTo(-w * 0.55 + ((i + 1) * w * 1.1) / stripes, -h * 0.92);
+    ctx.lineTo(-w * 0.55 + ((i + 1) * w * 1.1) / stripes, -h * 0.72);
+    ctx.lineTo(-w * 0.55 + (i * w * 1.1) / stripes, -h * 0.72);
+    ctx.closePath();
+    ctx.fill();
+  }
+  // scalloped hem
+  ctx.fillStyle = '#e8643a';
+  for (let i = 0; i < stripes; i++) {
+    const cx = -w * 0.55 + ((i + 0.5) * w * 1.1) / stripes;
+    ctx.beginPath();
+    ctx.arc(cx, -h * 0.72, (w * 1.1) / stripes / 2, 0, Math.PI);
+    ctx.fill();
+  }
+
+  // a coin on the counter
+  ctx.fillStyle = '#ffc93c';
+  ctx.beginPath();
+  ctx.ellipse(w * 0.2, -h * 0.46, h * 0.09, h * 0.09, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = '#b8790d';
+  ctx.lineWidth = 1.4;
+  ctx.stroke();
+
+  // a folded scarf as stock
+  ctx.fillStyle = '#38bdf8';
+  ctx.beginPath();
+  ctx.roundRect(-w * 0.34, -h * 0.5, w * 0.24, h * 0.08, 3);
+  ctx.fill();
+}
+
+/**
+ * The translucent igloo that follows the player while they pick a spot.
+ * Green means the API will accept it; red means it will not, and the HUD
+ * says why — both sides run the same `canBuildAt`, so this never lies.
+ */
+export function drawIglooGhost(
+  ctx: CanvasRenderingContext2D,
+  sx: number,
+  sy: number,
+  zoom: number,
+  style: string,
+  ok: boolean
+) {
+  const h = 96 * zoom;
+  const w = h * 1.75;
+  const tint = ok ? '82, 214, 163' : '240, 96, 72';
+
+  ctx.save();
+
+  // the footprint it will claim
+  ctx.setLineDash([9, 7]);
+  ctx.strokeStyle = `rgba(${tint},0.95)`;
+  ctx.lineWidth = 2.2;
+  ctx.beginPath();
+  ctx.ellipse(sx, sy, w * 0.52, w * 0.52 * 0.42, 0, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  ctx.fillStyle = `rgba(${tint},0.14)`;
+  ctx.fill();
+
+  // the dome itself, see-through
+  ctx.globalAlpha = 0.55;
+  ctx.translate(sx, sy);
+  const st = (Object.hasOwn(IGLOO_STYLES, style) && IGLOO_STYLES[style]) || IGLOO_STYLES.classic;
+  ctx.fillStyle = st.mid;
+  ctx.beginPath();
+  ctx.ellipse(0, 0, w / 2, h, Math.PI, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.globalAlpha = 1;
+  ctx.strokeStyle = `rgba(${tint},0.95)`;
+  ctx.lineWidth = 2.4;
+  ctx.beginPath();
+  ctx.ellipse(0, 0, w / 2, h, Math.PI, 0, Math.PI * 2);
+  ctx.stroke();
 
   ctx.restore();
 }

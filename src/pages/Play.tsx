@@ -20,6 +20,9 @@ const EMPTY_HUD: HudState = {
   inventory: { pog: 0, wood: 0, ice: 0, fish: 0, items: {} },
   prompt: '',
   busy: false,
+  building: false,
+  buildOk: false,
+  buildReason: '',
 };
 
 export function Play({ navigate }: { navigate: (r: Route) => void }) {
@@ -36,6 +39,7 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
   const [board, setBoard] = useState<LeaderboardEntry[]>([]);
   const [showBoard, setShowBoard] = useState(false);
   const [showBag, setShowBag] = useState(false);
+  const [bagTab, setBagTab] = useState<'bag' | 'craft' | 'shop'>('bag');
   const [editing, setEditing] = useState(false);
   const [fatal, setFatal] = useState('');
   const [booting, setBooting] = useState(true);
@@ -67,6 +71,10 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
       onHud: setHud,
       onChat: pushLine,
       onFatal: setFatal,
+      onStation: (which) => {
+        setBagTab(which === 'craft' ? 'craft' : 'shop');
+        setShowBag(true);
+      },
     });
     gameRef.current = game;
     game.start(minimapRef.current);
@@ -227,6 +235,30 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
           )}
         </div>
 
+        {!identity!.guest && (
+          <div className="panel hud-resources">
+            <span title="Wood">
+              <Icon name="wood" size={15} /> {hud.inventory.wood}
+            </span>
+            <span title="Ice">
+              <Icon name="ice" size={15} /> {hud.inventory.ice}
+            </span>
+            <span title="Fish">
+              <Icon name="fish" size={15} /> {hud.inventory.fish}
+            </span>
+            {hud.inventory.items.rod > 0 && (
+              <span title="Fishing rod">
+                <Icon name="rod" size={15} /> {hud.inventory.items.rod}
+              </span>
+            )}
+            {hud.inventory.items.iglooKit > 0 && (
+              <span title="Igloo kit">
+                <Icon name="igloo" size={15} /> {hud.inventory.items.iglooKit}
+              </span>
+            )}
+          </div>
+        )}
+
         <div className="hud-top-right">
           <div className="panel hud-status">
             <span className={hud.status === 'open' ? '' : 'offline'}>
@@ -252,7 +284,10 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
           <button
             className={`icon-btn${showBag ? ' active' : ''}`}
             title="Backpack, crafting and shop"
-            onClick={() => setShowBag((v) => !v)}
+            onClick={() => {
+              setBagTab('bag');
+              setShowBag((v) => !v);
+            }}
           >
             <Icon name="backpack" size={17} />
           </button>
@@ -266,12 +301,15 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
 
         {showBag && (
           <BackpackPanel
+            key={bagTab}
+            initialTab={bagTab}
             inventory={hud.inventory}
+            scarf={identity!.color}
             skins={profileSkins}
             equipped={equippedSkin}
             guest={!!identity?.guest}
             onCraft={(r) => gameRef.current?.craft(r) ?? Promise.resolve('Not in the world yet.')}
-            onBuild={(s) => gameRef.current?.buildIgloo(s) ?? Promise.resolve('Not in the world yet.')}
+            onBuild={(s) => gameRef.current?.startBuilding(s)}
             onBuy={buySkin}
             onEquip={equipSkin}
             onClose={() => setShowBag(false)}
@@ -330,6 +368,23 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
             </button>
           </form>
         </div>
+
+        {hud.building && (
+          <div className={'hud-prompt build' + (hud.buildOk ? ' ok' : ' bad')}>
+            {hud.buildOk ? (
+              <>
+                <kbd>E</kbd> Place your igloo here
+              </>
+            ) : (
+              <>
+                <Icon name="warning" size={14} /> {hud.buildReason}
+              </>
+            )}
+            <button className="build-cancel" onClick={() => gameRef.current?.cancelBuilding()}>
+              Esc to cancel
+            </button>
+          </div>
+        )}
 
         {hud.prompt && (
           <div className="hud-prompt">

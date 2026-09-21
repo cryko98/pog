@@ -24,12 +24,22 @@ coins. No sprite sheets to ship and no third-party art licences to track.
 ## The loop
 
 Chop pines for **wood**, saw blocks of **ice** out on the lakes, and fish the
-holes once you have a rod.
+holes once you have a rod. Crafting happens at the workbench on the spawn
+plaza; the stall next to it sells hats.
 
 ```
-14 wood            ->  fishing rod   ->  fish the holes
-40 ice + 12 wood   ->  igloo kit     ->  raise your own igloo
+25 wood              ->  fishing rod  ->  fish the holes
+300 wood + 120 ice   ->  igloo kit    ->  raise your own igloo
 ```
+
+The rates are deliberately unkind. A tree gives 2 wood and takes five
+minutes to grow back, ice takes four, and no wallet may bank more than 12
+of any resource per minute. An igloo is therefore about twenty minutes of
+real work — a session goal, not a click.
+
+Placement is a mode, not a button: you carry a translucent igloo and the
+ground reads green or red as you walk, with the reason stated. Client and
+API run the same , so the preview never lies.
 
 Igloos are the one part of the world players author. Build one on clear snow
 and it is stored against your wallet, carries your name, and every other

@@ -13,12 +13,15 @@ import {
   isOnIce,
   resolveCollisions,
   GATHER,
+  IGLOO,
+  canBuildAt,
 } from '../../shared/world.js';
 import { blitPenguin, type Dir } from './penguin';
 import {
   CHUNK,
   drawCoin,
   drawIgloo,
+  drawIglooGhost,
   drawNode,
   drawProp,
   drawStump,
@@ -68,6 +71,10 @@ export interface HudState {
   /** what pressing E would do right now, if anything */
   prompt: string;
   busy: boolean;
+  /** placement mode for an igloo */
+  building: boolean;
+  buildOk: boolean;
+  buildReason: string;
 }
 
 export interface ChatLine {
@@ -96,6 +103,8 @@ interface Options {
   onHud: (hud: HudState) => void;
   onChat: (line: ChatLine) => void;
   onFatal: (message: string) => void;
+  /** walking up to the bench or the stall opens the matching panel */
+  onStation: (which: 'craft' | 'shop') => void;
 }
 
 const DIR_KEYS: Record<string, [number, number]> = {
@@ -172,6 +181,8 @@ export class PogGame {
   private busy = false;
   private inventory: Inventory = { pog: 0, wood: 0, ice: 0, fish: 0, items: {} };
   private hat: string | null = null;
+  private building: { style: string } | null = null;
+  private buildCheck = { ok: false, reason: '' };
 
   constructor(private canvas: HTMLCanvasElement, private opts: Options) {
     this.ctx = canvas.getContext('2d', { alpha: false })!;
@@ -363,6 +374,9 @@ export class PogGame {
 
   private promptFor(node: WorldNode | null): string {
     if (!node) return '';
+    if (node.type === 'craft' || node.type === 'shop') {
+      return node.type === 'craft' ? 'Press E to use the workbench' : 'Press E to browse the stall';
+    }
     const until = this.depleted.get(node.id);
     if (until && until > Date.now()) {
       return `${Math.ceil((until - Date.now()) / 1000)}s until it is back`;
@@ -378,6 +392,11 @@ export class PogGame {
   private interact() {
     const node = this.nearNode;
     if (!node || this.busy) return;
+
+    if (node.type === 'craft' || node.type === 'shop') {
+      this.opts.onStation(node.type);
+      return;
+    }
 
     if (this.opts.guest) {
       this.notifyGuest();
@@ -427,13 +446,56 @@ export class PogGame {
     }
   }
 
+  /**
+   * Enter placement mode. The player then walks around with a ghost igloo
+   * under them and confirms with E once the ground is clear.
+   */
+  startBuilding(style: string) {
+    if (this.opts.guest) {
+      this.notifyGuest();
+      return;
+    }
+    this.building = { style: IGLOO.styles.includes(style) ? style : IGLOO.styles[0] };
+    this.pushChat({
+      id: crypto.randomUUID(),
+      text: 'Walk to a clear patch of snow and press E to raise your igloo. Esc cancels.',
+      system: true,
+    });
+  }
+
+  cancelBuilding() {
+    if (!this.building) return;
+    this.building = null;
+    this.buildCheck = { ok: false, reason: '' };
+  }
+
+  isBuilding() {
+    return !!this.building;
+  }
+
+  /** Everyone else's igloos — yours does not block your own relocation. */
+  private otherIgloos() {
+    return [...this.igloos.values()].filter((i) => i.wallet !== this.selfId);
+  }
+
+  /** E while placing: try to raise it, and report why not in chat. */
+  private async confirmBuild() {
+    const error = await this.buildIgloo();
+    if (error) this.pushChat({ id: crypto.randomUUID(), text: error, system: true });
+  }
+
   /** Raise an igloo where the player is standing. */
-  async buildIgloo(style: string): Promise<string | null> {
+  async buildIgloo(style?: string): Promise<string | null> {
+    const chosen = style ?? this.building?.style ?? IGLOO.styles[0];
+    const spot = canBuildAt(this.me.x, this.me.y, this.otherIgloos());
+    if (!spot.ok) return spot.reason;
+
     try {
-      const { igloo, profile } = await api.buildIgloo(this.me.x, this.me.y, style);
+      const { igloo, profile } = await api.buildIgloo(this.me.x, this.me.y, chosen);
       this.applyProfile(profile);
       this.igloos.set(igloo.wallet, igloo);
       announceIgloo(igloo);
+      this.building = null;
       this.pushChat({ id: crypto.randomUUID(), text: 'Your igloo is up. Welcome home.', system: true });
       return null;
     } catch (err) {
@@ -511,7 +573,11 @@ export class PogGame {
       e.preventDefault();
     } else if (e.code === 'KeyE') {
       e.preventDefault();
-      this.interact();
+      if (this.building) void this.confirmBuild();
+      else this.interact();
+    } else if (e.code === 'Escape' && this.building) {
+      e.preventDefault();
+      this.cancelBuilding();
     }
   };
 
@@ -660,6 +726,7 @@ export class PogGame {
     }
 
     this.nearNode = this.findNearNode();
+    if (this.building) this.buildCheck = canBuildAt(this.me.x, this.me.y, this.otherIgloos());
 
     // position is published on its own timer by publishPresence()
     this.sinceHud += dt;
@@ -671,8 +738,11 @@ export class PogGame {
         online: Math.max(this.remotes.size + 1, this.mqttOnline, this.serverOnline),
         pog: this.me.pog,
         inventory: this.inventory,
-        prompt: this.promptFor(this.nearNode),
+        prompt: this.building ? '' : this.promptFor(this.nearNode),
         busy: this.busy,
+        building: !!this.building,
+        buildOk: this.buildCheck.ok,
+        buildReason: this.buildCheck.reason,
         status: presenceConnected() ? 'open' : 'connecting',
         x: Math.round(this.me.x),
         y: Math.round(this.me.y),
@@ -830,11 +900,20 @@ export class PogGame {
       items.push({ y: n.y, draw: () => drawNode(ctx, n, this.sx(n.x), this.sy(n.y), ZOOM, now, out) });
     }
 
+    if (this.building) {
+      const ok = this.buildCheck.ok;
+      const style = this.building.style;
+      items.push({
+        y: this.me.y - 1,
+        draw: () => drawIglooGhost(ctx, this.sx(this.me.x), this.sy(this.me.y), ZOOM, style, ok),
+      });
+    }
+
     for (const igloo of this.igloos.values()) {
       if (igloo.x < minX || igloo.x > maxX || igloo.y < minY || igloo.y > maxY) continue;
       items.push({
         y: igloo.y,
-        draw: () => drawIgloo(ctx, this.sx(igloo.x), this.sy(igloo.y), ZOOM, igloo.style, igloo.owner),
+        draw: () => drawIgloo(ctx, this.sx(igloo.x), this.sy(igloo.y), ZOOM, igloo.style, igloo.owner, now),
       });
     }
 

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { IGLOO, RECIPES, SKINS } from '../../shared/world.js';
 import type { Inventory } from '../game/engine';
 import { Icon, type IconName } from './Icon';
+import { PenguinPreview } from './PenguinPreview';
 
 type Tab = 'bag' | 'craft' | 'shop';
 
@@ -21,14 +22,16 @@ interface Skin {
 
 interface Props {
   inventory: Inventory;
+  scarf: string;
   skins: string[];
   equipped: string;
   guest: boolean;
   onCraft: (recipe: string) => Promise<string | null>;
-  onBuild: (style: string) => Promise<string | null>;
+  onBuild: (style: string) => void;
   onBuy: (skin: string) => Promise<string | null>;
   onEquip: (skin: string) => Promise<string | null>;
   onClose: () => void;
+  initialTab?: Tab;
 }
 
 const RESOURCES: Array<{ key: keyof Inventory; icon: IconName; label: string }> = [
@@ -45,6 +48,7 @@ const ITEMS: Record<string, { icon: IconName; label: string }> = {
 
 export function BackpackPanel({
   inventory,
+  scarf,
   skins,
   equipped,
   guest,
@@ -53,8 +57,10 @@ export function BackpackPanel({
   onBuy,
   onEquip,
   onClose,
+  initialTab = 'bag',
 }: Props) {
-  const [tab, setTab] = useState<Tab>('bag');
+  const [tab, setTab] = useState<Tab>(initialTab);
+  const [style, setStyle] = useState<string>((IGLOO.styles as string[])[0]);
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -119,13 +125,33 @@ export function BackpackPanel({
               ))
           )}
           {inventory.items.iglooKit > 0 && (
-            <button
-              className="btn btn-primary btn-sm bp-wide"
-              disabled={busy}
-              onClick={() => run(() => onBuild(IGLOO.styles[0]), 'Igloo raised!')}
-            >
-              <Icon name="igloo" size={16} /> Build igloo here
-            </button>
+            <div className="bp-build">
+              <h5>Raise an igloo</h5>
+              <div className="bp-styles">
+                {(IGLOO.styles as string[]).map((st) => (
+                  <button
+                    key={st}
+                    className={`bp-style${style === st ? ' active' : ''}`}
+                    onClick={() => setStyle(st)}
+                  >
+                    {st}
+                  </button>
+                ))}
+              </div>
+              <button
+                className="btn btn-primary btn-sm bp-wide"
+                disabled={busy}
+                onClick={() => {
+                  onBuild(style);
+                  onClose();
+                }}
+              >
+                <Icon name="igloo" size={16} /> Place it
+              </button>
+              <small className="bp-note">
+                You will carry a ghost igloo — walk to clear snow and press E.
+              </small>
+            </div>
           )}
         </>
       )}
@@ -162,6 +188,7 @@ export function BackpackPanel({
             const owned = skins.includes(s.id);
             return (
               <div className="bp-row shop" key={s.id}>
+                <PenguinPreview scarf={scarf} hat={s.hat} size={34} />
                 <span className="nm">{s.label}</span>
                 {owned ? (
                   equipped === s.id ? (

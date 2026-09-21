@@ -16,11 +16,10 @@ import {
   RECIPES,
   SKINS,
   WORLD,
+  canBuildAt,
   getCoins,
   getNode,
-  isOnIce,
   skinById,
-  solidsNear,
 } from '../../shared/world.js';
 
 export const SCARF_COLORS = [
@@ -513,27 +512,14 @@ export async function buildIgloo(
   if (!profile) return { error: 'Pick a username first.' };
   if (!(profile.items.iglooKit > 0)) return { error: 'Craft an igloo kit first.' };
 
-  if (px < 120 || py < 120 || px > WORLD.width - 120 || py > WORLD.height - 120) {
-    return { error: 'Too close to the edge of the world.' };
-  }
-  if (isOnIce(px, py, 40)) return { error: 'You cannot build on a frozen lake.' };
-  if (Math.hypot(px - WORLD.spawn.x, py - WORLD.spawn.y) < WORLD.spawnRadius + IGLOO.plazaGap) {
-    return { error: 'The spawn plaza has to stay clear.' };
-  }
-  for (const p of solidsNear(px, py) as Array<{ x: number; y: number; r: number; scale: number }>) {
-    if (Math.hypot(px - p.x, py - p.y) < p.r * p.scale + 70) return { error: 'Something is in the way.' };
-  }
+  // Same rule set the client previews with, so the ghost never lies.
+  const existing = await listIgloos();
+  const others = existing.filter((i) => i.wallet !== wallet);
+  const spot = canBuildAt(px, py, others);
+  if (!spot.ok) return { error: spot.reason };
 
   const moveError = await trackMovement(wallet, px, py);
   if (moveError) return { error: moveError };
-
-  const existing = await listIgloos();
-  for (const other of existing) {
-    if (other.wallet === wallet) continue;
-    if (Math.hypot(px - other.x, py - other.y) < IGLOO.clearance) {
-      return { error: `${other.owner} already built here.` };
-    }
-  }
 
   const igloo: Igloo = {
     wallet,

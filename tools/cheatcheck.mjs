@@ -59,8 +59,14 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 /* ------------------------------------------------------------------ */
 
 const me = await signIn('Cheat' + Math.floor(Math.random() * 9000 + 1000));
-const trees = getNodes().filter((n) => n.type === 'tree');
-const holes = getNodes().filter((n) => n.type === 'hole');
+
+// Node cooldowns are shared with everyone else on the server, so work from
+// the ones nobody has touched — otherwise the suite fails for the right
+// reason at the wrong moment.
+const { json: world } = await call('/api/game/state', { token: me.token });
+const busy = new Set(world.depleted || []);
+const trees = getNodes().filter((n) => n.type === 'tree' && !busy.has(n.id));
+const holes = getNodes().filter((n) => n.type === 'hole' && !busy.has(n.id));
 
 console.log('\n--- authentication ---');
 {
