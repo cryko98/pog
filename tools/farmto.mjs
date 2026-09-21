@@ -13,7 +13,7 @@ import bs58 from 'bs58';
 import { WORLD, getNodes, RECIPES } from '../shared/world.js';
 
 const BASE = process.env.BASE || 'http://localhost:5173';
-const NAME = process.argv[2] || 'Builder' + Math.floor(Math.random() * 9000 + 1000);
+const NAME = (process.argv[2] || 'Builder') + Math.floor(Math.random() * 9000 + 1000);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function call(path, { method = 'GET', body, token } = {}) {
@@ -34,7 +34,17 @@ const { json: n } = await call(`/api/auth/nonce?wallet=${wallet}`);
 const sig = bs58.encode(nacl.sign.detached(new TextEncoder().encode(n.message), kp.secretKey));
 const { json: auth } = await call('/api/auth/verify', { method: 'POST', body: { wallet, signature: sig } });
 const token = auth.token;
-await call('/api/profile/set', { method: 'POST', token, body: { name: NAME, color: '#facc15' } });
+const named = await call('/api/profile/set', {
+  method: 'POST',
+  token,
+  body: { name: NAME, color: '#facc15' },
+});
+if (named.status !== 200) {
+  // without a profile every gather is refused, and the run would spin
+  // through hundreds of no-ops before anyone noticed
+  console.error('could not take the name ' + NAME + ': ' + named.json.error);
+  process.exit(1);
+}
 
 let at = { x: WORLD.spawn.x, y: WORLD.spawn.y };
 const TRAVEL_SPEED = 520;

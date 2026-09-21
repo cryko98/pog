@@ -16,7 +16,8 @@ game server to keep alive.
 | **Username** | Bound to the wallet address, unique across players, editable any time. Scarf colour too. |
 | **The world** | 6400 × 6400 units of pine forest, frozen lakes and lantern-lit plazas, generated deterministically from one seed. Shelters are deliberately absent — players will build those. |
 | **Multiplayer** | Everyone shares one map over a public MQTT broker — positions, chat and name tags in real time. |
-| **Play to earn** | 260 $POG coins on the ice; claims are validated server-side and banked per wallet on a live leaderboard. |
+| **Survival loop** | Chop wood, cut ice, fish. Craft a rod, then an igloo kit, then raise the igloo — all validated server-side. |
+| **Play to earn** | 70 scarce $POG coins on the ice, spendable only on hats. Balances are banked per wallet on a live leaderboard. |
 
 Every visual is drawn procedurally with Canvas 2D — the penguin, the trees, the ice, the
 coins. No sprite sheets to ship and no third-party art licences to track.
@@ -39,7 +40,7 @@ real work — a session goal, not a click.
 
 Placement is a mode, not a button: you carry a translucent igloo and the
 ground reads green or red as you walk, with the reason stated. Client and
-API run the same , so the preview never lies.
+API run the same `canBuildAt`, so the preview never lies.
 
 Igloos are the one part of the world players author. Build one on clear snow
 and it is stored against your wallet, carries your name, and every other
