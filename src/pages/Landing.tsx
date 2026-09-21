@@ -14,30 +14,52 @@ const FEATURES = [
   {
     icon: 'world' as IconName,
     title: 'One frozen open world',
-    body: 'A 6.4 × 6.4 km snowfield of pine forests, frozen lakes and lantern-lit plazas — no lobbies, no instances. Everyone waddles the same map.',
+    body: 'A 6.4 × 6.4 km snowfield of pine forest, frozen lakes and lantern-lit plaza — no lobbies, no instances. Everyone waddles the same map, and the trees you fell stay felled for everyone.',
+  },
+  {
+    icon: 'wood' as IconName,
+    title: 'Chop, cut, fish',
+    body: 'Five swings to fell a pine, three to saw a block of ice, three to land a fish. Craft a rod at the workbench, then the kit for your own igloo. Nothing here is a single click.',
+  },
+  {
+    icon: 'igloo' as IconName,
+    title: 'Build something that lasts',
+    body: 'Spend 300 wood and 120 ice on an igloo and raise it wherever the snow is clear. It carries your name and every other player sees it — the only part of the world players author.',
   },
   {
     icon: 'players' as IconName,
-    title: 'Real multiplayer',
-    body: 'Connect your wallet and your penguin pops into the spawn plaza. Every other holder sees you move, slide and chat in real time.',
+    title: 'Real multiplayer, no wallet needed',
+    body: 'Everyone online shares one map in real time. Jump in as a guest to roam, slide and chat; connect a wallet when you want what you do to count.',
   },
   {
     icon: 'coin' as IconName,
-    title: 'Play to earn',
-    body: '$POG coins scatter across the ice. Scoop them up, climb the leaderboard, and bank score that maps to on-chain rewards.',
+    title: '$POG buys looks, not power',
+    body: 'Coins are deliberately scarce and the shop only sells hats. Nothing you can buy makes you gather faster — the real economy is wood, ice and fish.',
   },
   {
-    icon: 'key' as IconName,
-    title: 'Your wallet is your name',
-    body: 'One signature — free, off-chain, zero approvals — and your username plus scarf colour is bound to your address forever.',
+    icon: 'lock' as IconName,
+    title: 'Hard to cheat, on purpose',
+    body: 'Every action is checked against where you last stood and how long ago. A bot has to walk the map and swing the axe exactly as often as you do.',
   },
 ];
 
 const STEPS = [
-  { title: 'Connect', body: 'Phantom, Solflare, Backpack — any Solana wallet. We only ask for a signature, never a transaction.' },
-  { title: 'Name your penguin', body: 'Pick a username and scarf colour. It is saved to your wallet, so it follows you on any device.' },
-  { title: 'Hit PLAY', body: 'You spawn in the plaza under the $POG banner, right next to everyone else who is online.' },
-  { title: 'Waddle & earn', body: 'WASD to move, Shift to sprint. Hit a frozen lake and you belly-slide — faster, but you keep your momentum. Collect coins, stack $POG.' },
+  {
+    title: 'Connect or guest',
+    body: 'Phantom, Solflare, Backpack — any Solana wallet, one signature, never a transaction. Or skip it and play as a guest.',
+  },
+  {
+    title: 'Name your penguin',
+    body: 'Username and scarf colour, saved to your wallet so they follow you to any device.',
+  },
+  {
+    title: 'Work the ice',
+    body: 'Walk up to a pine, a block of ice or a fishing hole and hold E. WASD to move, Shift to sprint — and the frozen lakes are fast but slippery.',
+  },
+  {
+    title: 'Craft, then build',
+    body: 'The workbench on the plaza turns wood into a rod and a season of logging into an igloo kit. Place the igloo on clear snow and it is yours for good.',
+  },
 ];
 
 const TOKENOMICS = [
@@ -53,15 +75,31 @@ const ROADMAP = [
   {
     phase: 'Phase 1 — Ice break',
     done: true,
-    items: ['Token launch on Solana', 'Landing page + wallet login', 'Spawn plaza & multiplayer world', 'Username bound to wallet'],
+    items: [
+      'Wallet login & guest play',
+      'Spawn plaza, shared world, live chat',
+      'Username bound to wallet',
+      '$POG pickups & leaderboard',
+    ],
   },
   {
     phase: 'Phase 2 — Waddle',
-    items: ['$POG pickups & leaderboard', 'Emotes and proximity chat', 'Penguin cosmetics (hats, scarves)', 'Mobile touch controls'],
+    done: true,
+    items: [
+      'Wood, ice and fishing',
+      'Workbench & market stall',
+      'Player-built igloos',
+      'Hats in the shop',
+    ],
   },
   {
     phase: 'Phase 3 — Blizzard',
-    items: ['Snowball PvP zones', 'Ice fishing minigame', 'Player-built igloos & guilds', 'Daily quests'],
+    items: [
+      'Igloo furniture & interiors',
+      'Igloo marketplace',
+      'Snowball PvP arena',
+      'Guilds and daily quests',
+    ],
   },
   {
     phase: 'Phase 4 — Glacier',
@@ -73,7 +111,8 @@ export function Landing({ navigate }: { navigate: (r: Route) => void }) {
   const { status, profile, guest, identity, address, canPlay, playAsGuest, logout, restoring } = useSession();
   const [walletOpen, setWalletOpen] = useState(false);
   const [profileMode, setProfileMode] = useState<'setup' | 'edit' | null>(null);
-  const [stats, setStats] = useState({ online: 0, wallets: 0 });
+  const [stats, setStats] = useState({ online: 0, wallets: 0, coins: 0 });
+  const [igloos, setIgloos] = useState(0);
   const [serverUp, setServerUp] = useState(true);
   const [copied, setCopied] = useState(false);
 
@@ -88,8 +127,20 @@ export function Landing({ navigate }: { navigate: (r: Route) => void }) {
           setServerUp(true);
         })
         .catch(() => alive && setServerUp(false));
+    // igloos are public, and a growing count is the best proof the world
+    // is being lived in
+    const pullIgloos = () =>
+      api
+        .igloos()
+        .then((r) => alive && setIgloos(r.igloos.length))
+        .catch(() => {});
+
     pull();
-    const timer = setInterval(pull, 10_000);
+    pullIgloos();
+    const timer = setInterval(() => {
+      pull();
+      pullIgloos();
+    }, 10_000);
     return () => {
       alive = false;
       clearInterval(timer);
@@ -186,9 +237,9 @@ export function Landing({ navigate }: { navigate: (r: Route) => void }) {
               <em>Earn $POG.</em>
             </h1>
             <p className="lead">
-              $POG is the coldest memecoin on Solana — and the only one with a real open world behind
-              it. Connect your wallet, drop onto the ice, and share a living snowfield with every
-              other holder online right now.
+              $POG is the coldest memecoin on Solana — and the only one with a survival game behind
+              it. Fell pines, saw ice out of the lakes, fish the holes, and spend a hard-won haul on
+              an igloo that everybody else can see. No wallet needed to look around.
             </p>
 
             <div className="hero-cta">
@@ -221,7 +272,11 @@ export function Landing({ navigate }: { navigate: (r: Route) => void }) {
                 <span>Wallets on the ice</span>
               </div>
               <div className="stat">
-                <b>260</b>
+                <b>{igloos}</b>
+                <span>Igloos built</span>
+              </div>
+              <div className="stat">
+                <b>{stats.coins}</b>
                 <span>$POG coins to find</span>
               </div>
             </div>
@@ -239,11 +294,12 @@ export function Landing({ navigate }: { navigate: (r: Route) => void }) {
             <span className="pill">The game</span>
             <h2>A memecoin you can actually walk around in</h2>
             <p>
-              No roadmap promises of a game "coming soon". Open the site, sign a message, and you are
-              standing in it — a tilted top-down snowfield rendered live in your browser.
+              No roadmap promises of a game "coming soon". Open the site and you are standing in it —
+              a tilted top-down snowfield rendered live in your browser, with an economy that makes
+              you work for everything in it.
             </p>
           </div>
-          <div className="grid grid-4">
+          <div className="grid grid-3">
             {FEATURES.map((f) => (
               <article className="card feature" key={f.title}>
                 <div className="ico">
@@ -294,13 +350,15 @@ export function Landing({ navigate }: { navigate: (r: Route) => void }) {
             <div className="card">
               <h3 style={{ marginBottom: 12 }}>Play to earn, honestly explained</h3>
               <p>
-                Every $POG coin you pick up in the world is recorded against your wallet on the game
-                server and shown on the live leaderboard. Those points are the ledger for future
-                on-chain reward distributions from the community treasury.
+                Every $POG coin you pick up is recorded against your wallet and shown on the live
+                leaderboard. In game, coins buy hats and nothing else — they never make you gather
+                faster, so nobody can spend their way up the board.
               </p>
               <p style={{ marginTop: 14 }}>
-                Nothing is claimable on-chain yet — Phase 4 wires the claim contract. Until then,
-                playing is free, and every coin you bank counts toward your place in line.
+                Those balances are the ledger for future on-chain reward distributions from the
+                community treasury. <strong>Nothing is claimable on chain yet</strong> — Phase 4
+                wires the claim contract. Until then, playing is free and every coin you bank counts
+                toward your place in line.
               </p>
             </div>
           </div>

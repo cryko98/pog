@@ -566,10 +566,14 @@ function drawIceBlock(ctx: CanvasRenderingContext2D, h: number, time: number, va
 function drawFishingHole(ctx: CanvasRenderingContext2D, h: number, time: number, active: boolean) {
   const w = h * 1.6;
 
-  ctx.fillStyle = 'rgba(255,255,255,0.92)';
+  // heaped snow rim from the cutting
+  ctx.fillStyle = 'rgba(255,255,255,0.95)';
   ctx.beginPath();
-  ctx.ellipse(0, 0, w * 0.5, w * 0.24, 0, 0, Math.PI * 2);
+  ctx.ellipse(0, 0, w * 0.52, w * 0.25, 0, 0, Math.PI * 2);
   ctx.fill();
+  ctx.strokeStyle = 'rgba(126,173,199,0.5)';
+  ctx.lineWidth = 1.4;
+  ctx.stroke();
 
   const water = ctx.createRadialGradient(0, -w * 0.02, 1, 0, 0, w * 0.38);
   water.addColorStop(0, '#07303f');
@@ -601,7 +605,7 @@ export interface WorldNode {
   y: number;
 }
 
-const NODE_HEIGHT: Record<string, number> = { ice: 34, hole: 38 };
+const NODE_HEIGHT: Record<string, number> = { ice: 34, hole: 56 };
 
 export function drawNode(
   ctx: CanvasRenderingContext2D,
