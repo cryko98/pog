@@ -57,11 +57,13 @@ interface Remote extends Presence {
 }
 
 interface Options {
-  /** the player's wallet address — doubles as their id on the presence channel */
-  wallet: string;
+  /** wallet address, or a local guest id — also this penguin's presence id */
+  id: string;
   name: string;
   color: string;
   pog: number;
+  /** guests can roam and chat, but $POG is only ever credited to a wallet */
+  guest: boolean;
   onHud: (hud: HudState) => void;
   onChat: (line: ChatLine) => void;
   onFatal: (message: string) => void;
@@ -125,13 +127,17 @@ export class PogGame {
   private snow: Array<{ x: number; y: number; r: number; s: number; d: number }> = [];
   private sinceHud = 0;
 
+  /** Spray kicked up while sliding, in world space. */
+  private spray: Array<{ x: number; y: number; vx: number; vy: number; life: number; r: number }> = [];
+  private guestCoinNoticeShown = false;
+
   private props: Prop[] = getProps() as Prop[];
   private coins = getCoins() as Array<{ id: number; x: number; y: number }>;
 
   constructor(private canvas: HTMLCanvasElement, private opts: Options) {
     this.ctx = canvas.getContext('2d', { alpha: false })!;
     this.me.pog = opts.pog;
-    this.selfId = opts.wallet;
+    this.selfId = opts.id;
 
     // spread arrivals around the plaza instead of stacking everyone on one spot
     const angle = Math.random() * Math.PI * 2;
@@ -177,6 +183,7 @@ export class PogGame {
         y: this.me.y,
         dir: this.me.dir,
         moving: this.me.moving,
+        guest: this.opts.guest,
       })),
 
       subscribePresence(this.selfId, (players) => {
@@ -274,6 +281,21 @@ export class PogGame {
    */
   private claim(coinId: number) {
     if (this.claiming.has(coinId)) return;
+
+    // A guest has no wallet to credit, so the coin stays on the ice for
+    // someone who does. Say so once rather than silently doing nothing.
+    if (this.opts.guest) {
+      if (!this.guestCoinNoticeShown) {
+        this.guestCoinNoticeShown = true;
+        this.pushChat({
+          id: crypto.randomUUID(),
+          text: 'Connect a Solana wallet to collect $POG — guests can explore, but not earn.',
+          system: true,
+        });
+      }
+      return;
+    }
+
     this.claiming.add(coinId);
     this.taken.add(coinId);
 
@@ -368,10 +390,13 @@ export class PogGame {
   private update(dt: number) {
     const [ax, ay, sprint] = this.axis();
     const onIce = isOnIce(this.me.x, this.me.y);
-    const speed = sprint ? PLAYER.sprintSpeed : PLAYER.speed;
 
-    // ice keeps your momentum, snow grips
-    const grip = onIce ? 1.6 : 13;
+    // A penguin on ice is in its element: noticeably faster than on snow, and
+    // it keeps its momentum instead of turning on a dime.
+    const base = sprint ? PLAYER.sprintSpeed : PLAYER.speed;
+    const speed = onIce ? base * PLAYER.iceSpeedBoost : base;
+    const grip = onIce ? PLAYER.iceGrip : PLAYER.snowGrip;
+
     const targetVx = ax * speed;
     const targetVy = ay * speed * 0.92; // slight vertical damping reads better in 3/4 view
     const k = 1 - Math.exp(-grip * dt);
@@ -395,6 +420,32 @@ export class PogGame {
     // waddle animation
     this.me.anim += dt * (this.me.moving ? 9 * (moved / PLAYER.speed) : 0);
     this.me.frame = Math.floor(this.me.anim) % 4;
+
+    // ice spray: a little crystal kick-up behind a sliding penguin, so the
+    // speed boost is something you can see and not just feel
+    if (onIce && moved > PLAYER.speed * 0.6) {
+      const heading = Math.atan2(this.me.vy, this.me.vx);
+      for (let i = 0; i < 2; i++) {
+        const spread = heading + Math.PI + (Math.random() - 0.5) * 1.1;
+        const kick = 40 + Math.random() * 70;
+        this.spray.push({
+          x: this.me.x + (Math.random() - 0.5) * 16,
+          y: this.me.y + 4,
+          vx: Math.cos(spread) * kick,
+          vy: Math.sin(spread) * kick * 0.5,
+          life: 0.45 + Math.random() * 0.3,
+          r: 1.5 + Math.random() * 2.5,
+        });
+      }
+    }
+    for (const p of this.spray) {
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      p.vx *= 0.92;
+      p.vy *= 0.92;
+      p.life -= dt;
+    }
+    if (this.spray.length) this.spray = this.spray.filter((p) => p.life > 0);
 
     // camera easing
     const camK = 1 - Math.exp(-7 * dt);
@@ -489,12 +540,13 @@ export class PogGame {
     }
   }
 
-  private drawNameTag(x: number, y: number, name: string, color: string, isSelf: boolean) {
+  private drawNameTag(x: number, y: number, name: string, color: string, isSelf: boolean, guest: boolean) {
     const ctx = this.ctx;
     ctx.font = `700 13px Inter, system-ui, sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    const w = ctx.measureText(name).width + 22;
+    const label = guest ? name + ' · guest' : name;
+    const w = ctx.measureText(label).width + 22;
 
     ctx.fillStyle = isSelf ? 'rgba(13,43,58,0.92)' : 'rgba(13,27,38,0.72)';
     ctx.beginPath();
@@ -506,13 +558,20 @@ export class PogGame {
       ctx.stroke();
     }
 
-    ctx.fillStyle = color;
+    // a hollow dot marks a wallet-less penguin, a filled one a holder
     ctx.beginPath();
     ctx.arc(x - w / 2 + 10, y, 3.5, 0, Math.PI * 2);
-    ctx.fill();
+    if (guest) {
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    } else {
+      ctx.fillStyle = color;
+      ctx.fill();
+    }
 
-    ctx.fillStyle = '#eef6fb';
-    ctx.fillText(name, x + 5, y + 0.5);
+    ctx.fillStyle = guest ? 'rgba(238,246,251,0.7)' : '#eef6fb';
+    ctx.fillText(label, x + 5, y + 0.5);
   }
 
   private drawBubble(x: number, y: number, text: string) {
@@ -558,7 +617,7 @@ export class PogGame {
 
     for (const p of this.props) {
       if (p.x < minX || p.x > maxX || p.y < minY || p.y > maxY) continue;
-      items.push({ y: p.y, draw: () => drawProp(ctx, p, this.sx(p.x), this.sy(p.y), ZOOM) });
+      items.push({ y: p.y, draw: () => drawProp(ctx, p, this.sx(p.x), this.sy(p.y), ZOOM, now) });
     }
 
     for (const c of this.coins) {
@@ -576,7 +635,8 @@ export class PogGame {
       color: string,
       name: string,
       id: string,
-      isSelf: boolean
+      isSelf: boolean,
+      guest: boolean
     ) => {
       const x = this.sx(wx);
       const y = this.sy(wy);
@@ -585,7 +645,7 @@ export class PogGame {
       ctx.ellipse(x, y, 20 * ZOOM, 8 * ZOOM, 0, 0, Math.PI * 2);
       ctx.fill();
       blitPenguin(ctx, color, dir, frame, moving, x, y, PENGUIN_WORLD_HEIGHT * ZOOM);
-      this.drawNameTag(x, y - PENGUIN_WORLD_HEIGHT * ZOOM - 14, name, color, isSelf);
+      this.drawNameTag(x, y - PENGUIN_WORLD_HEIGHT * ZOOM - 14, name, color, isSelf, guest);
       const bubble = this.bubbles.get(id);
       if (bubble && bubble.until > now) {
         this.drawBubble(x, y - PENGUIN_WORLD_HEIGHT * ZOOM - 34, bubble.text);
@@ -596,7 +656,7 @@ export class PogGame {
       if (r.rx < minX || r.rx > maxX || r.ry < minY || r.ry > maxY) continue;
       items.push({
         y: r.ry,
-        draw: () => drawActor(r.rx, r.ry, r.dir, r.frame, r.moving, r.color, r.name, r.id, false),
+        draw: () => drawActor(r.rx, r.ry, r.dir, r.frame, r.moving, r.color, r.name, r.id, false, r.guest),
       });
     }
 
@@ -612,12 +672,26 @@ export class PogGame {
           this.opts.color,
           this.opts.name,
           this.selfId,
-          true
+          true,
+          this.opts.guest
         ),
     });
 
     items.sort((a, b) => a.y - b.y);
     for (const item of items) item.draw();
+
+    // ice spray sits on the ground, under the name tags and coins
+    if (this.spray.length) {
+      ctx.save();
+      for (const p of this.spray) {
+        ctx.globalAlpha = Math.min(1, p.life * 2.2) * 0.75;
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.arc(this.sx(p.x), this.sy(p.y), p.r * ZOOM, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
 
     // pickup sparkles
     this.pickupFx = this.pickupFx.filter((fx) => now - fx.t < 700);

@@ -14,7 +14,7 @@ game server to keep alive.
 | **Landing page** | Hero, feature grid, how-to-play, tokenomics, roadmap, and a big **PLAY** button. |
 | **Wallet login** | Wallet Standard (Phantom, Solflare, Backpack, Glow…). One free off-chain signature — never a transaction. |
 | **Username** | Bound to the wallet address, unique across players, editable any time. Scarf colour too. |
-| **The world** | 6400 × 6400 units of pine forest, frozen lakes and igloo camps, generated deterministically from one seed. |
+| **The world** | 6400 × 6400 units of pine forest, frozen lakes and lantern-lit plazas, generated deterministically from one seed. Shelters are deliberately absent — players will build those. |
 | **Multiplayer** | Everyone shares one map over a public MQTT broker — positions, chat and name tags in real time. |
 | **Play to earn** | 260 $POG coins on the ice; claims are validated server-side and banked per wallet on a live leaderboard. |
 
@@ -84,7 +84,7 @@ src/
   game/engine.ts        loop, camera, input, rendering
   game/presence.ts      MQTT multiplayer
   game/penguin.ts       the $POG penguin, drawn to a sprite sheet
-  game/scenery.ts       ground chunks, trees, igloos, coins
+  game/scenery.ts       ground chunks, trees, lanterns, coins
   server/kv.ts          Upstash Redis + in-memory fallback
   server/game.ts        auth, profiles, the $POG economy
   pages/                Landing.tsx, Play.tsx
@@ -152,7 +152,7 @@ change.
 
 - **Phase 1 — Ice break** ✅ wallet login, spawn plaza, multiplayer, usernames
 - **Phase 2 — Waddle** — emotes, proximity chat, cosmetics
-- **Phase 3 — Blizzard** — snowball PvP, ice fishing, igloo housing
+- **Phase 3 — Blizzard** — snowball PvP, ice fishing, player-built igloos
 - **Phase 4 — Glacier** — on-chain reward claims, NFT skins, tournaments
 
 ---

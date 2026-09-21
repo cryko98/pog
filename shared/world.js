@@ -13,7 +13,11 @@ export const PLAYER = {
   radius: 20,
   speed: 210, // world units / second
   sprintSpeed: 330,
-  maxSpeed: 430, // server-side anti-cheat ceiling
+  maxSpeed: 430,
+  /** Penguins belly-slide: ice is faster than snow, and far less grippy. */
+  iceSpeedBoost: 1.55,
+  snowGrip: 13, // how fast velocity chases input (higher = tighter)
+  iceGrip: 1.4,
 };
 
 export const COIN = {
@@ -80,28 +84,52 @@ export function fbm(x, y, seed, octaves = 4) {
  * Frozen lakes
  * ------------------------------------------------------------------ */
 
+/** Clear water between two lakes, so their snow banks never grow together. */
+const LAKE_GAP = 220;
+const TARGET_LAKES = 16;
+
 let _lakes = null;
 
 export function getLakes() {
   if (_lakes) return _lakes;
   const rnd = mulberry32(WORLD.seed ^ 0x1ce1a);
   const lakes = [];
-  for (let i = 0; i < 16; i++) {
-    const x = 260 + rnd() * (WORLD.width - 520);
-    const y = 260 + rnd() * (WORLD.height - 520);
+
+  // Rejection sampling: keep drawing candidates and throw away any that would
+  // touch an existing lake or the spawn plaza. Bounding circles make the test
+  // conservative, which is what we want — two lakes never share a shoreline.
+  let guard = 0;
+  while (lakes.length < TARGET_LAKES && guard++ < TARGET_LAKES * 120) {
+    const x = 320 + rnd() * (WORLD.width - 640);
+    const y = 320 + rnd() * (WORLD.height - 640);
     const rx = 190 + rnd() * 330;
     const ry = rx * (0.55 + rnd() * 0.4);
     const rot = rnd() * Math.PI;
-    // keep the spawn plaza free of ice
-    const d = Math.hypot(x - WORLD.spawn.x, y - WORLD.spawn.y);
-    if (d < WORLD.spawnRadius + Math.max(rx, ry) + 160) continue;
-    lakes.push({ x, y, rx, ry, rot });
+    const reach = Math.max(rx, ry);
+
+    if (Math.hypot(x - WORLD.spawn.x, y - WORLD.spawn.y) < WORLD.spawnRadius + reach + 200) continue;
+
+    let clash = false;
+    for (const l of lakes) {
+      if (Math.hypot(x - l.x, y - l.y) < reach + Math.max(l.rx, l.ry) + LAKE_GAP) {
+        clash = true;
+        break;
+      }
+    }
+    if (clash) continue;
+
+    lakes.push({ x, y, rx, ry, rot, reach });
   }
+
   _lakes = lakes;
   return lakes;
 }
 
-export function isOnIce(x, y) {
+/**
+ * Is (x, y) on a frozen lake? `margin` inflates every lake, which is how props
+ * are kept off the shoreline instead of hanging over the edge.
+ */
+export function isOnIce(x, y, margin = 0) {
   for (const l of getLakes()) {
     const dx = x - l.x;
     const dy = y - l.y;
@@ -109,30 +137,118 @@ export function isOnIce(x, y) {
     const sin = Math.sin(-l.rot);
     const lx = dx * cos - dy * sin;
     const ly = dx * sin + dy * cos;
-    if ((lx * lx) / (l.rx * l.rx) + (ly * ly) / (l.ry * l.ry) <= 1) return true;
+    const rx = l.rx + margin;
+    const ry = l.ry + margin;
+    if ((lx * lx) / (rx * rx) + (ly * ly) / (ry * ry) <= 1) return true;
   }
   return false;
 }
 
 /* ------------------------------------------------------------------ *
- * Props: pines, rocks, ice spikes, bushes, snowmen, igloos
+ * Props: pines, rocks, ice spikes, bushes, snowmen, plaza lanterns
  * `r` is the collision radius (0 means walk-through decoration)
  * ------------------------------------------------------------------ */
 
+// No igloos: shelters are something players will build themselves later, so
+// the world deliberately leaves that space empty.
 const PROP_TYPES = [
-  { type: 'pine', weight: 46, r: 16 },
-  { type: 'rock', weight: 16, r: 20 },
-  { type: 'spike', weight: 12, r: 14 },
-  { type: 'bush', weight: 14, r: 0 },
+  { type: 'pine', weight: 48, r: 16 },
+  { type: 'rock', weight: 17, r: 20 },
+  { type: 'spike', weight: 14, r: 14 },
+  { type: 'bush', weight: 15, r: 0 },
   { type: 'snowman', weight: 6, r: 16 },
-  { type: 'igloo', weight: 6, r: 46 },
 ];
+
+/**
+ * How much room each prop needs around it. This is the *visual* width, which
+ * is wider than the collision radius — a pine you can squeeze past still looks
+ * wrong growing through its neighbour.
+ */
+const FOOTPRINT = {
+  pine: 34,
+  rock: 32,
+  spike: 22,
+  bush: 26,
+  snowman: 24,
+  lantern: 18,
+  banner: 80,
+};
+
+const footprintOf = (p) => (FOOTPRINT[p.type] ?? 24) * p.scale;
+
+/** Props must stay this far back from a shoreline. */
+const SHORE_MARGIN = 34;
 
 let _props = null;
 
 export function getProps() {
   if (_props) return _props;
-  const props = [];
+
+  const placed = [];
+  const spacing = new Map(); // grid of accepted props, for cheap distance checks
+  const SPACING_CELL = 128;
+
+  const remember = (p) => {
+    const key = Math.floor(p.x / SPACING_CELL) + ',' + Math.floor(p.y / SPACING_CELL);
+    let bucket = spacing.get(key);
+    if (!bucket) {
+      bucket = [];
+      spacing.set(key, bucket);
+    }
+    bucket.push(p);
+    placed.push(p);
+  };
+
+  /** True when the candidate would visually overlap something already placed. */
+  const crowded = (candidate) => {
+    const need = footprintOf(candidate);
+    const gx = Math.floor(candidate.x / SPACING_CELL);
+    const gy = Math.floor(candidate.y / SPACING_CELL);
+    // the largest footprint is the banner at 80, so one ring of cells is not
+    // always enough — two covers every case at this cell size
+    for (let dy = -2; dy <= 2; dy++) {
+      for (let dx = -2; dx <= 2; dx++) {
+        const bucket = spacing.get(gx + dx + ',' + (gy + dy));
+        if (!bucket) continue;
+        for (const other of bucket) {
+          if (Math.hypot(candidate.x - other.x, candidate.y - other.y) < need + footprintOf(other)) {
+            return true;
+          }
+        }
+      }
+    }
+    return false;
+  };
+
+  // Landmarks go down first so the scattered pass has to work around them.
+  const sx = WORLD.spawn.x;
+  const sy = WORLD.spawn.y;
+  const landmarks = [
+    { type: 'banner', x: sx, y: sy - 215, r: 16, scale: 1, variant: 0 },
+    { type: 'snowman', x: sx - 118, y: sy + 150, r: 16, scale: 1.2, variant: 3 },
+    { type: 'snowman', x: sx + 132, y: sy + 152, r: 16, scale: 1.1, variant: 7 },
+    { type: 'pine', x: sx - 322, y: sy + 252, r: 16, scale: 1.3, variant: 4 },
+    { type: 'pine', x: sx + 330, y: sy + 244, r: 16, scale: 1.25, variant: 5 },
+    { type: 'pine', x: sx + 302, y: sy - 292, r: 16, scale: 1.1, variant: 6 },
+    { type: 'pine', x: sx - 340, y: sy - 300, r: 16, scale: 1.2, variant: 9 },
+  ];
+  // ice lanterns ring the plaza where the igloos used to stand
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2 + 0.4;
+    landmarks.push({
+      type: 'lantern',
+      x: sx + Math.cos(a) * 292,
+      y: sy + Math.sin(a) * 292 * 0.82,
+      r: 10,
+      scale: 1,
+      variant: i,
+    });
+  }
+  // the same spacing rule applies to landmarks, so the invariant holds for
+  // every prop in the world rather than just the generated ones
+  for (const l of landmarks) if (!crowded(l)) remember(l);
+
+  // Scattered world props on a jittered grid.
   const cell = 150;
   const cols = Math.floor(WORLD.width / cell);
   const rows = Math.floor(WORLD.height / cell);
@@ -149,7 +265,7 @@ export function getProps() {
       const y = gy * cell + hash2(gx, gy, WORLD.seed ^ 22) * cell;
       if (x < 90 || y < 90 || x > WORLD.width - 90 || y > WORLD.height - 90) continue;
       if (Math.hypot(x - WORLD.spawn.x, y - WORLD.spawn.y) < WORLD.spawnRadius + 60) continue;
-      if (isOnIce(x, y)) continue;
+      if (isOnIce(x, y, SHORE_MARGIN)) continue;
 
       let roll = hash2(gx, gy, WORLD.seed ^ 33) * totalWeight;
       let picked = PROP_TYPES[0];
@@ -161,35 +277,22 @@ export function getProps() {
         roll -= p.weight;
       }
 
-      props.push({
+      const candidate = {
         type: picked.type,
         x,
         y,
         r: picked.r,
         scale: 0.8 + hash2(gx, gy, WORLD.seed ^ 44) * 0.5,
         variant: Math.floor(hash2(gx, gy, WORLD.seed ^ 55) * 1000),
-      });
+      };
+      if (crowded(candidate)) continue;
+      remember(candidate);
     }
   }
 
-  // Hand-placed landmarks around the spawn plaza
-  const sx = WORLD.spawn.x;
-  const sy = WORLD.spawn.y;
-  props.push(
-    { type: 'banner', x: sx, y: sy - 215, r: 16, scale: 1, variant: 0 },
-    { type: 'igloo', x: sx - 255, y: sy - 95, r: 46, scale: 1.15, variant: 1 },
-    { type: 'igloo', x: sx + 258, y: sy - 75, r: 46, scale: 1.05, variant: 2 },
-    { type: 'snowman', x: sx - 125, y: sy + 195, r: 16, scale: 1.2, variant: 3 },
-    { type: 'snowman', x: sx + 142, y: sy + 198, r: 16, scale: 1.1, variant: 7 },
-    { type: 'pine', x: sx - 322, y: sy + 252, r: 16, scale: 1.3, variant: 4 },
-    { type: 'pine', x: sx + 330, y: sy + 244, r: 16, scale: 1.25, variant: 5 },
-    { type: 'pine', x: sx + 302, y: sy - 292, r: 16, scale: 1.1, variant: 6 },
-    { type: 'pine', x: sx - 340, y: sy - 300, r: 16, scale: 1.2, variant: 9 },
-  );
-
-  props.sort((a, b) => a.y - b.y);
-  _props = props;
-  return props;
+  placed.sort((a, b) => a.y - b.y);
+  _props = placed;
+  return placed;
 }
 
 /* Solid props bucketed into a grid for cheap neighbour lookups. */
@@ -257,25 +360,62 @@ export function resolveCollisions(x, y, radius = PLAYER.radius) {
 
 let _coins = null;
 
+/** Coins keep this far from each other so two never render as one blob. */
+const COIN_GAP = 150;
+
 export function getCoins() {
   if (_coins) return _coins;
   const rnd = mulberry32(WORLD.seed ^ 0xc0117);
   const coins = [];
+  const grid = new Map();
+  const CELL = 256;
+
+  const nearbyCoins = (x, y) => {
+    const gx = Math.floor(x / CELL);
+    const gy = Math.floor(y / CELL);
+    const out = [];
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        const bucket = grid.get(gx + dx + ',' + (gy + dy));
+        if (bucket) out.push(...bucket);
+      }
+    }
+    return out;
+  };
+
   let guard = 0;
-  while (coins.length < COIN.count && guard++ < COIN.count * 60) {
+  while (coins.length < COIN.count && guard++ < COIN.count * 120) {
     const x = 220 + rnd() * (WORLD.width - 440);
     const y = 220 + rnd() * (WORLD.height - 440);
     if (Math.hypot(x - WORLD.spawn.x, y - WORLD.spawn.y) < 220) continue;
-    let blocked = false;
-    for (const p of solidsNear(x, y)) {
-      if (Math.hypot(x - p.x, y - p.y) < p.r * p.scale + 40) {
-        blocked = true;
-        break;
+
+    // clear of props, and never straddling a shoreline
+    let blocked = isOnIce(x, y) !== isOnIce(x, y + 30);
+    if (!blocked) {
+      for (const p of solidsNear(x, y)) {
+        if (Math.hypot(x - p.x, y - p.y) < p.r * p.scale + 46) {
+          blocked = true;
+          break;
+        }
+      }
+    }
+    if (!blocked) {
+      for (const c of nearbyCoins(x, y)) {
+        if (Math.hypot(x - c.x, y - c.y) < COIN_GAP) {
+          blocked = true;
+          break;
+        }
       }
     }
     if (blocked) continue;
-    coins.push({ id: coins.length, x, y });
+
+    const coin = { id: coins.length, x, y };
+    coins.push(coin);
+    const key = Math.floor(x / CELL) + ',' + Math.floor(y / CELL);
+    if (!grid.has(key)) grid.set(key, []);
+    grid.get(key).push(coin);
   }
+
   _coins = coins;
   return coins;
 }

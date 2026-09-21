@@ -10,7 +10,7 @@ import { ProfileModal } from '../components/ProfileModal';
 const EMPTY_HUD: HudState = { online: 1, pog: 0, status: 'connecting', x: 0, y: 0, onIce: false };
 
 export function Play({ navigate }: { navigate: (r: Route) => void }) {
-  const { profile, address, canPlay, restoring } = useSession();
+  const { identity, address, canPlay, restoring } = useSession();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const minimapRef = useRef<HTMLCanvasElement>(null);
   const gameRef = useRef<PogGame | null>(null);
@@ -36,19 +36,20 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
   }, [restoring, canPlay, navigate]);
 
   // read through a ref so renaming does not tear the world down
-  const profileRef = useRef(profile);
-  profileRef.current = profile;
+  const identityRef = useRef(identity);
+  identityRef.current = identity;
 
   useEffect(() => {
-    const me = profileRef.current;
+    const me = identityRef.current;
     if (!canPlay || !me || !canvasRef.current || gameRef.current) return;
 
     setLines([]); // a remount must not stack another copy of the intro line
     const game = new PogGame(canvasRef.current, {
-      wallet: address,
+      id: me.id,
       name: me.name,
       color: me.color,
-      pog: me.pog ?? 0,
+      pog: me.pog,
+      guest: me.guest,
       onHud: setHud,
       onChat: pushLine,
       onFatal: setFatal,
@@ -64,8 +65,8 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
   }, [canPlay, pushLine]);
 
   useEffect(() => {
-    if (profile) gameRef.current?.setIdentity(profile.name, profile.color);
-  }, [profile]);
+    if (identity) gameRef.current?.setIdentity(identity.name, identity.color);
+  }, [identity]);
 
   useEffect(() => {
     if (!showBoard) return;
@@ -118,7 +119,7 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
         <div className="game-loading">
           <div>
             <div className="spinner" />
-            <p>Checking your wallet…</p>
+            <p>Getting your penguin ready…</p>
           </div>
         </div>
       </div>
@@ -152,14 +153,24 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
 
       <div className="hud">
         <div className="panel hud-player">
-          <PenguinMark scarf={profile!.color} size={34} />
+          <PenguinMark scarf={identity!.color} size={34} />
           <div className="who">
-            <b>{profile!.name}</b>
-            <small>{shortAddress(address, 4)}</small>
+            <b>{identity!.name}</b>
+            <small>{identity!.guest ? 'playing as guest' : shortAddress(address, 4)}</small>
           </div>
-          <div className="pog-counter" title="$POG collected">
-            🪙 {hud.pog}
-          </div>
+          {identity!.guest ? (
+            <button
+              className="pog-counter locked"
+              onClick={() => navigate('home')}
+              title="Connect a Solana wallet to collect $POG"
+            >
+              🔒 connect to earn
+            </button>
+          ) : (
+            <div className="pog-counter" title="$POG collected">
+              🪙 {hud.pog}
+            </div>
+          )}
         </div>
 
         <div className="hud-top-right">

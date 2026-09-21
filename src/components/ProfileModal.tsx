@@ -1,18 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { useSession } from '../state/session';
 import { shortAddress } from '../lib/wallet';
+import { SCARF_COLORS } from '../lib/colors';
 import { PenguinMark } from './PenguinMark';
 
-export const SCARF_COLORS = [
-  '#ff6b2c',
-  '#38bdf8',
-  '#a78bfa',
-  '#34d399',
-  '#f472b6',
-  '#facc15',
-  '#f87171',
-  '#e2e8f0',
-];
+export { SCARF_COLORS };
 
 interface Props {
   onClose: () => void;
@@ -22,9 +14,10 @@ interface Props {
 }
 
 export function ProfileModal({ onClose, onSaved, required }: Props) {
-  const { profile, address, saveProfile } = useSession();
-  const [name, setName] = useState(profile?.name ?? '');
-  const [color, setColor] = useState(profile?.color ?? SCARF_COLORS[0]);
+  const { identity, address, saveProfile } = useSession();
+  const isGuest = !!identity?.guest;
+  const [name, setName] = useState(identity?.name ?? '');
+  const [color, setColor] = useState(identity?.color ?? SCARF_COLORS[0]);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -51,10 +44,19 @@ export function ProfileModal({ onClose, onSaved, required }: Props) {
   return (
     <div className="overlay" onClick={() => !required && onClose()}>
       <form className="modal" onClick={(e) => e.stopPropagation()} onSubmit={submit}>
-        <h3>{profile?.name ? 'Customise your penguin' : 'Name your penguin'}</h3>
+        <h3>{identity?.name ? 'Customise your penguin' : 'Name your penguin'}</h3>
         <p className="sub">
-          Saved to your wallet (<code>{shortAddress(address, 4)}</code>) and shown above your head to
-          everyone on the ice.
+          {isGuest ? (
+            <>
+              Guest penguins live in this browser only. Connect a wallet to reserve the name and
+              start earning $POG.
+            </>
+          ) : (
+            <>
+              Saved to your wallet (<code>{shortAddress(address, 4)}</code>) and shown above your
+              head to everyone on the ice.
+            </>
+          )}
         </p>
 
         <div className="preview">

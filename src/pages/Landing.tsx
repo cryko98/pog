@@ -13,7 +13,7 @@ const FEATURES = [
   {
     icon: '🧊',
     title: 'One frozen open world',
-    body: 'A 6.4 × 6.4 km snowfield of pine forests, frozen lakes and igloo camps — no lobbies, no instances. Everyone waddles the same map.',
+    body: 'A 6.4 × 6.4 km snowfield of pine forests, frozen lakes and lantern-lit plazas — no lobbies, no instances. Everyone waddles the same map.',
   },
   {
     icon: '👀',
@@ -36,7 +36,7 @@ const STEPS = [
   { title: 'Connect', body: 'Phantom, Solflare, Backpack — any Solana wallet. We only ask for a signature, never a transaction.' },
   { title: 'Name your penguin', body: 'Pick a username and scarf colour. It is saved to your wallet, so it follows you on any device.' },
   { title: 'Hit PLAY', body: 'You spawn in the plaza under the $POG banner, right next to everyone else who is online.' },
-  { title: 'Waddle & earn', body: 'WASD to move, Shift to sprint, and watch out — the frozen lakes are slippery. Collect coins, stack $POG.' },
+  { title: 'Waddle & earn', body: 'WASD to move, Shift to sprint. Hit a frozen lake and you belly-slide — faster, but you keep your momentum. Collect coins, stack $POG.' },
 ];
 
 const TOKENOMICS = [
@@ -60,7 +60,7 @@ const ROADMAP = [
   },
   {
     phase: 'Phase 3 — Blizzard',
-    items: ['Snowball PvP zones', 'Ice fishing minigame', 'Igloo housing & guilds', 'Daily quests'],
+    items: ['Snowball PvP zones', 'Ice fishing minigame', 'Player-built igloos & guilds', 'Daily quests'],
   },
   {
     phase: 'Phase 4 — Glacier',
@@ -69,7 +69,7 @@ const ROADMAP = [
 ];
 
 export function Landing({ navigate }: { navigate: (r: Route) => void }) {
-  const { status, profile, address, canPlay, logout, restoring } = useSession();
+  const { status, profile, guest, identity, address, canPlay, playAsGuest, logout, restoring } = useSession();
   const [walletOpen, setWalletOpen] = useState(false);
   const [profileMode, setProfileMode] = useState<'setup' | 'edit' | null>(null);
   const [stats, setStats] = useState({ online: 0, wallets: 0 });
@@ -106,6 +106,11 @@ export function Landing({ navigate }: { navigate: (r: Route) => void }) {
     else setWalletOpen(true);
   };
 
+  const playGuest = () => {
+    playAsGuest();
+    navigate('play');
+  };
+
   const copyContract = async () => {
     try {
       await navigator.clipboard.writeText(CONTRACT);
@@ -135,7 +140,7 @@ export function Landing({ navigate }: { navigate: (r: Route) => void }) {
       <header className="nav">
         <div className="shell nav-inner">
           <a className="brand" href="#/">
-            <img src="/pog.svg" alt="" />
+            <img src="/poglogo.jpg" alt="" />
             <span>$POG</span>
           </a>
           <nav className="nav-links">
@@ -144,20 +149,26 @@ export function Landing({ navigate }: { navigate: (r: Route) => void }) {
             <a href="#token">Tokenomics</a>
             <a href="#roadmap">Roadmap</a>
           </nav>
-          {status === 'ready' ? (
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              <button className="btn btn-ghost btn-sm" onClick={() => setProfileMode('edit')}>
-                {profile?.name ? `🐧 ${profile.name}` : shortAddress(address)}
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            {identity && (
+              <button
+                className="btn btn-ghost btn-sm"
+                onClick={() => setProfileMode('edit')}
+                title={identity.guest ? 'Guest penguin — saved in this browser' : shortAddress(address)}
+              >
+                {identity.guest ? '👤' : '🐧'} {identity.name}
               </button>
+            )}
+            {status === 'ready' ? (
               <button className="btn btn-ghost btn-sm" onClick={logout} title="Disconnect">
                 ⏻
               </button>
-            </div>
-          ) : (
-            <button className="btn btn-ghost" onClick={() => setWalletOpen(true)} disabled={restoring}>
-              Connect wallet
-            </button>
-          )}
+            ) : (
+              <button className="btn btn-ghost" onClick={() => setWalletOpen(true)} disabled={restoring}>
+                Connect wallet
+              </button>
+            )}
+          </div>
         </div>
       </header>
 
@@ -182,10 +193,21 @@ export function Landing({ navigate }: { navigate: (r: Route) => void }) {
               <button className="btn btn-play" onClick={play} disabled={restoring}>
                 ▶ PLAY
               </button>
+              {!canPlay && (
+                <button className="btn btn-ghost" onClick={playGuest} disabled={restoring}>
+                  Play as guest
+                </button>
+              )}
               <a className="btn btn-ghost" href="#how">
                 How it works
               </a>
             </div>
+
+            <p className="cta-note">
+              {guest
+                ? 'You are exploring as a guest. Connect a wallet to keep your name and start earning $POG.'
+                : 'No wallet? Jump straight in as a guest — you can roam and chat, but $POG is only credited to a wallet.'}
+            </p>
 
             <div className="hero-stats">
               <div className="stat">
@@ -318,7 +340,7 @@ export function Landing({ navigate }: { navigate: (r: Route) => void }) {
 
       <footer className="shell footer">
         <div className="brand" style={{ fontSize: '1.05rem' }}>
-          <img src="/pog.svg" alt="" style={{ width: 28, height: 28 }} />
+          <img src="/poglogo.jpg" alt="" style={{ width: 28, height: 28 }} />
           <span>$POG</span>
         </div>
         <div className="footer-links">

@@ -111,6 +111,8 @@ export interface PresenceState {
   id: string;
   name: string;
   color: string;
+  /** wallet-less players are marked so nobody mistakes them for a holder */
+  guest: boolean;
   x: number;
   y: number;
   dir: Dir;
@@ -173,6 +175,7 @@ export function subscribePresence(selfId: string, cb: (players: Presence[]) => v
           y: d.y,
           dir: ['up', 'down', 'left', 'right'].includes(d.dir) ? d.dir : 'down',
           moving: !!d.moving,
+          guest: !!d.guest,
           ts: Math.min(Date.now(), Number(d.ts) || Date.now()),
         });
       }

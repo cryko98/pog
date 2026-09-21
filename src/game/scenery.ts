@@ -205,7 +205,7 @@ const PROP_HEIGHT: Record<string, number> = {
   spike: 74,
   bush: 30,
   snowman: 66,
-  igloo: 92,
+  lantern: 46,
   banner: 132,
 };
 
@@ -354,39 +354,62 @@ function drawSnowman(ctx: CanvasRenderingContext2D, h: number) {
   ctx.fill();
 }
 
-function drawIgloo(ctx: CanvasRenderingContext2D, h: number) {
-  const w = h * 1.7;
-  ctx.fillStyle = '#e6f1fa';
+/**
+ * An ice-block lantern: a stack of translucent blocks with a warm flame
+ * inside. These ring the spawn plaza where shelters will eventually go.
+ */
+function drawLantern(ctx: CanvasRenderingContext2D, h: number, time: number, variant: number) {
+  const w = h * 0.62;
+  const flicker =
+    0.85 + Math.sin(time * 0.005 + variant * 1.7) * 0.1 + Math.sin(time * 0.013 + variant * 3.1) * 0.05;
+  const flameY = -h * 0.66;
+
+  // warm pool of light on the snow
+  const pool = ctx.createRadialGradient(0, 0, 0, 0, 0, h * 1.3);
+  pool.addColorStop(0, `rgba(255,164,60,${0.26 * flicker})`);
+  pool.addColorStop(1, 'rgba(255,164,60,0)');
+  ctx.fillStyle = pool;
   ctx.beginPath();
-  ctx.ellipse(0, 0, w / 2, h, Math.PI, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.fillStyle = '#ffffff';
-  ctx.beginPath();
-  ctx.ellipse(-w * 0.12, -h * 0.12, w * 0.4, h * 0.82, 0, Math.PI, Math.PI * 2);
+  ctx.ellipse(0, 0, h * 1.3, h * 0.55, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  ctx.strokeStyle = 'rgba(150,183,208,0.7)';
-  ctx.lineWidth = 1.4;
-  for (let i = 1; i <= 3; i++) {
+  // two stacked ice blocks, narrowing upward
+  const block = (yTop: number, yBottom: number, halfTop: number, halfBottom: number, tint: string) => {
+    ctx.fillStyle = tint;
     ctx.beginPath();
-    ctx.ellipse(0, 0, (w / 2) * (1 - i * 0.2), h * (1 - i * 0.22), 0, Math.PI, Math.PI * 2);
+    ctx.moveTo(-halfTop, yTop);
+    ctx.lineTo(halfTop, yTop);
+    ctx.lineTo(halfBottom, yBottom);
+    ctx.lineTo(-halfBottom, yBottom);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+    ctx.lineWidth = 1.2;
     ctx.stroke();
-  }
-  for (let i = -2; i <= 2; i++) {
-    ctx.beginPath();
-    ctx.moveTo((i * w) / 6, 0);
-    ctx.lineTo((i * w) / 8, -h * 0.72);
-    ctx.stroke();
-  }
+  };
+  block(-h * 0.3, 0, w * 0.42, w * 0.5, 'rgba(163,209,233,0.95)');
+  block(-h * 0.56, -h * 0.3, w * 0.34, w * 0.42, 'rgba(197,230,246,0.95)');
 
-  // entrance tunnel
-  ctx.fillStyle = '#f4fafe';
+  // the flame itself
+  ctx.save();
+  ctx.shadowColor = `rgba(255,150,40,${flicker})`;
+  ctx.shadowBlur = h * 0.55;
+  const fire = ctx.createLinearGradient(0, flameY - h * 0.2, 0, flameY + h * 0.12);
+  fire.addColorStop(0, '#fff3c4');
+  fire.addColorStop(0.5, '#ffb43c');
+  fire.addColorStop(1, '#ff6a12');
+  ctx.fillStyle = fire;
   ctx.beginPath();
-  ctx.ellipse(0, 0, w * 0.2, h * 0.42, 0, Math.PI, Math.PI * 2);
+  ctx.moveTo(0, flameY - h * (0.2 + flicker * 0.08));
+  ctx.quadraticCurveTo(w * 0.3, flameY - h * 0.02, 0, flameY + h * 0.12);
+  ctx.quadraticCurveTo(-w * 0.3, flameY - h * 0.02, 0, flameY - h * (0.2 + flicker * 0.08));
   ctx.fill();
-  ctx.fillStyle = '#2b4457';
+  ctx.restore();
+
+  // frost catching the light on the top block
+  ctx.fillStyle = `rgba(255,214,150,${0.5 * flicker})`;
   ctx.beginPath();
-  ctx.ellipse(0, 0, w * 0.13, h * 0.3, 0, Math.PI, Math.PI * 2);
+  ctx.ellipse(0, -h * 0.56, w * 0.34, h * 0.05, 0, 0, Math.PI * 2);
   ctx.fill();
 }
 
@@ -418,7 +441,14 @@ function drawBanner(ctx: CanvasRenderingContext2D, h: number) {
   ctx.fill();
 }
 
-export function drawProp(ctx: CanvasRenderingContext2D, prop: Prop, sx: number, sy: number, zoom: number) {
+export function drawProp(
+  ctx: CanvasRenderingContext2D,
+  prop: Prop,
+  sx: number,
+  sy: number,
+  zoom: number,
+  time = 0
+) {
   const h = propHeight(prop) * zoom;
   const footprint = Math.max(12, (prop.r || 12) * prop.scale) * zoom;
   shadow(ctx, sx, sy, footprint * 1.25);
@@ -441,8 +471,8 @@ export function drawProp(ctx: CanvasRenderingContext2D, prop: Prop, sx: number, 
     case 'snowman':
       drawSnowman(ctx, h);
       break;
-    case 'igloo':
-      drawIgloo(ctx, h);
+    case 'lantern':
+      drawLantern(ctx, h, time, prop.variant);
       break;
     case 'banner':
       drawBanner(ctx, h);
