@@ -1,0 +1,710 @@
+// Tilted top-down renderer + client-side simulation.
+// The world is flat; the "3/4 view" comes from squashing the y axis on screen
+// while props and penguins stay upright. Depth = world y.
+
+import {
+  WORLD,
+  PLAYER,
+  COIN,
+  getCoins,
+  getProps,
+  getLakes,
+  isOnIce,
+  resolveCollisions,
+} from '../../../shared/world.js';
+import { blitPenguin, type Dir } from './penguin';
+import { CHUNK, drawCoin, drawProp, getGroundChunk, type Prop } from './scenery';
+import { PogSocket, type NetPlayer, type StateTuple } from './net';
+
+export const Y_SCALE = 0.62;
+const ZOOM = 1;
+const SEND_HZ = 15;
+const PENGUIN_WORLD_HEIGHT = 78;
+
+export interface HudState {
+  online: number;
+  pog: number;
+  status: 'connecting' | 'open' | 'closed';
+  x: number;
+  y: number;
+  onIce: boolean;
+}
+
+export interface ChatLine {
+  id: string;
+  name?: string;
+  color?: string;
+  text: string;
+  system?: boolean;
+}
+
+interface Remote extends NetPlayer {
+  rx: number; // rendered position, lerped toward x/y
+  ry: number;
+  frame: number;
+  anim: number;
+}
+
+interface Options {
+  token: string;
+  name: string;
+  color: string;
+  pog: number;
+  onHud: (hud: HudState) => void;
+  onChat: (line: ChatLine) => void;
+  onFatal: (message: string) => void;
+}
+
+const DIR_KEYS: Record<string, [number, number]> = {
+  KeyW: [0, -1],
+  ArrowUp: [0, -1],
+  KeyS: [0, 1],
+  ArrowDown: [0, 1],
+  KeyA: [-1, 0],
+  ArrowLeft: [-1, 0],
+  KeyD: [1, 0],
+  ArrowRight: [1, 0],
+};
+
+export class PogGame {
+  private ctx: CanvasRenderingContext2D;
+  private minimapCtx: CanvasRenderingContext2D | null = null;
+  private raf = 0;
+  private running = false;
+  private last = 0;
+  private time = 0;
+  private dpr = 1;
+  private w = 0;
+  private h = 0;
+
+  private socket: PogSocket;
+  private selfId = 0;
+  private keys = new Set<string>();
+  private touch: { active: boolean; baseX: number; baseY: number; x: number; y: number; id: number } = {
+    active: false,
+    baseX: 0,
+    baseY: 0,
+    x: 0,
+    y: 0,
+    id: -1,
+  };
+
+  private me = {
+    x: WORLD.spawn.x,
+    y: WORLD.spawn.y,
+    vx: 0,
+    vy: 0,
+    dir: 'down' as Dir,
+    moving: false,
+    frame: 0,
+    anim: 0,
+    pog: 0,
+  };
+
+  private cam = { x: WORLD.spawn.x, y: WORLD.spawn.y };
+  private remotes = new Map<number, Remote>();
+  private taken = new Set<number>();
+  private bubbles = new Map<number, { text: string; until: number }>();
+  private pickupFx: Array<{ x: number; y: number; t: number }> = [];
+  private snow: Array<{ x: number; y: number; r: number; s: number; d: number }> = [];
+  private sinceSend = 0;
+  private sinceHud = 0;
+  private status: HudState['status'] = 'connecting';
+
+  private props: Prop[] = getProps() as Prop[];
+  private coins = getCoins() as Array<{ id: number; x: number; y: number }>;
+
+  constructor(private canvas: HTMLCanvasElement, private opts: Options) {
+    this.ctx = canvas.getContext('2d', { alpha: false })!;
+    this.me.pog = opts.pog;
+    this.socket = new PogSocket(opts.token, {
+      onStatus: (s) => {
+        this.status = s;
+      },
+      onWelcome: (msg) => {
+        this.selfId = msg.id;
+        this.me.x = msg.you.x;
+        this.me.y = msg.you.y;
+        this.me.pog = msg.you.pog;
+        this.cam.x = this.me.x;
+        this.cam.y = this.me.y;
+        this.remotes.clear();
+        msg.players.forEach((p) => this.addRemote(p));
+        this.taken = new Set(msg.takenCoins);
+        this.pushChat({ id: crypto.randomUUID(), text: 'You are on the ice. Happy hunting!', system: true });
+      },
+      onSpawn: (p) => this.addRemote(p),
+      onDespawn: (id) => {
+        this.remotes.delete(id);
+        this.bubbles.delete(id);
+      },
+      onState: (list: StateTuple[]) => {
+        for (const [id, x, y, dir, moving] of list) {
+          if (id === this.selfId) continue;
+          const r = this.remotes.get(id);
+          if (!r) continue;
+          r.x = x;
+          r.y = y;
+          r.dir = dir;
+          r.moving = !!moving;
+        }
+      },
+      onProfile: ({ id, name, color }) => {
+        const r = this.remotes.get(id);
+        if (r) {
+          r.name = name;
+          r.color = color;
+        }
+      },
+      onChat: ({ id, name, color, text }) => {
+        this.bubbles.set(id, { text, until: performance.now() + 5200 });
+        this.pushChat({ id: crypto.randomUUID(), name, color, text });
+      },
+      onSystem: (text) => this.pushChat({ id: crypto.randomUUID(), text, system: true }),
+      onCoin: (id, isTaken) => {
+        if (isTaken) this.taken.add(id);
+        else this.taken.delete(id);
+      },
+      onPog: (pog, coin) => {
+        this.me.pog = pog;
+        const c = this.coins[coin];
+        if (c) this.pickupFx.push({ x: c.x, y: c.y, t: performance.now() });
+      },
+      onError: (code, message) => {
+        if (code === 'auth' || code === 'noprofile') this.opts.onFatal(message);
+        else this.pushChat({ id: crypto.randomUUID(), text: message, system: true });
+      },
+    });
+  }
+
+  /* ---------------- lifecycle ---------------- */
+
+  start(minimap?: HTMLCanvasElement | null) {
+    if (this.running) return;
+    this.running = true;
+    this.minimapCtx = minimap ? minimap.getContext('2d') : null;
+
+    this.initSnow();
+    this.resize();
+    window.addEventListener('resize', this.resize);
+    window.addEventListener('keydown', this.onKeyDown);
+    window.addEventListener('keyup', this.onKeyUp);
+    window.addEventListener('blur', this.releaseKeys);
+    this.canvas.addEventListener('pointerdown', this.onPointerDown);
+    window.addEventListener('pointermove', this.onPointerMove);
+    window.addEventListener('pointerup', this.onPointerUp);
+    window.addEventListener('pointercancel', this.onPointerUp);
+    this.canvas.addEventListener('lostpointercapture', this.onPointerUp);
+
+    this.socket.connect();
+    this.last = performance.now();
+    this.raf = requestAnimationFrame(this.loop);
+  }
+
+  stop() {
+    this.running = false;
+    cancelAnimationFrame(this.raf);
+    window.removeEventListener('resize', this.resize);
+    window.removeEventListener('keydown', this.onKeyDown);
+    window.removeEventListener('keyup', this.onKeyUp);
+    window.removeEventListener('blur', this.releaseKeys);
+    this.canvas.removeEventListener('pointerdown', this.onPointerDown);
+    window.removeEventListener('pointermove', this.onPointerMove);
+    window.removeEventListener('pointerup', this.onPointerUp);
+    window.removeEventListener('pointercancel', this.onPointerUp);
+    this.canvas.removeEventListener('lostpointercapture', this.onPointerUp);
+    this.socket.close();
+  }
+
+  /** Rename / recolour without tearing down the session. */
+  setIdentity(name: string, color: string) {
+    this.opts.name = name;
+    this.opts.color = color;
+  }
+
+  say(text: string) {
+    this.socket.chat(text);
+    this.bubbles.set(this.selfId, { text, until: performance.now() + 5200 });
+    this.pushChat({ id: crypto.randomUUID(), name: this.opts.name, color: this.opts.color, text });
+  }
+
+  /** Chat input steals the keyboard; make sure we are not left walking. */
+  releaseKeys = () => {
+    this.keys.clear();
+    this.releaseTouch();
+  };
+
+  private pushChat(line: ChatLine) {
+    this.opts.onChat(line);
+  }
+
+  private addRemote(p: NetPlayer) {
+    this.remotes.set(p.id, { ...p, rx: p.x, ry: p.y, frame: 0, anim: 0 });
+  }
+
+  /* ---------------- input ---------------- */
+
+  private onKeyDown = (e: KeyboardEvent) => {
+    const target = e.target as HTMLElement | null;
+    if (target && /^(INPUT|TEXTAREA)$/.test(target.tagName)) return;
+    if (DIR_KEYS[e.code] || e.code === 'ShiftLeft' || e.code === 'ShiftRight') {
+      this.keys.add(e.code);
+      e.preventDefault();
+    }
+  };
+
+  private onKeyUp = (e: KeyboardEvent) => this.keys.delete(e.code);
+
+  // Only real touch/pen input drives the virtual stick. Capturing the pointer
+  // guarantees we still get pointerup if the finger slides off the canvas —
+  // without it a missed release leaves the penguin walking forever.
+  private onPointerDown = (e: PointerEvent) => {
+    if (e.pointerType !== 'touch' && e.pointerType !== 'pen') return;
+    this.touch = { active: true, baseX: e.clientX, baseY: e.clientY, x: e.clientX, y: e.clientY, id: e.pointerId };
+    try {
+      this.canvas.setPointerCapture(e.pointerId);
+    } catch {
+      /* capture is best-effort */
+    }
+  };
+
+  private onPointerMove = (e: PointerEvent) => {
+    if (!this.touch.active || e.pointerId !== this.touch.id) return;
+    this.touch.x = e.clientX;
+    this.touch.y = e.clientY;
+  };
+
+  private onPointerUp = (e: PointerEvent) => {
+    if (e.pointerId !== this.touch.id) return;
+    this.releaseTouch();
+  };
+
+  private releaseTouch = () => {
+    this.touch.active = false;
+    this.touch.id = -1;
+  };
+
+  private axis(): [number, number, boolean] {
+    let ax = 0;
+    let ay = 0;
+    for (const code of this.keys) {
+      const d = DIR_KEYS[code];
+      if (d) {
+        ax += d[0];
+        ay += d[1];
+      }
+    }
+    if (this.touch.active) {
+      const dx = this.touch.x - this.touch.baseX;
+      const dy = this.touch.y - this.touch.baseY;
+      const len = Math.hypot(dx, dy);
+      if (len > 14) {
+        const k = Math.min(1, len / 70);
+        ax += (dx / len) * k;
+        ay += (dy / len) * k;
+      }
+    }
+    const len = Math.hypot(ax, ay);
+    if (len > 1) {
+      ax /= len;
+      ay /= len;
+    }
+    const sprint = this.keys.has('ShiftLeft') || this.keys.has('ShiftRight');
+    return [ax, ay, sprint];
+  }
+
+  /* ---------------- simulation ---------------- */
+
+  private update(dt: number) {
+    const [ax, ay, sprint] = this.axis();
+    const onIce = isOnIce(this.me.x, this.me.y);
+    const speed = sprint ? PLAYER.sprintSpeed : PLAYER.speed;
+
+    // ice keeps your momentum, snow grips
+    const grip = onIce ? 1.6 : 13;
+    const targetVx = ax * speed;
+    const targetVy = ay * speed * 0.92; // slight vertical damping reads better in 3/4 view
+    const k = 1 - Math.exp(-grip * dt);
+    this.me.vx += (targetVx - this.me.vx) * k;
+    this.me.vy += (targetVy - this.me.vy) * k;
+
+    const moved = Math.hypot(this.me.vx, this.me.vy);
+    this.me.moving = moved > 12;
+
+    if (Math.abs(ax) > 0.15 || Math.abs(ay) > 0.15) {
+      this.me.dir = Math.abs(ax) > Math.abs(ay) ? (ax < 0 ? 'left' : 'right') : ay < 0 ? 'up' : 'down';
+    }
+
+    const next = resolveCollisions(this.me.x + this.me.vx * dt, this.me.y + this.me.vy * dt);
+    // kill velocity into a wall so we do not vibrate against it
+    if (Math.abs(next.x - (this.me.x + this.me.vx * dt)) > 0.01) this.me.vx *= 0.2;
+    if (Math.abs(next.y - (this.me.y + this.me.vy * dt)) > 0.01) this.me.vy *= 0.2;
+    this.me.x = next.x;
+    this.me.y = next.y;
+
+    // waddle animation
+    this.me.anim += dt * (this.me.moving ? 9 * (moved / PLAYER.speed) : 0);
+    this.me.frame = Math.floor(this.me.anim) % 4;
+
+    // camera easing
+    const camK = 1 - Math.exp(-7 * dt);
+    this.cam.x += (this.me.x - this.cam.x) * camK;
+    this.cam.y += (this.me.y - this.cam.y) * camK;
+
+    // remote interpolation
+    const rk = 1 - Math.exp(-14 * dt);
+    for (const r of this.remotes.values()) {
+      r.rx += (r.x - r.rx) * rk;
+      r.ry += (r.y - r.ry) * rk;
+      r.anim += dt * (r.moving ? 9 : 0);
+      r.frame = Math.floor(r.anim) % 4;
+    }
+
+    // coin pickups (optimistic, the server has the final say)
+    for (const coin of this.coins) {
+      if (this.taken.has(coin.id)) continue;
+      if (Math.hypot(this.me.x - coin.x, this.me.y - coin.y) < COIN.pickupRadius) {
+        this.taken.add(coin.id);
+        this.socket.pickup(coin.id);
+      }
+    }
+
+    // network + hud
+    this.sinceSend += dt;
+    if (this.sinceSend >= 1 / SEND_HZ) {
+      this.sinceSend = 0;
+      this.socket.move(this.me.x, this.me.y, this.me.dir, this.me.moving);
+    }
+    this.sinceHud += dt;
+    if (this.sinceHud >= 0.2) {
+      this.sinceHud = 0;
+      this.opts.onHud({
+        online: this.remotes.size + 1,
+        pog: this.me.pog,
+        status: this.status,
+        x: Math.round(this.me.x),
+        y: Math.round(this.me.y),
+        onIce,
+      });
+    }
+  }
+
+  /* ---------------- rendering ---------------- */
+
+  private resize = () => {
+    this.dpr = Math.min(2, window.devicePixelRatio || 1);
+    const rect = this.canvas.getBoundingClientRect();
+    this.w = Math.max(320, rect.width);
+    this.h = Math.max(240, rect.height);
+    this.canvas.width = Math.round(this.w * this.dpr);
+    this.canvas.height = Math.round(this.h * this.dpr);
+    this.ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    this.initSnow();
+  };
+
+  private initSnow() {
+    const count = Math.round((this.w * this.h) / 9000) || 90;
+    this.snow = Array.from({ length: Math.min(220, count) }, () => ({
+      x: Math.random() * (this.w || 800),
+      y: Math.random() * (this.h || 600),
+      r: 1 + Math.random() * 2.6,
+      s: 18 + Math.random() * 46,
+      d: Math.random() * Math.PI * 2,
+    }));
+  }
+
+  private sx(wx: number) {
+    return (wx - this.cam.x) * ZOOM + this.w / 2;
+  }
+
+  private sy(wy: number) {
+    return (wy - this.cam.y) * Y_SCALE * ZOOM + this.h / 2;
+  }
+
+  private drawGround() {
+    const ctx = this.ctx;
+    const halfW = this.w / (2 * ZOOM);
+    const halfH = this.h / (2 * ZOOM * Y_SCALE);
+    const x0 = Math.floor((this.cam.x - halfW) / CHUNK);
+    const x1 = Math.floor((this.cam.x + halfW) / CHUNK);
+    const y0 = Math.floor((this.cam.y - halfH) / CHUNK);
+    const y1 = Math.floor((this.cam.y + halfH) / CHUNK);
+
+    const cw = CHUNK * ZOOM + 1;
+    const ch = CHUNK * Y_SCALE * ZOOM + 1;
+
+    for (let cy = y0; cy <= y1; cy++) {
+      for (let cx = x0; cx <= x1; cx++) {
+        const ox = cx * CHUNK;
+        const oy = cy * CHUNK;
+        if (ox < -CHUNK || oy < -CHUNK || ox > WORLD.width || oy > WORLD.height) continue;
+        ctx.drawImage(getGroundChunk(cx, cy), this.sx(ox), this.sy(oy), cw, ch);
+      }
+    }
+  }
+
+  private drawNameTag(x: number, y: number, name: string, color: string, isSelf: boolean) {
+    const ctx = this.ctx;
+    ctx.font = `700 13px Inter, system-ui, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const w = ctx.measureText(name).width + 22;
+
+    ctx.fillStyle = isSelf ? 'rgba(13,43,58,0.92)' : 'rgba(13,27,38,0.72)';
+    ctx.beginPath();
+    ctx.roundRect(x - w / 2, y - 10, w, 20, 10);
+    ctx.fill();
+    if (isSelf) {
+      ctx.strokeStyle = '#38bdf8';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
+
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(x - w / 2 + 10, y, 3.5, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = '#eef6fb';
+    ctx.fillText(name, x + 5, y + 0.5);
+  }
+
+  private drawBubble(x: number, y: number, text: string) {
+    const ctx = this.ctx;
+    ctx.font = '600 13px Inter, system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const w = Math.min(230, ctx.measureText(text).width + 24);
+    const h = 26;
+
+    ctx.fillStyle = 'rgba(255,255,255,0.96)';
+    ctx.beginPath();
+    ctx.roundRect(x - w / 2, y - h, w, h, 12);
+    ctx.moveTo(x - 6, y);
+    ctx.lineTo(x, y + 7);
+    ctx.lineTo(x + 6, y);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = '#12232e';
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(x - w / 2, y - h, w, h);
+    ctx.clip();
+    ctx.fillText(text, x, y - h / 2);
+    ctx.restore();
+  }
+
+  private drawWorld() {
+    const ctx = this.ctx;
+    const now = performance.now();
+    const marginX = 200;
+    const marginTop = 260;
+    const halfW = this.w / (2 * ZOOM);
+    const halfH = this.h / (2 * ZOOM * Y_SCALE);
+    const minX = this.cam.x - halfW - marginX;
+    const maxX = this.cam.x + halfW + marginX;
+    const minY = this.cam.y - halfH - marginTop;
+    const maxY = this.cam.y + halfH + 120;
+
+    type Item = { y: number; draw: () => void };
+    const items: Item[] = [];
+
+    for (const p of this.props) {
+      if (p.x < minX || p.x > maxX || p.y < minY || p.y > maxY) continue;
+      items.push({ y: p.y, draw: () => drawProp(ctx, p, this.sx(p.x), this.sy(p.y), ZOOM) });
+    }
+
+    for (const c of this.coins) {
+      if (this.taken.has(c.id)) continue;
+      if (c.x < minX || c.x > maxX || c.y < minY || c.y > maxY) continue;
+      items.push({ y: c.y, draw: () => drawCoin(ctx, this.sx(c.x), this.sy(c.y), now, ZOOM) });
+    }
+
+    const drawActor = (
+      wx: number,
+      wy: number,
+      dir: Dir,
+      frame: number,
+      moving: boolean,
+      color: string,
+      name: string,
+      id: number,
+      isSelf: boolean
+    ) => {
+      const x = this.sx(wx);
+      const y = this.sy(wy);
+      ctx.fillStyle = 'rgba(56,92,120,0.28)';
+      ctx.beginPath();
+      ctx.ellipse(x, y, 20 * ZOOM, 8 * ZOOM, 0, 0, Math.PI * 2);
+      ctx.fill();
+      blitPenguin(ctx, color, dir, frame, moving, x, y, PENGUIN_WORLD_HEIGHT * ZOOM);
+      this.drawNameTag(x, y - PENGUIN_WORLD_HEIGHT * ZOOM - 14, name, color, isSelf);
+      const bubble = this.bubbles.get(id);
+      if (bubble && bubble.until > now) {
+        this.drawBubble(x, y - PENGUIN_WORLD_HEIGHT * ZOOM - 34, bubble.text);
+      }
+    };
+
+    for (const r of this.remotes.values()) {
+      if (r.rx < minX || r.rx > maxX || r.ry < minY || r.ry > maxY) continue;
+      items.push({
+        y: r.ry,
+        draw: () => drawActor(r.rx, r.ry, r.dir, r.frame, r.moving, r.color, r.name, r.id, false),
+      });
+    }
+
+    items.push({
+      y: this.me.y,
+      draw: () =>
+        drawActor(
+          this.me.x,
+          this.me.y,
+          this.me.dir,
+          this.me.frame,
+          this.me.moving,
+          this.opts.color,
+          this.opts.name,
+          this.selfId,
+          true
+        ),
+    });
+
+    items.sort((a, b) => a.y - b.y);
+    for (const item of items) item.draw();
+
+    // pickup sparkles
+    this.pickupFx = this.pickupFx.filter((fx) => now - fx.t < 700);
+    for (const fx of this.pickupFx) {
+      const t = (now - fx.t) / 700;
+      ctx.save();
+      ctx.globalAlpha = 1 - t;
+      ctx.fillStyle = '#ffd44d';
+      ctx.font = `800 ${18 + t * 8}px "Baloo 2", system-ui, sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.fillText('+1 $POG', this.sx(fx.x), this.sy(fx.y) - 40 - t * 34);
+      ctx.restore();
+    }
+  }
+
+  /** Visual feedback for the touch stick, so mobile players can see the input. */
+  private drawTouchStick() {
+    if (!this.touch.active) return;
+    const ctx = this.ctx;
+    const dx = this.touch.x - this.touch.baseX;
+    const dy = this.touch.y - this.touch.baseY;
+    const len = Math.hypot(dx, dy);
+    const clamped = Math.min(1, len / 70);
+    const kx = len > 0 ? this.touch.baseX + (dx / len) * clamped * 46 : this.touch.baseX;
+    const ky = len > 0 ? this.touch.baseY + (dy / len) * clamped * 46 : this.touch.baseY;
+
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+    ctx.fillStyle = 'rgba(13,43,58,0.28)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(this.touch.baseX, this.touch.baseY, 52, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = 'rgba(255,92,23,0.9)';
+    ctx.beginPath();
+    ctx.arc(kx, ky, 22, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  private drawWeather(dt: number) {
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    for (const f of this.snow) {
+      f.d += dt * 1.5;
+      f.y += f.s * dt;
+      f.x += Math.sin(f.d) * 14 * dt + 16 * dt;
+      if (f.y > this.h + 6) {
+        f.y = -6;
+        f.x = Math.random() * this.w;
+      }
+      if (f.x > this.w + 6) f.x = -6;
+      ctx.globalAlpha = 0.35 + (f.r / 3.6) * 0.5;
+      ctx.beginPath();
+      ctx.arc(f.x, f.y, f.r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+
+    // cold vignette
+    const g = ctx.createRadialGradient(
+      this.w / 2,
+      this.h / 2,
+      Math.min(this.w, this.h) * 0.42,
+      this.w / 2,
+      this.h / 2,
+      Math.max(this.w, this.h) * 0.78
+    );
+    g.addColorStop(0, 'rgba(10,26,36,0)');
+    g.addColorStop(1, 'rgba(10,26,36,0.42)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, this.w, this.h);
+  }
+
+  private drawMinimap() {
+    const ctx = this.minimapCtx;
+    if (!ctx) return;
+    const size = ctx.canvas.width;
+    const k = size / WORLD.width;
+
+    ctx.clearRect(0, 0, size, size);
+    ctx.fillStyle = '#e8f2fa';
+    ctx.fillRect(0, 0, size, size);
+
+    ctx.fillStyle = '#a9d6ec';
+    for (const l of getLakes()) {
+      ctx.beginPath();
+      ctx.ellipse(l.x * k, l.y * k, l.rx * k, l.ry * k, l.rot, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    ctx.strokeStyle = '#38bdf8';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(WORLD.spawn.x * k, WORLD.spawn.y * k, WORLD.spawnRadius * k, 0, Math.PI * 2);
+    ctx.stroke();
+
+    for (const r of this.remotes.values()) {
+      ctx.fillStyle = r.color;
+      ctx.beginPath();
+      ctx.arc(r.rx * k, r.ry * k, 2.6, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    ctx.fillStyle = '#ff5c17';
+    ctx.strokeStyle = '#0d2b3a';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(this.me.x * k, this.me.y * k, 4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+  }
+
+  private loop = (now: number) => {
+    if (!this.running) return;
+    const dt = Math.min(0.05, (now - this.last) / 1000);
+    this.last = now;
+    this.time += dt;
+
+    this.update(dt);
+
+    const ctx = this.ctx;
+    ctx.fillStyle = '#cfe3f2';
+    ctx.fillRect(0, 0, this.w, this.h);
+    this.drawGround();
+    this.drawWorld();
+    this.drawWeather(dt);
+    this.drawTouchStick();
+    this.drawMinimap();
+
+    this.raf = requestAnimationFrame(this.loop);
+  };
+}
