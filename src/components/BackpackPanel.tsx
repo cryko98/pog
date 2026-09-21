@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { IGLOO, RECIPES, SKINS } from '../../shared/world.js';
 import type { Inventory } from '../game/engine';
+import { Icon, type IconName } from './Icon';
 
 type Tab = 'bag' | 'craft' | 'shop';
 
@@ -30,14 +31,17 @@ interface Props {
   onClose: () => void;
 }
 
-const RESOURCES: Array<{ key: keyof Inventory; icon: string; label: string }> = [
-  { key: 'wood', icon: '🪵', label: 'Wood' },
-  { key: 'ice', icon: '🧊', label: 'Ice' },
-  { key: 'fish', icon: '🐟', label: 'Fish' },
-  { key: 'pog', icon: '🪙', label: '$POG' },
+const RESOURCES: Array<{ key: keyof Inventory; icon: IconName; label: string }> = [
+  { key: 'wood', icon: 'wood', label: 'Wood' },
+  { key: 'ice', icon: 'ice', label: 'Ice' },
+  { key: 'fish', icon: 'fish', label: 'Fish' },
+  { key: 'pog', icon: 'coin', label: '$POG' },
 ];
 
-const ITEM_LABEL: Record<string, string> = { rod: '🎣 Fishing rod', iglooKit: '🏠 Igloo kit' };
+const ITEMS: Record<string, { icon: IconName; label: string }> = {
+  rod: { icon: 'rod', label: 'Fishing rod' },
+  iglooKit: { icon: 'igloo', label: 'Igloo kit' },
+};
 
 export function BackpackPanel({
   inventory,
@@ -73,7 +77,7 @@ export function BackpackPanel({
       <div className="bp-head">
         <h4>Backpack</h4>
         <button className="bp-close" onClick={onClose} aria-label="Close">
-          ✕
+          <Icon name="close" size={15} />
         </button>
       </div>
 
@@ -92,7 +96,7 @@ export function BackpackPanel({
           <div className="bp-grid">
             {RESOURCES.map((r) => (
               <div className="bp-cell" key={r.key}>
-                <span className="ico">{r.icon}</span>
+                <Icon name={r.icon} size={26} />
                 <b>{inventory[r.key] as number}</b>
                 <small>{r.label}</small>
               </div>
@@ -106,7 +110,10 @@ export function BackpackPanel({
               .filter(([, n]) => n > 0)
               .map(([id, n]) => (
                 <div className="bp-row" key={id}>
-                  <span>{ITEM_LABEL[id] ?? id}</span>
+                  <span className="with-icon">
+                    <Icon name={ITEMS[id]?.icon ?? 'backpack'} size={16} />
+                    {ITEMS[id]?.label ?? id}
+                  </span>
                   <b>×{n}</b>
                 </div>
               ))
@@ -117,7 +124,7 @@ export function BackpackPanel({
               disabled={busy}
               onClick={() => run(() => onBuild(IGLOO.styles[0]), 'Igloo raised!')}
             >
-              🏠 Build igloo here
+              <Icon name="igloo" size={16} /> Build igloo here
             </button>
           )}
         </>
@@ -174,7 +181,7 @@ export function BackpackPanel({
                     disabled={busy || guest || inventory.pog < s.price}
                     onClick={() => run(() => onBuy(s.id), `Bought ${s.label}.`)}
                   >
-                    🪙 {s.price}
+                    <Icon name="coin" size={14} /> {s.price}
                   </button>
                 )}
               </div>

@@ -7,6 +7,7 @@ import { PogGame, type ChatLine, type HudState } from '../game/engine';
 import { PenguinMark } from '../components/PenguinMark';
 import { ProfileModal } from '../components/ProfileModal';
 import { BackpackPanel } from '../components/BackpackPanel';
+import { Icon } from '../components/Icon';
 import { skinById } from '../../shared/world.js';
 
 const EMPTY_HUD: HudState = {
@@ -217,11 +218,11 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
               onClick={() => navigate('home')}
               title="Connect a Solana wallet to collect $POG"
             >
-              🔒 connect to earn
+              <Icon name="lock" size={13} /> connect to earn
             </button>
           ) : (
             <div className="pog-counter" title="$POG collected">
-              🪙 {hud.pog}
+              <Icon name="coin" size={17} /> {hud.pog}
             </div>
           )}
         </div>
@@ -246,20 +247,20 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
             title="Leaderboard"
             onClick={() => setShowBoard((v) => !v)}
           >
-            🏆
+            <Icon name="trophy" size={17} />
           </button>
           <button
             className={`icon-btn${showBag ? ' active' : ''}`}
             title="Backpack, crafting and shop"
             onClick={() => setShowBag((v) => !v)}
           >
-            🎒
+            <Icon name="backpack" size={17} />
           </button>
           <button className="icon-btn" title="Edit penguin" onClick={() => setEditing(true)}>
-            🎨
+            <Icon name="palette" size={17} />
           </button>
           <button className="icon-btn" title="Leave the ice" onClick={() => navigate('home')}>
-            ✕
+            <Icon name="close" size={16} />
           </button>
         </div>
 
@@ -279,7 +280,9 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
 
         {showBoard && !showBag && (
           <div className="panel side-panel">
-            <h4>🏆 Top holders on ice</h4>
+            <h4>
+              <Icon name="trophy" size={16} /> Top holders on ice
+            </h4>
             {board.length === 0 && <p style={{ fontSize: '0.85rem' }}>No coins banked yet.</p>}
             {board.map((e) => (
               <div className="lb-row" key={e.rank}>
@@ -337,7 +340,14 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
         )}
 
         <div className="hud-hint">
-          WASD to waddle · Shift to sprint · E to gather · {hud.onIce ? '🧊 slippery ice!' : 'Enter to chat'}
+          WASD to waddle · Shift to sprint · E to gather ·{' '}
+          {hud.onIce ? (
+            <>
+              <Icon name="snowflake" size={13} /> slippery ice!
+            </>
+          ) : (
+            'Enter to chat'
+          )}
         </div>
 
         <div className="panel hud-minimap">

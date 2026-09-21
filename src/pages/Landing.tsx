@@ -6,27 +6,28 @@ import { api } from '../lib/api';
 import { PenguinMark } from '../components/PenguinMark';
 import { WalletModal } from '../components/WalletModal';
 import { ProfileModal } from '../components/ProfileModal';
+import { Icon, type IconName } from '../components/Icon';
 
 const CONTRACT = import.meta.env.VITE_POG_CONTRACT ?? 'TBA — dropping at launch';
 
 const FEATURES = [
   {
-    icon: '🧊',
+    icon: 'world' as IconName,
     title: 'One frozen open world',
     body: 'A 6.4 × 6.4 km snowfield of pine forests, frozen lakes and lantern-lit plazas — no lobbies, no instances. Everyone waddles the same map.',
   },
   {
-    icon: '👀',
+    icon: 'players' as IconName,
     title: 'Real multiplayer',
     body: 'Connect your wallet and your penguin pops into the spawn plaza. Every other holder sees you move, slide and chat in real time.',
   },
   {
-    icon: '🪙',
+    icon: 'coin' as IconName,
     title: 'Play to earn',
     body: '$POG coins scatter across the ice. Scoop them up, climb the leaderboard, and bank score that maps to on-chain rewards.',
   },
   {
-    icon: '🔑',
+    icon: 'key' as IconName,
     title: 'Your wallet is your name',
     body: 'One signature — free, off-chain, zero approvals — and your username plus scarf colour is bound to your address forever.',
   },
@@ -127,7 +128,8 @@ export function Landing({ navigate }: { navigate: (r: Route) => void }) {
 
       {!serverUp && (
         <div className="server-down">
-          ⚠️ The $POG API is not responding, so wallet login is unavailable right now.
+          <Icon name="warning" size={15} /> The $POG API is not responding, so wallet login is
+          unavailable right now.
           {location.hostname === 'localhost' && (
             <>
               {' '}
@@ -156,12 +158,12 @@ export function Landing({ navigate }: { navigate: (r: Route) => void }) {
                 onClick={() => setProfileMode('edit')}
                 title={identity.guest ? 'Guest penguin — saved in this browser' : shortAddress(address)}
               >
-                {identity.guest ? '👤' : '🐧'} {identity.name}
+                <Icon name={identity.guest ? 'guest' : 'penguin'} size={15} /> {identity.name}
               </button>
             )}
             {status === 'ready' ? (
               <button className="btn btn-ghost btn-sm" onClick={logout} title="Disconnect">
-                ⏻
+                <Icon name="power" size={15} label="Disconnect" />
               </button>
             ) : (
               <button className="btn btn-ghost" onClick={() => setWalletOpen(true)} disabled={restoring}>
@@ -191,7 +193,7 @@ export function Landing({ navigate }: { navigate: (r: Route) => void }) {
 
             <div className="hero-cta">
               <button className="btn btn-play" onClick={play} disabled={restoring}>
-                ▶ PLAY
+                <Icon name="play" size={20} /> PLAY
               </button>
               {!canPlay && (
                 <button className="btn btn-ghost" onClick={playGuest} disabled={restoring}>
@@ -244,7 +246,9 @@ export function Landing({ navigate }: { navigate: (r: Route) => void }) {
           <div className="grid grid-4">
             {FEATURES.map((f) => (
               <article className="card feature" key={f.title}>
-                <div className="ico">{f.icon}</div>
+                <div className="ico">
+                  <Icon name={f.icon} size={24} />
+                </div>
                 <h3>{f.title}</h3>
                 <p>{f.body}</p>
               </article>
@@ -332,7 +336,7 @@ export function Landing({ navigate }: { navigate: (r: Route) => void }) {
                 : 'Be the first one out on the ice today.'}
             </p>
             <button className="btn btn-play" onClick={play} disabled={restoring}>
-              ▶ PLAY
+              <Icon name="play" size={20} /> PLAY
             </button>
           </div>
         </section>
