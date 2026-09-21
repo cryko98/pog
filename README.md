@@ -103,15 +103,25 @@ No transaction is ever requested and the server never sees a private key.
 
 ## Deploying to Vercel
 
-1. Import the repo. The defaults in `vercel.json` are correct — build `vite build`,
-   output `dist`, functions from `api/`.
-2. Add **Upstash Redis** from the Vercel Marketplace and connect it to the project. That
-   sets `KV_REST_API_URL` and `KV_REST_API_TOKEN` automatically.
+Live: **https://pog-client-five.vercel.app**
+
+1. Import the repo. Root Directory must be the repo root (`.`) — `api/` has to sit at the
+   top level for Vercel to pick the functions up. The rest of `vercel.json` is correct as
+   committed: build `vite build`, output `dist`.
+2. Add **Upstash for Redis** from the Vercel Marketplace and connect it to the project.
+   That sets `KV_REST_API_URL` and `KV_REST_API_TOKEN` automatically, which is exactly what
+   `src/server/kv.ts` reads. Give the game its own store rather than sharing one with
+   another project — the free tier's request budget is per database.
 3. Optionally set `VITE_POG_CONTRACT` to the mint address once the token is live.
 
 **Without Redis the deploy still loads, but nothing persists** — each function invocation
-gets a fresh in-memory store, so usernames and $POG vanish between requests. The landing
-page reports this as `persistent: false` on `/api/world/stats`.
+gets a fresh in-memory store, so usernames and $POG vanish between requests. Check
+`/api/world/stats`: it reports `"persistent": true` once Redis is wired up.
+
+Note that relative imports in `api/**` and `src/server/**` need explicit `.js`
+extensions. The package is ESM, and Node resolves the compiled functions the same way —
+an extensionless specifier throws on load and every route answers
+`FUNCTION_INVOCATION_FAILED`.
 
 | Variable | Where | Purpose |
 |---|---|---|
