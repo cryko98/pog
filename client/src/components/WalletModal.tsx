@@ -12,7 +12,8 @@ export function WalletModal({ onClose }: { onClose: () => void }) {
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose, busy]);
 
-  useEffect(() => clearError, [clearError]);
+  // clear a stale error only when the modal actually goes away
+  useEffect(() => () => clearError(), [clearError]);
 
   return (
     <div className="overlay" onClick={() => !busy && onClose()}>

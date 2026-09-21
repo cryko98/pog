@@ -217,6 +217,25 @@ input {
   z-index: 2;
 }
 
+.server-down {
+  position: relative;
+  z-index: 30;
+  padding: 12px 20px;
+  text-align: center;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: #ffd9c7;
+  background: rgba(255, 92, 23, 0.18);
+  border-bottom: 1px solid rgba(255, 92, 23, 0.45);
+}
+
+.server-down code {
+  font-family: ui-monospace, Menlo, monospace;
+  background: rgba(4, 16, 26, 0.6);
+  padding: 2px 7px;
+  border-radius: 6px;
+}
+
 .nav {
   position: sticky;
   top: 0;

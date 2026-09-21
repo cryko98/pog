@@ -30,18 +30,42 @@ export function clearSession() {
   localStorage.removeItem(WALLET_KEY);
 }
 
+/** Thrown when the game server cannot be reached at all. */
+export class ServerDownError extends Error {
+  constructor() {
+    super(
+      `Cannot reach the game server at ${location.origin}. ` +
+        'Make sure it is running (npm run dev, or npm start for a build).'
+    );
+    this.name = 'ServerDownError';
+  }
+}
+
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const token = storedToken();
-  const res = await fetch(path, {
-    ...init,
-    headers: {
-      'content-type': 'application/json',
-      ...(token ? { authorization: `Bearer ${token}` } : {}),
-      ...(init.headers || {}),
-    },
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error((data as { error?: string }).error || `Error (${res.status})`);
+
+  let res: Response;
+  try {
+    res = await fetch(path, {
+      ...init,
+      headers: {
+        'content-type': 'application/json',
+        ...(token ? { authorization: `Bearer ${token}` } : {}),
+        ...(init.headers || {}),
+      },
+    });
+  } catch {
+    // DNS/connection refused/CORS — the API never answered
+    throw new ServerDownError();
+  }
+
+  const data = await res.json().catch(() => null);
+  if (!res.ok) {
+    const msg = (data as { error?: string } | null)?.error;
+    // a non-JSON body means we hit something that is not our API
+    if (!msg && !data) throw new ServerDownError();
+    throw new Error(msg || `Request failed (${res.status})`);
+  }
   return data as T;
 }
 

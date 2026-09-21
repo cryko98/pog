@@ -105,8 +105,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           if (next !== link.address) void logout();
         });
       } catch (err) {
+        // keep the raw error in the console — the UI message is deliberately short
+        console.error('[pog] wallet connect failed', err);
         const message = err instanceof Error ? err.message : String(err);
-        setError(/reject|denied|user/i.test(message) ? 'You cancelled the connection.' : message);
+        const cancelled = /reject|declin|denied|cancel|user/i.test(message);
+        setError(cancelled ? 'You cancelled the request in your wallet.' : message);
         setStatus('idle');
         setConnected(null);
       }
@@ -118,6 +121,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     const { profile: p } = await api.saveProfile(name, color);
     setProfile(p);
   }, []);
+
+  // Stable identity on purpose: consumers put this in effect deps, and a new
+  // function on every error would re-run their cleanup and wipe the message.
+  const clearError = useCallback(() => setError(''), []);
 
   const value = useMemo<SessionValue>(
     () => ({
@@ -133,9 +140,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       logout,
       saveProfile,
       setProfile,
-      clearError: () => setError(''),
+      clearError,
     }),
-    [wallets, connected, address, profile, status, error, restoring, connect, logout, saveProfile]
+    [wallets, connected, address, profile, status, error, restoring, connect, logout, saveProfile, clearError]
   );
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;

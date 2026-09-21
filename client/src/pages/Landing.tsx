@@ -73,6 +73,7 @@ export function Landing({ navigate }: { navigate: (r: Route) => void }) {
   const [walletOpen, setWalletOpen] = useState(false);
   const [profileMode, setProfileMode] = useState<'setup' | 'edit' | null>(null);
   const [stats, setStats] = useState({ online: 0, wallets: 0 });
+  const [serverUp, setServerUp] = useState(true);
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
@@ -80,8 +81,12 @@ export function Landing({ navigate }: { navigate: (r: Route) => void }) {
     const pull = () =>
       api
         .stats()
-        .then((s) => alive && setStats(s))
-        .catch(() => {});
+        .then((s) => {
+          if (!alive) return;
+          setStats(s);
+          setServerUp(true);
+        })
+        .catch(() => alive && setServerUp(false));
     pull();
     const timer = setInterval(pull, 10_000);
     return () => {
@@ -114,6 +119,13 @@ export function Landing({ navigate }: { navigate: (r: Route) => void }) {
   return (
     <div className="landing">
       <div className="aurora" />
+
+      {!serverUp && (
+        <div className="server-down">
+          ⚠️ The game server is not responding. Wallet connect and the world need it —
+          run <code>npm run dev</code> (or <code>npm start</code> for a build).
+        </div>
+      )}
 
       <header className="nav">
         <div className="shell nav-inner">
