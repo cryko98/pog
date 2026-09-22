@@ -14,22 +14,22 @@ const FEATURES = [
   {
     icon: 'world' as IconName,
     title: 'One frozen open world',
-    body: 'A 6.4 × 6.4 km snowfield of pine forest, frozen lakes and lantern-lit plaza — no lobbies, no instances. Everyone waddles the same map, and the trees you fell stay felled for everyone.',
+    body: 'A 6.4 × 6.4 km snowfield of pine forest, frozen lakes and a lantern-lit plaza — no lobbies, no instances. Everyone online waddles the same map in real time, and the trees you fell stay felled for everyone. Jump in as a guest to roam, slide and chat; connect a wallet when you want what you do to count.',
   },
   {
     icon: 'wood' as IconName,
-    title: 'Chop, cut, fish',
-    body: 'Five swings to fell a pine, three to saw a block of ice, three to land a fish. Craft a rod at the workbench, then the kit for your own igloo. Nothing here is a single click.',
+    title: 'Chop, cut, fish — and get better at it',
+    body: 'Five swings to fell a pine, three to saw a block of ice, three to land a fish. Every one you finish is a point of skill in that trade, and higher levels haul more per swing. The number over your penguin is those three levels added up.',
   },
   {
     icon: 'igloo' as IconName,
-    title: 'Build something that lasts',
-    body: 'Spend 300 wood and 120 ice on an igloo and raise it wherever the snow is clear. It carries your name and every other player sees it — the only part of the world players author.',
+    title: 'Build it, then furnish it',
+    body: 'Spend 300 wood and 120 ice on an igloo and raise it wherever the snow is clear. Step inside, and anything from the furnishing stall goes wherever you put it. Furniture is worth value; value earns a level — Shelter, Den, Lodge, Hall, Palace — and from Den up the igloo pays a little $POG a day.',
   },
   {
-    icon: 'players' as IconName,
-    title: 'Real multiplayer, no wallet needed',
-    body: 'Everyone online shares one map in real time. Jump in as a guest to roam, slide and chat; connect a wallet when you want what you do to count.',
+    icon: 'coin' as IconName,
+    title: 'Sell the whole thing',
+    body: 'The igloo market sells the plot, the level and everything inside in one go — for in-game $POG, or for the real token once it is live, paid wallet to wallet with 8% burned on chain. The game never holds a key or a coin.',
   },
   {
     icon: 'quest' as IconName,
@@ -44,19 +44,19 @@ const FEATURES = [
   {
     icon: 'snowflake' as IconName,
     title: 'Two currencies, two jobs',
-    body: '$POG is scarce and buys hats — nothing you can buy makes you gather faster. Frost is the airdrop ledger: never spendable, never reduced, and at the end of the season a fixed budget is split by share — your Frost over everyone’s.',
+    body: '$POG is the soft one: it buys hats, furniture and other people’s igloos, and nothing it buys makes you gather faster. Frost is the airdrop ledger — earned by quests, playtime, your igloo and offerings at the season cairn, never spendable, never reduced — and at the end of the season a fixed budget is split by share: your Frost over everyone’s.',
   },
   {
     icon: 'lock' as IconName,
     title: 'Hard to cheat, on purpose',
-    body: 'Every action is checked against where you last stood and how long ago. Frost has no endpoint that credits it, a wallet earns nothing until it qualifies, and the holder tiers make one deep wallet beat three shallow ones.',
+    body: 'Every action is checked against where you last stood and how long ago, and every wallet has one writer at a time, so firing two requests at once buys nothing. Frost has no endpoint that credits it, a wallet earns nothing until it qualifies, and the holder tiers make one deep wallet beat three shallow ones.',
   },
 ];
 
 const STEPS = [
   {
     title: 'Connect or guest',
-    body: 'Phantom, Solflare, Backpack — any Solana wallet, one signature, never a transaction. Or skip it and play as a guest.',
+    body: 'Phantom, Solflare, Backpack — any Solana wallet, one signature to log in and never a transaction unless you choose to buy an igloo for real $POG. Or skip it and play as a guest.',
   },
   {
     title: 'Name your penguin',
@@ -67,8 +67,8 @@ const STEPS = [
     body: 'Walk up to a pine, a block of ice or a fishing hole and hold E — or the round button, on a phone. WASD to move, Shift to sprint, and the frozen lakes are fast but slippery.',
   },
   {
-    title: 'Craft, cook, then build',
-    body: 'The workbench turns wood into a rod and a season of logging into an igloo kit; the fire turns fish into $POG. Raise the igloo on clear snow and you will wake up at its door from then on.',
+    title: 'Craft, cook, build, furnish',
+    body: 'Six named shops ring the plaza: the workbench turns wood into a rod and a season of logging into an igloo kit; the cookout turns fish into $POG; the furnishing stall fills the igloo; the market sells it. Raise the igloo on clear snow and you will wake up at its door from then on.',
   },
 ];
 
@@ -269,7 +269,8 @@ export function Landing({ navigate }: { navigate: (r: Route) => void }) {
             <p className="lead">
               $POG is the coldest memecoin on Solana — and the only one with a survival game behind
               it. Fell pines, saw ice out of the lakes, fish the holes, and spend a hard-won haul on
-              an igloo that everybody else can see. No wallet needed to look around.
+              an igloo that everybody else can see — then furnish it, level it, and sell it on the
+              market. No wallet needed to look around.
             </p>
 
             <div className="hero-cta">
@@ -381,9 +382,17 @@ export function Landing({ navigate }: { navigate: (r: Route) => void }) {
               <h3 style={{ marginBottom: 12 }}>Play to earn, honestly explained</h3>
               <p>
                 Two currencies, two jobs. <strong>$POG</strong> is the soft one — found on the ice,
-                cooked at the fire, paid out by quests — and it buys hats and nothing else.{' '}
-                <strong>Frost</strong> is the airdrop ledger: it is never spendable, never goes
-                down, and is the only thing the season pays out against.
+                cooked at the fire, paid out by quests and by a furnished igloo — and it buys hats,
+                furniture and other players’ igloos. <strong>Frost</strong> is the airdrop ledger:
+                it is never spendable, never goes down, and is the only thing the season pays out
+                against. Nothing you can buy, sell or own moves Frost.
+              </p>
+              <p style={{ marginTop: 14 }}>
+                The <strong>igloo market</strong> is where real value enters. An igloo sells with its
+                level and everything inside, for in-game $POG today and for the real token once it
+                is live. Real sales settle wallet to wallet: the buyer pays the seller directly and
+                burns 8% in the same transaction, the game reads the finalised transaction back from
+                the chain before the igloo changes hands, and it never holds a key or a coin.
               </p>
               <p style={{ marginTop: 14 }}>
                 The season budget is split <strong>by share</strong>, not at a fixed rate:{' '}
