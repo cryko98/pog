@@ -42,14 +42,9 @@ const FEATURES = [
     body: 'A raw fish is worth nothing. Smoke five over the plaza fire and the crowd tips you in $POG — the one way to earn coins by skill rather than by finding them.',
   },
   {
-    icon: 'coin' as IconName,
-    title: '$POG buys looks, not power',
-    body: 'Coins are deliberately scarce and the shop only sells hats. Nothing you can buy makes you gather faster — the real economy is wood, ice and fish.',
-  },
-  {
     icon: 'snowflake' as IconName,
-    title: 'Frost, and a share of the season',
-    body: 'A separate ledger that only ever goes up. At the end of the season a fixed budget is split by share — your Frost over everyone’s. Quests, playtime, your igloo and offerings at the cairn all feed it.',
+    title: 'Two currencies, two jobs',
+    body: '$POG is scarce and buys hats — nothing you can buy makes you gather faster. Frost is the airdrop ledger: never spendable, never reduced, and at the end of the season a fixed budget is split by share — your Frost over everyone’s.',
   },
   {
     icon: 'lock' as IconName,
