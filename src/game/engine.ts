@@ -12,6 +12,9 @@ import {
   getNodes,
   isOnIce,
   resolveCollisions,
+  resolveIgloos,
+  resolveInterior,
+  iglooAt,
   GATHER,
   IGLOO,
   RECIPES,
@@ -23,6 +26,7 @@ import {
   drawCoin,
   drawIgloo,
   drawIglooGhost,
+  drawIglooInterior,
   drawNode,
   drawProp,
   drawStump,
@@ -210,6 +214,26 @@ export class PogGame {
   private moved = false;
   private homed = false;
   private questTimer = 0;
+  private nearIgloo: IglooMsg | null = null;
+  /**
+   * Set while the player is inside an igloo. `me.x/y` then mean a position
+   * in the room's own little coordinate space rather than on the map, and
+   * `returnTo` is where to put them back down on the snow.
+   */
+  private interior: { igloo: IglooMsg; returnTo: { x: number; y: number } } | null = null;
+  /**
+   * Set briefly after stepping through a doorway or finishing a build.
+   * Raising an igloo leaves you standing at its door, so without this the
+   * very same E press that placed it walks you straight inside.
+   */
+  private doorLock = 0;
+  /**
+   * How much the room is scaled to fit the window. The camera is pinned to
+   * its middle, so without this a phone would only ever see a corner of it.
+   * Applies to the projection and the room art; the penguin keeps its
+   * normal size so it stays readable in a scaled-down room.
+   */
+  private roomScale = 1;
 
   constructor(private canvas: HTMLCanvasElement, private opts: Options) {
     this.ctx = canvas.getContext('2d', { alpha: false })!;
@@ -265,6 +289,11 @@ export class PogGame {
         dir: this.me.dir,
         moving: this.me.moving,
         guest: this.opts.guest,
+        // Indoors x/y are room coordinates, which mean nothing on the map —
+        // but `inside` tells everyone outside to skip this penguin
+        // entirely, and everyone in the same room to read them as room
+        // coordinates, which is exactly what they are.
+        inside: this.interior?.igloo.wallet,
       })),
 
       subscribePresence(this.selfId, (players) => {
@@ -439,6 +468,12 @@ export class PogGame {
   }
 
   private promptFor(node: WorldNode | null): string {
+    if (this.interior) return 'Press E to step back outside';
+    // a doorway you are standing at beats a node you are standing near
+    if (this.nearIgloo && !node) {
+      const mine = this.nearIgloo.wallet === this.selfId;
+      return `Press E to go inside${mine ? '' : ` ${this.nearIgloo.owner || 'their'} igloo`}`;
+    }
     if (!node) return '';
     if (isStation(node.type)) return STATION_PROMPT[node.type];
     const until = this.depleted.get(node.id);
@@ -456,6 +491,17 @@ export class PogGame {
 
   /** Work the node the player is standing at. */
   private interact() {
+    if (this.interior) {
+      if (performance.now() < this.doorLock) return;
+      this.leaveIgloo();
+      return;
+    }
+    if (this.nearIgloo && !this.nearNode) {
+      if (performance.now() < this.doorLock) return;
+      this.enterIgloo(this.nearIgloo);
+      return;
+    }
+
     const node = this.nearNode;
     if (!node || this.busy) return;
 
@@ -644,6 +690,59 @@ export class PogGame {
     return !!this.building;
   }
 
+  /* ---------------- igloo interiors ---------------- */
+
+  isInside() {
+    return !!this.interior;
+  }
+
+  /**
+   * Step into an igloo. The room has its own coordinate space, so where
+   * the player was standing outside is put aside to be restored on the
+   * way out — they come back out of the door they went in.
+   */
+  private enterIgloo(igloo: IglooMsg) {
+    if (this.interior || this.building) return;
+    this.doorLock = performance.now() + 400;
+    this.interior = { igloo, returnTo: { x: this.me.x, y: this.me.y } };
+
+    // just inside the doorway, facing in
+    this.me.x = 0;
+    this.me.y = IGLOO.interior.ry - PLAYER.radius - 24;
+    this.me.vx = 0;
+    this.me.vy = 0;
+    this.me.dir = 'up';
+    this.cam.x = 0;
+    this.cam.y = 0;
+    this.nearNode = null;
+    this.nearIgloo = null;
+    const mine = igloo.wallet === this.selfId;
+    this.pushChat({
+      id: crypto.randomUUID(),
+      text: mine
+        ? 'Home. Walk back out of the door, or press Esc.'
+        : `Inside ${igloo.owner || 'somebody'}'s igloo. Walk out of the door, or press Esc.`,
+      system: true,
+    });
+  }
+
+  /** Back out onto the snow, in front of the door you came in by. */
+  leaveIgloo() {
+    if (!this.interior) return;
+    this.doorLock = performance.now() + 400;
+    const { igloo, returnTo } = this.interior;
+    this.interior = null;
+
+    // in front of the dome, clear of its footprint
+    this.me.x = returnTo.x;
+    this.me.y = Math.max(returnTo.y, igloo.y + IGLOO.solidRadius * 0.62 + PLAYER.radius);
+    this.me.vx = 0;
+    this.me.vy = 0;
+    this.me.dir = 'down';
+    this.cam.x = this.me.x;
+    this.cam.y = this.me.y;
+  }
+
   /** Everyone else's igloos — yours does not block your own relocation. */
   private otherIgloos() {
     return [...this.igloos.values()].filter((i) => i.wallet !== this.selfId);
@@ -667,6 +766,9 @@ export class PogGame {
       this.igloos.set(igloo.wallet, igloo);
       announceIgloo(igloo);
       this.building = null;
+      // Placing it leaves you standing in the doorway. Without the lock the
+      // key that raised it would carry straight on into the entrance.
+      this.doorLock = performance.now() + 600;
       this.pushChat({ id: crypto.randomUUID(), text: 'Your igloo is up. Welcome home.', system: true });
       this.opts.onSeason(); // raising one is worth Frost, once a season
       return null;
@@ -750,9 +852,10 @@ export class PogGame {
       this.keys.add('KeyE');
       if (this.building) void this.confirmBuild();
       else this.interact();
-    } else if (e.code === 'Escape' && this.building) {
+    } else if (e.code === 'Escape' && (this.building || this.interior)) {
       e.preventDefault();
-      this.cancelBuilding();
+      if (this.building) this.cancelBuilding();
+      else this.leaveIgloo();
     }
   };
 
@@ -868,10 +971,27 @@ export class PogGame {
       this.me.dir = Math.abs(ax) > Math.abs(ay) ? (ax < 0 ? 'left' : 'right') : ay < 0 ? 'up' : 'down';
     }
 
-    const next = resolveCollisions(this.me.x + this.me.vx * dt, this.me.y + this.me.vy * dt);
+    const wantX = this.me.x + this.me.vx * dt;
+    const wantY = this.me.y + this.me.vy * dt;
+
+    let next: { x: number; y: number };
+    if (this.interior) {
+      // indoors the walls are the room, and the doorway is the way out
+      const room = resolveInterior(wantX, wantY);
+      if (room.leaving) {
+        this.leaveIgloo();
+        return;
+      }
+      next = room;
+    } else {
+      // the world's props first, then any igloo standing on it
+      const solid = resolveCollisions(wantX, wantY);
+      next = resolveIgloos(solid.x, solid.y, [...this.igloos.values()]);
+    }
+
     // kill velocity into a wall so we do not vibrate against it
-    if (Math.abs(next.x - (this.me.x + this.me.vx * dt)) > 0.01) this.me.vx *= 0.2;
-    if (Math.abs(next.y - (this.me.y + this.me.vy * dt)) > 0.01) this.me.vy *= 0.2;
+    if (Math.abs(next.x - wantX) > 0.01) this.me.vx *= 0.2;
+    if (Math.abs(next.y - wantY) > 0.01) this.me.vy *= 0.2;
     this.me.x = next.x;
     this.me.y = next.y;
 
@@ -905,10 +1025,23 @@ export class PogGame {
     }
     if (this.spray.length) this.spray = this.spray.filter((p) => p.life > 0);
 
-    // camera easing
+    // Camera easing. Indoors it stays on the middle of the room: the space
+    // is small enough to frame whole, and a camera chasing you around it
+    // just swings the walls about.
     const camK = 1 - Math.exp(-7 * dt);
-    this.cam.x += (this.me.x - this.cam.x) * camK;
-    this.cam.y += (this.me.y - this.cam.y) * camK;
+    if (this.interior) {
+      const { rx, ry } = IGLOO.interior;
+      const wide = rx * 2 * 1.12; // the room plus a margin
+      const tall = rx * 0.58 + ry * 2 * Y_SCALE + ry * 0.42 * Y_SCALE + 60;
+      this.roomScale = Math.min(1, this.w / wide, this.h / tall);
+    } else {
+      this.roomScale = 1;
+    }
+
+    const aimX = this.interior ? 0 : this.me.x;
+    const aimY = this.interior ? 0 : this.me.y;
+    this.cam.x += (aimX - this.cam.x) * camK;
+    this.cam.y += (aimY - this.cam.y) * camK;
 
     // remote interpolation
     const rk = 1 - Math.exp(-14 * dt);
@@ -920,14 +1053,15 @@ export class PogGame {
     }
 
     // coin pickups — the API decides, this only starts the request
-    for (const coin of this.coins) {
+    for (const coin of this.interior ? [] : this.coins) {
       if (this.taken.has(coin.id)) continue;
       if (Math.hypot(this.me.x - coin.x, this.me.y - coin.y) < COIN.pickupRadius) {
         this.claim(coin.id);
       }
     }
 
-    this.nearNode = this.findNearNode();
+    this.nearNode = this.interior ? null : this.findNearNode();
+    this.nearIgloo = this.interior ? null : iglooAt(this.me.x, this.me.y, [...this.igloos.values()]);
     this.autoSwing();
 
     for (const c of this.chips) {
@@ -987,11 +1121,11 @@ export class PogGame {
   }
 
   private sx(wx: number) {
-    return (wx - this.cam.x) * ZOOM + this.w / 2;
+    return (wx - this.cam.x) * ZOOM * this.roomScale + this.w / 2;
   }
 
   private sy(wy: number) {
-    return (wy - this.cam.y) * Y_SCALE * ZOOM + this.h / 2;
+    return (wy - this.cam.y) * Y_SCALE * ZOOM * this.roomScale + this.h / 2;
   }
 
   private drawGround() {
@@ -1094,7 +1228,34 @@ export class PogGame {
     const wallClock = Date.now();
     const isDepleted = (id: string) => (this.depleted.get(id) ?? 0) > wallClock;
 
+    if (this.interior) {
+      // The room, drawn behind everyone. Floor radii are handed over in
+      // screen pixels — already squashed — so the wall can rise at full
+      // height over them, the way props stand over their footprints.
+      const { igloo } = this.interior;
+      const { rx, ry, doorWidth } = IGLOO.interior;
+      items.push({
+        y: -Infinity,
+        draw: () => {
+          // the room is centred on its own origin, so move there first
+          ctx.save();
+          ctx.translate(this.sx(0), this.sy(0));
+          drawIglooInterior(
+            ctx,
+            rx * ZOOM * this.roomScale,
+            ry * Y_SCALE * ZOOM * this.roomScale,
+            doorWidth * ZOOM * this.roomScale,
+            igloo.style,
+            igloo.owner,
+            now
+          );
+          ctx.restore();
+        },
+      });
+    }
+
     this.props.forEach((p, i) => {
+      if (this.interior) return;
       if (p.x < minX || p.x > maxX || p.y < minY || p.y > maxY) return;
       const nodeId = this.treeNodeByProp.get(i);
       if (nodeId && isDepleted(nodeId)) {
@@ -1105,7 +1266,7 @@ export class PogGame {
       }
     });
 
-    for (const n of this.nodes) {
+    for (const n of this.interior ? [] : this.nodes) {
       if (n.type === 'tree') continue; // drawn as part of the pine above
       if (n.x < minX || n.x > maxX || n.y < minY || n.y > maxY) continue;
       const out = isDepleted(n.id);
@@ -1122,7 +1283,7 @@ export class PogGame {
       });
     }
 
-    for (const igloo of this.igloos.values()) {
+    for (const igloo of this.interior ? [] : this.igloos.values()) {
       if (igloo.x < minX || igloo.x > maxX || igloo.y < minY || igloo.y > maxY) continue;
       items.push({
         y: igloo.y,
@@ -1130,7 +1291,7 @@ export class PogGame {
       });
     }
 
-    for (const c of this.coins) {
+    for (const c of this.interior ? [] : this.coins) {
       if (this.taken.has(c.id)) continue;
       if (c.x < minX || c.x > maxX || c.y < minY || c.y > maxY) continue;
       items.push({ y: c.y, draw: () => drawCoin(ctx, this.sx(c.x), this.sy(c.y), now, ZOOM) });
@@ -1162,8 +1323,11 @@ export class PogGame {
       }
     };
 
+    const here = this.interior?.igloo.wallet;
     for (const r of this.remotes.values()) {
-      if (r.rx < minX || r.rx > maxX || r.ry < minY || r.ry > maxY) continue;
+      // someone indoors is not on the snow, and vice versa
+      if ((r.inside || undefined) !== here) continue;
+      if (!this.interior && (r.rx < minX || r.rx > maxX || r.ry < minY || r.ry > maxY)) continue;
       items.push({
         y: r.ry,
         draw: () => drawActor(r.rx, r.ry, r.dir, r.frame, r.moving, r.color, r.name, r.id, false, r.guest),
@@ -1325,17 +1489,23 @@ export class PogGame {
     ctx.stroke();
 
     for (const r of this.remotes.values()) {
+      if (r.inside) continue; // their x/y are room coordinates, not map ones
       ctx.fillStyle = r.color;
       ctx.beginPath();
       ctx.arc(r.rx * k, r.ry * k, 2.6, 0, Math.PI * 2);
       ctx.fill();
     }
 
+    // Indoors our own x/y mean a spot in the room, so the map shows the
+    // igloo we are standing in rather than a dot at the world's origin.
+    const selfX = this.interior ? this.interior.igloo.x : this.me.x;
+    const selfY = this.interior ? this.interior.igloo.y : this.me.y;
+
     ctx.fillStyle = '#ff5c17';
     ctx.strokeStyle = '#0d2b3a';
     ctx.lineWidth = 1.5;
     ctx.beginPath();
-    ctx.arc(this.me.x * k, this.me.y * k, 4, 0, Math.PI * 2);
+    ctx.arc(selfX * k, selfY * k, 4, 0, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
   }
@@ -1349,11 +1519,17 @@ export class PogGame {
     this.update(dt);
 
     const ctx = this.ctx;
-    ctx.fillStyle = '#cfe3f2';
-    ctx.fillRect(0, 0, this.w, this.h);
-    this.drawGround();
+    if (this.interior) {
+      // the dark beyond the walls, so the lit room reads as an interior
+      ctx.fillStyle = '#12343f';
+      ctx.fillRect(0, 0, this.w, this.h);
+    } else {
+      ctx.fillStyle = '#cfe3f2';
+      ctx.fillRect(0, 0, this.w, this.h);
+      this.drawGround();
+    }
     this.drawWorld();
-    this.drawWeather(dt);
+    if (!this.interior) this.drawWeather(dt);
     this.drawTouchStick();
     this.drawMinimap();
 

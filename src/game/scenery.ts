@@ -843,14 +843,14 @@ function iglooDome(ctx: CanvasRenderingContext2D, w: number, h: number, st: Iglo
 
   ctx.fillStyle = g;
   ctx.beginPath();
-  ctx.ellipse(0, 0, w / 2, h, Math.PI, 0, Math.PI * 2);
+  ctx.ellipse(0, 0, w / 2, h, 0, Math.PI, Math.PI * 2);
   ctx.fill();
 
   // Snow-brick courses, drawn as arcs that follow the dome rather than
   // straight lines across it — that is what sells the curvature.
   ctx.save();
   ctx.beginPath();
-  ctx.ellipse(0, 0, w / 2, h, Math.PI, 0, Math.PI * 2);
+  ctx.ellipse(0, 0, w / 2, h, 0, Math.PI, Math.PI * 2);
   ctx.clip();
 
   ctx.strokeStyle = st.mortar;
@@ -885,7 +885,7 @@ function iglooDome(ctx: CanvasRenderingContext2D, w: number, h: number, st: Iglo
   ctx.strokeStyle = 'rgba(74,120,148,0.8)';
   ctx.lineWidth = 2.2;
   ctx.beginPath();
-  ctx.ellipse(0, 0, w / 2, h, Math.PI, 0, Math.PI * 2);
+  ctx.ellipse(0, 0, w / 2, h, 0, Math.PI, Math.PI * 2);
   ctx.stroke();
 }
 
@@ -962,15 +962,12 @@ export function drawIgloo(
   const w = h * 1.75;
   const st = (Object.hasOwn(IGLOO_STYLES, style) && IGLOO_STYLES[style]) || IGLOO_STYLES.classic;
 
-  shadow(ctx, sx, sy, w * 0.52);
+  // A contact shadow only. There used to be a wide white drift ellipse
+  // banked against the base as well, but at this size it read as a pale
+  // half-disc sitting under the dome rather than as snow.
+  shadow(ctx, sx, sy, w * 0.42);
   ctx.save();
   ctx.translate(sx, sy);
-
-  // drift of snow banked against the base
-  ctx.fillStyle = 'rgba(255,255,255,0.8)';
-  ctx.beginPath();
-  ctx.ellipse(0, 0, w * 0.58, h * 0.16, 0, 0, Math.PI * 2);
-  ctx.fill();
 
   iglooDome(ctx, w, h, st);
 
@@ -1136,6 +1133,156 @@ function drawStall(ctx: CanvasRenderingContext2D, h: number) {
  * Green means the API will accept it; red means it will not, and the HUD
  * says why — both sides run the same `canBuildAt`, so this never lies.
  */
+/**
+ * Inside an igloo: a round room walled in snow blocks, lit warm from a
+ * lamp at the back and cold from the doorway at the front.
+ *
+ * `rx` and `ry` are the FLOOR radii in screen pixels — the caller has
+ * already applied the y-squash — while the wall rises at full height, the
+ * same way props stand upright over squashed footprints. Everything is
+ * positioned off those two numbers so furniture can later be placed
+ * against the same geometry.
+ */
+export function drawIglooInterior(
+  ctx: CanvasRenderingContext2D,
+  rx: number,
+  ry: number,
+  doorWidth: number,
+  style: string,
+  owner: string,
+  time: number
+) {
+  const st = (Object.hasOwn(IGLOO_STYLES, style) && IGLOO_STYLES[style]) || IGLOO_STYLES.classic;
+  const wallH = rx * 0.58; // height is a fraction of the room's width, not its squashed depth
+  const dw = doorWidth / 2;
+
+  /** The silhouette of the room: floor ellipse swept up by the wall height. */
+  const capsule = () => {
+    ctx.beginPath();
+    ctx.ellipse(0, -wallH, rx, ry, 0, Math.PI, Math.PI * 2);
+    ctx.lineTo(rx, 0);
+    ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI);
+    ctx.lineTo(-rx, -wallH);
+    ctx.closePath();
+  };
+
+  // --- the wall
+  ctx.save();
+  capsule();
+  ctx.clip();
+
+  const wall = ctx.createLinearGradient(0, -wallH - ry, 0, ry);
+  wall.addColorStop(0, st.shade);
+  wall.addColorStop(0.5, st.mid);
+  wall.addColorStop(1, st.lit);
+  ctx.fillStyle = wall;
+  ctx.fillRect(-rx, -wallH - ry, rx * 2, wallH + ry * 2);
+
+  // courses of blocks, curving with the wall
+  ctx.strokeStyle = st.mortar;
+  ctx.lineWidth = 1.5;
+  const courses = 4;
+  for (let row = 0; row <= courses; row++) {
+    const y = -wallH + (row / courses) * wallH;
+    ctx.beginPath();
+    ctx.ellipse(0, y, rx, ry, 0, Math.PI, Math.PI * 2);
+    ctx.stroke();
+
+    const blocks = 13;
+    for (let i = 0; i <= blocks; i++) {
+      const a = Math.PI + ((i + (row % 2) * 0.5) / blocks) * Math.PI;
+      const bx = Math.cos(a) * rx;
+      const by = y + Math.sin(a) * ry;
+      ctx.beginPath();
+      ctx.moveTo(bx, by);
+      ctx.lineTo(bx, by + wallH / courses);
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
+
+  // --- the floor
+  const floor = ctx.createRadialGradient(0, -ry * 0.2, rx * 0.08, 0, 0, rx);
+  floor.addColorStop(0, '#eef8fd');
+  floor.addColorStop(0.6, '#d7e9f3');
+  floor.addColorStop(1, '#bcd6e4');
+  ctx.fillStyle = floor;
+  ctx.beginPath();
+  ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(86,132,158,0.3)';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  // --- the doorway, cut through the front of the wall
+  ctx.save();
+  ctx.beginPath();
+  const porch = ry * 0.42;
+  ctx.rect(-dw, ry - 6, dw * 2, porch);
+  ctx.clip();
+  const day = ctx.createLinearGradient(0, ry - 6, 0, ry + porch);
+  day.addColorStop(0, '#e8f6ff');
+  day.addColorStop(1, '#ffffff');
+  ctx.fillStyle = day;
+  ctx.fillRect(-dw, ry - 6, dw * 2, porch);
+  ctx.restore();
+  ctx.strokeStyle = 'rgba(120,160,185,0.45)';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(-dw, ry - 6);
+  ctx.lineTo(-dw, ry + porch);
+  ctx.moveTo(dw, ry - 6);
+  ctx.lineTo(dw, ry + porch);
+  ctx.stroke();
+
+  // daylight spilling in across the floor
+  ctx.save();
+  ctx.beginPath();
+  ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2);
+  ctx.clip();
+  const spill = ctx.createLinearGradient(0, ry, 0, -ry * 0.5);
+  spill.addColorStop(0, 'rgba(232,248,255,0.85)');
+  spill.addColorStop(1, 'rgba(232,248,255,0)');
+  ctx.fillStyle = spill;
+  ctx.beginPath();
+  ctx.moveTo(-dw, ry);
+  ctx.lineTo(dw, ry);
+  ctx.lineTo(dw * 2.6, -ry * 0.6);
+  ctx.lineTo(-dw * 2.6, -ry * 0.6);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+
+  // --- a lamp at the back, so the room is not flat
+  const lampX = -rx * 0.46;
+  const lampY = -ry * 0.42;
+  const flicker = 0.88 + Math.sin(time * 0.0021) * 0.12;
+  const glow = ctx.createRadialGradient(lampX, lampY, 2, lampX, lampY, rx * 0.55 * flicker);
+  glow.addColorStop(0, 'rgba(255,196,110,0.5)');
+  glow.addColorStop(1, 'rgba(255,196,110,0)');
+  ctx.fillStyle = glow;
+  ctx.beginPath();
+  ctx.ellipse(lampX, lampY, rx * 0.55 * flicker, ry * 0.9 * flicker, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = 'rgba(66,103,133,0.2)';
+  ctx.beginPath();
+  ctx.ellipse(lampX, lampY, 14, 6, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.save();
+  ctx.translate(lampX, lampY);
+  drawLantern(ctx, 46, time, 3);
+  ctx.restore();
+
+  // --- whose home this is
+  ctx.save();
+  ctx.font = `700 ${Math.round(rx * 0.075)}px 'Baloo 2', system-ui, sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.fillStyle = 'rgba(58,96,120,0.38)';
+  ctx.fillText(`${owner || 'Somebody'}'s igloo`, 0, -wallH * 0.52);
+  ctx.restore();
+}
+
 export function drawIglooGhost(
   ctx: CanvasRenderingContext2D,
   sx: number,
@@ -1168,13 +1315,13 @@ export function drawIglooGhost(
   const st = (Object.hasOwn(IGLOO_STYLES, style) && IGLOO_STYLES[style]) || IGLOO_STYLES.classic;
   ctx.fillStyle = st.mid;
   ctx.beginPath();
-  ctx.ellipse(0, 0, w / 2, h, Math.PI, 0, Math.PI * 2);
+  ctx.ellipse(0, 0, w / 2, h, 0, Math.PI, Math.PI * 2);
   ctx.fill();
   ctx.globalAlpha = 1;
   ctx.strokeStyle = `rgba(${tint},0.95)`;
   ctx.lineWidth = 2.4;
   ctx.beginPath();
-  ctx.ellipse(0, 0, w / 2, h, Math.PI, 0, Math.PI * 2);
+  ctx.ellipse(0, 0, w / 2, h, 0, Math.PI, Math.PI * 2);
   ctx.stroke();
 
   ctx.restore();

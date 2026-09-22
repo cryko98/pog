@@ -154,6 +154,28 @@ export function dailyQuests(wallet, day = questDay()) {
 }
 
 export const IGLOO = {
+  /** the dome is solid: this is its footprint, in flat world units */
+  solidRadius: 74,
+  /**
+   * Stand this close and E takes you inside. Generous on purpose: the
+   * door faces the camera, but a player who has walked round the back and
+   * pressed E deserves to get in rather than to wonder why nothing
+   * happened.
+   */
+  doorRange: 130,
+  /**
+   * The room you find in there. Its own little coordinate space, centred
+   * on (0, 0), with the doorway at the bottom — walk into it to leave.
+   * Rendered through the same y-squash as the world, so a circle of these
+   * proportions reads as a round room seen at a tilt.
+   */
+  interior: {
+    rx: 260,
+    ry: 185,
+    doorWidth: 124,
+    /** how far past the wall you must step to trigger the way out */
+    doorDepth: 26,
+  },
   /** an igloo needs this much clear snow around it */
   clearance: 150,
   /** and this much distance from the spawn plaza */
@@ -162,6 +184,67 @@ export const IGLOO = {
   propGap: 70,
   styles: ['classic', 'frost', 'amber'],
 };
+
+/**
+ * Push a walker out of any igloo dome it has walked into.
+ *
+ * Igloos are not in `getProps()` — they arrive from the API and the
+ * presence channel and change while you play — so `resolveCollisions`
+ * cannot know about them. Same y-squash convention as the props: the tilt
+ * is a render-time projection, so footprints are squashed to match.
+ */
+export function resolveIgloos(x, y, igloos, radius = PLAYER.radius) {
+  for (const igloo of igloos) {
+    const dx = x - igloo.x;
+    const dy = (y - igloo.y) * 1.7;
+    const min = IGLOO.solidRadius + radius;
+    const dist = Math.hypot(dx, dy);
+    if (dist < 0.0001) {
+      // Dead centre, which is exactly where you are standing the moment
+      // you raise one. Nudge out of the front, not nowhere.
+      y = igloo.y + min / 1.7;
+    } else if (dist < min) {
+      const push = (min - dist) / dist;
+      x += dx * push;
+      y += (dy * push) / 1.7;
+    }
+  }
+  return { x, y };
+}
+
+/** Which igloo, if any, is close enough to step into from here. */
+export function iglooAt(x, y, igloos) {
+  let best = null;
+  let bestDist = IGLOO.doorRange;
+  for (const igloo of igloos) {
+    // the door faces the camera, so favour standing in front of it
+    const d = Math.hypot(x - igloo.x, (y - igloo.y - 30) * 1.25);
+    if (d < bestDist) {
+      bestDist = d;
+      best = igloo;
+    }
+  }
+  return best;
+}
+
+/** Keep a walker inside the room, and say when they have stepped out. */
+export function resolveInterior(x, y, radius = PLAYER.radius) {
+  const { rx, ry, doorWidth, doorDepth } = IGLOO.interior;
+  const inDoorway = Math.abs(x) < doorWidth / 2;
+
+  // the doorway is a gap in the wall, so walking into it is how you leave
+  if (inDoorway && y > ry - radius) {
+    if (y > ry + doorDepth) return { x, y, leaving: true };
+    return { x, y, leaving: false };
+  }
+
+  const ex = (x / (rx - radius)) ** 2 + (y / (ry - radius)) ** 2;
+  if (ex > 1) {
+    const k = 1 / Math.sqrt(ex);
+    return { x: x * k, y: y * k, leaving: false };
+  }
+  return { x, y, leaving: false };
+}
 
 /**
  * Can an igloo stand here? Shared so the ghost preview the player drags

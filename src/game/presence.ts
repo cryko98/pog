@@ -117,6 +117,12 @@ export interface PresenceState {
   y: number;
   dir: Dir;
   moving: boolean;
+  /**
+   * The wallet whose igloo this penguin has stepped into, if any. Players
+   * indoors are not drawn on the snow — without this they would appear to
+   * be standing on their own doorstep the whole time they are inside.
+   */
+  inside?: string;
 }
 
 export interface Presence extends PresenceState {

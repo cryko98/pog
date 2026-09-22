@@ -404,6 +404,50 @@ export async function offerAtCairn(
   };
 }
 
+/**
+ * Hand a profile resources, for local testing only. Reached solely from
+ * `api/dev`, which is off unless POG_DEV_KEY is set and refuses to exist
+ * on a production deployment.
+ *
+ * Note what is NOT here: frost, frostStreak, playMinutes, playToday. A
+ * shortcut for testing the igloo must not also be a shortcut past the
+ * airdrop gate, so the fields that decide who gets paid are unreachable
+ * from this path — the allow-list below is the whole of it.
+ */
+export async function devGrant(
+  wallet: string,
+  gift: Record<string, unknown>
+): Promise<{ profile?: Profile; granted?: Record<string, number>; error?: string }> {
+  const profile = await getProfile(wallet);
+  if (!profile) return { error: 'Pick a username first.' };
+
+  const granted: Record<string, number> = {};
+
+  for (const key of ['wood', 'ice', 'fish', 'pog'] as const) {
+    const amount = Math.floor(Number(gift[key]) || 0);
+    if (amount > 0) {
+      profile[key] += amount;
+      granted[key] = amount;
+    }
+  }
+
+  // items are named by the recipes, so only those ids can be conjured
+  const items = gift.items;
+  if (items && typeof items === 'object') {
+    for (const [id, raw] of Object.entries(items as Record<string, unknown>)) {
+      if (!Object.hasOwn(RECIPES, id)) continue;
+      const give = Object.keys(RECIPES[id as keyof typeof RECIPES].gives)[0];
+      const amount = Math.floor(Number(raw) || 0);
+      if (amount > 0) {
+        profile.items[give] = (profile.items[give] || 0) + amount;
+        granted[give] = amount;
+      }
+    }
+  }
+
+  return { profile: await putProfile(profile), granted };
+}
+
 /* ------------------------------------------------------------------ *
  * Wallet auth (Solana ed25519 over a plain-text message)
  * ------------------------------------------------------------------ */
