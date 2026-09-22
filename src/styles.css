@@ -898,6 +898,13 @@ section.band {
 
 .hud-player {
   grid-area: 1 / 1;
+  /* Without this the card stretches to the height of the tallest thing in
+     row 1 — the icon column, which is two rows of buttons deep on a narrow
+     screen — and ends up twice as tall as its own contents. */
+  align-self: start;
+  /* and the same in x: column 1 is as wide as the chat bar below it, so
+     without this the card stretches into a mostly-empty strip */
+  justify-self: start;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -919,9 +926,16 @@ section.band {
 }
 
 .hud-player .who small {
+  display: block;
   color: #9fc4d2;
   font-size: 0.74rem;
   font-family: ui-monospace, Menlo, monospace;
+  /* Without this, "playing as guest" breaks across three lines the moment
+     the panel is squeezed, and the panel grows tall instead of the text
+     getting shorter. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .pog-counter {
@@ -960,6 +974,12 @@ section.band {
   justify-content: flex-end;
   gap: 10px;
   align-items: flex-start;
+}
+
+/* The online pill takes its own line, so the icons below it wrap in even
+   rows rather than leaving one stranded beside it. */
+.hud-status {
+  flex: 0 0 100%;
 }
 
 .hud-status {
@@ -1043,6 +1063,10 @@ section.band {
 
 .chat-form input {
   flex: 1;
+  /* A flex item will not shrink below its content width unless told to,
+     and the placeholder is wider than the bar on a phone — so without
+     this the input pushes Send off the edge. */
+  min-width: 0;
   padding: 10px 14px;
   border-radius: 999px;
   border: none;
@@ -1478,7 +1502,11 @@ section.band {
   }
 
   .hud-chat {
-    width: min(280px, 70vw);
+    /* The chat sits in column 1 but is wider than the player card above
+       it, so it spills right — and at 70vw it slid under the minimap and
+       swallowed half the Send button. 142px is the minimap (112) plus the
+       gutter either side, which leaves a clean 10px gap at any width. */
+    width: calc(100vw - 142px);
   }
 
   .chat-log {
@@ -1741,8 +1769,10 @@ section.band {
 
 .side-panel.season {
   width: 306px;
-  max-height: calc(100vh - 150px);
-  overflow-y: auto;
+  /* No max-height here: the base rule already caps every panel at its grid
+     row, which is the only figure that is actually correct. A `100vh minus
+     a guess` overflowed the bottom of the window by however far the guess
+     was off. */
   scrollbar-width: thin;
 }
 
@@ -1930,4 +1960,56 @@ section.band {
   gap: 6px;
   font-size: 0.79rem;
   color: #9fe8cb;
+}
+
+/* ---- narrow HUD ----
+   Three things compete for the top row: the player card, the prompt, and
+   the icon column. The icons are the only one that can wrap without
+   losing meaning, so they are the ones that give ground — capped to a
+   tidy three per row rather than letting a six-wide strip squeeze the
+   player's own name down to one letter. */
+
+/* A range, not an open-ended max-width: the phone block further up sets a
+   tighter 112px, and this rule sits later in the file, so left open-ended
+   it would quietly win at 375px too. */
+@media (max-width: 900px) and (min-width: 621px) {
+  .hud-top-right {
+    max-width: 140px;
+  }
+}
+
+@media (max-width: 620px) {
+  /* On a phone the lock icon has to carry the meaning on its own; the
+     button keeps its title for a long press. */
+  .pog-counter.locked span {
+    display: none;
+  }
+
+  .pog-counter.locked {
+    padding: 6px 9px;
+  }
+}
+
+@media (max-width: 620px) {
+  /*
+   * On a phone a side panel floats over the world instead of sitting in
+   * the grid. In the grid it widens column 3, which collapses column 2 to
+   * nothing and crushes the player card next to it — the name ends up one
+   * letter wide and "playing as guest" stacks three lines deep.
+   *
+   * Anchored to the bottom rather than the top so it never depends on how
+   * tall the icon column happens to be, and stopping above the minimap.
+   */
+  .side-panel,
+  .side-panel.backpack,
+  .side-panel.season,
+  .side-panel.quests {
+    position: absolute;
+    right: 10px;
+    bottom: 130px;
+    width: min(250px, calc(100vw - 20px));
+    max-height: calc(100vh - 260px);
+    overflow-y: auto;
+    scrollbar-width: thin;
+  }
 }

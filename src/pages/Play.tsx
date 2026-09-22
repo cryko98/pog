@@ -283,7 +283,10 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
               onClick={() => navigate('home')}
               title="Connect a Solana wallet to collect $POG"
             >
-              <Icon name="lock" size={13} /> connect to earn
+              {/* the label is a span so it can be dropped on a phone,
+                  where the lock alone has to carry it */}
+              <Icon name="lock" size={13} />
+              <span>connect to earn</span>
             </button>
           ) : (
             <div className="pog-counter" title="$POG collected">
