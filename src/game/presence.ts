@@ -123,6 +123,8 @@ export interface PresenceState {
    * be standing on their own doorstep the whole time they are inside.
    */
   inside?: string;
+  /** the penguin's own level, so the tag reads right for everyone */
+  level?: number;
 }
 
 export interface Presence extends PresenceState {

@@ -318,3 +318,64 @@ export function furnitureThumb(id: string, size = 44): string {
   drawFurniture(ctx, id, 0, 0, size / 120, 0);
   return c.toDataURL();
 }
+
+/**
+ * The igloo market: a little office with a board of listings outside,
+ * and a model igloo on the counter so it reads as an estate agent.
+ */
+export function drawMarketHouse(ctx: CanvasRenderingContext2D, h: number) {
+  const w = h * 1.2;
+
+  // walls
+  ctx.fillStyle = '#e9f4fa';
+  ctx.beginPath();
+  ctx.roundRect(-w * 0.44, -h * 0.68, w * 0.88, h * 0.68, 4);
+  ctx.fill();
+  ctx.strokeStyle = '#8fb6cc';
+  ctx.lineWidth = 1.6;
+  ctx.stroke();
+
+  // snow-laden roof
+  ctx.fillStyle = '#0d5d5a';
+  ctx.beginPath();
+  ctx.moveTo(-w * 0.54, -h * 0.66);
+  ctx.lineTo(0, -h * 0.98);
+  ctx.lineTo(w * 0.54, -h * 0.66);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = 'rgba(255,255,255,0.92)';
+  ctx.beginPath();
+  ctx.moveTo(-w * 0.54, -h * 0.66);
+  ctx.lineTo(0, -h * 0.98);
+  ctx.lineTo(w * 0.1, -h * 0.79);
+  ctx.lineTo(-w * 0.3, -h * 0.72);
+  ctx.closePath();
+  ctx.fill();
+
+  // a board of listings on the wall
+  ctx.fillStyle = '#6b513a';
+  ctx.beginPath();
+  ctx.roundRect(-w * 0.36, -h * 0.58, w * 0.34, h * 0.36, 3);
+  ctx.fill();
+  ctx.fillStyle = '#f4f0e6';
+  for (let i = 0; i < 3; i++) {
+    ctx.beginPath();
+    ctx.roundRect(-w * 0.33, -h * (0.54 - i * 0.1), w * 0.28, h * 0.07, 1.5);
+    ctx.fill();
+  }
+
+  // doorway
+  ctx.fillStyle = '#2b4d5e';
+  ctx.beginPath();
+  ctx.roundRect(w * 0.1, -h * 0.4, w * 0.2, h * 0.4, [4, 4, 0, 0]);
+  ctx.fill();
+
+  // a model igloo on the counter, for sale
+  ctx.fillStyle = '#d9ecf6';
+  ctx.beginPath();
+  ctx.ellipse(-w * 0.19, -h * 0.68, w * 0.09, h * 0.09, 0, Math.PI, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = '#8fb6cc';
+  ctx.lineWidth = 1.2;
+  ctx.stroke();
+}

@@ -6,7 +6,7 @@ export const WORLD = {
   width: 6400,
   height: 6400,
   spawn: { x: 3200, y: 3200 },
-  spawnRadius: 360,
+  spawnRadius: 560,
 };
 
 export const PLAYER = {
@@ -42,10 +42,74 @@ export const GATHER = {
   range: 86,
   /** how long a swing takes, and how many land before the node gives way */
   swingMs: 420,
-  tree: { yields: { wood: 2 }, respawnMs: 300000, hits: 5, label: 'Chop', verb: 'chopping' },
-  ice: { yields: { ice: 2 }, respawnMs: 240000, hits: 3, label: 'Cut ice', verb: 'cutting ice' },
-  hole: { yields: { fish: 1 }, respawnMs: 180000, hits: 3, label: 'Fish', verb: 'reeling in', needs: 'rod' },
+  /** `bonusEvery` levels of the matching skill add one more to the yield */
+  tree: { yields: { wood: 2 }, respawnMs: 300000, hits: 5, label: 'Chop', verb: 'chopping', bonusEvery: 3 },
+  ice: { yields: { ice: 2 }, respawnMs: 240000, hits: 3, label: 'Cut ice', verb: 'cutting ice', bonusEvery: 3 },
+  hole: { yields: { fish: 1 }, respawnMs: 180000, hits: 3, label: 'Fish', verb: 'reeling in', needs: 'rod', bonusEvery: 4 },
 };
+
+/* ------------------------------------------------------------------ *
+ * Skills
+ *
+ * One level ladder per thing you can gather, earned by doing it. A
+ * higher level takes more out of each node, which is the only reward —
+ * it buys speed at the resource loop, and nothing at the Frost ledger.
+ *
+ * That separation is deliberate. The cairn caps at 30 Frost a day
+ * whatever you bring it, so a level-10 woodcutter reaches the cap sooner
+ * but never passes it. Skills make the game quicker, not the airdrop
+ * bigger.
+ * ------------------------------------------------------------------ */
+
+export const SKILLS = {
+  tree: { id: 'tree', label: 'Woodcutting', icon: 'wood', verb: 'pines felled' },
+  ice: { id: 'ice', label: 'Ice cutting', icon: 'ice', verb: 'blocks cut' },
+  hole: { id: 'hole', label: 'Fishing', icon: 'fish', verb: 'fish landed' },
+};
+
+/**
+ * Completed gathers needed for each level. The steps widen on purpose:
+ * the first level is a few minutes, the last is a season.
+ */
+export const SKILL_XP = [0, 25, 70, 150, 280, 460, 700, 1000, 1400, 1900];
+export const SKILL_MAX = SKILL_XP.length;
+
+/** Level, and how far along the bar to the next one. */
+export function skillLevel(count = 0) {
+  const done = Math.max(0, Math.floor(Number(count) || 0));
+  let level = 1;
+  for (let i = 0; i < SKILL_XP.length; i++) if (done >= SKILL_XP[i]) level = i + 1;
+  const next = level < SKILL_MAX ? SKILL_XP[level] : null;
+  const floor = SKILL_XP[level - 1];
+  return {
+    level,
+    count: done,
+    next,
+    into: done - floor,
+    span: next === null ? 0 : next - floor,
+  };
+}
+
+/** What one completed gather gives, at this skill level. */
+export function gatherYield(kind, count = 0) {
+  const rule = Object.hasOwn(GATHER, kind) ? GATHER[kind] : null;
+  if (!rule) return {};
+  const { level } = skillLevel(count);
+  const bonus = Math.floor((level - 1) / rule.bonusEvery);
+  const out = {};
+  for (const [res, base] of Object.entries(rule.yields)) out[res] = base + bonus;
+  return out;
+}
+
+/**
+ * The number over a penguin's head: the three skill levels added up, so
+ * it starts at 1 and only moves when you actually work at something.
+ */
+export function playerLevel(skills = {}) {
+  let total = 0;
+  for (const kind of Object.keys(SKILLS)) total += skillLevel(skills[kind]).level;
+  return total - (Object.keys(SKILLS).length - 1);
+}
 
 /**
  * Per-minute ceilings on COMPLETED gathers — the individual swings that
@@ -97,6 +161,16 @@ export const RECIPES = {
 
 /** Which profile fields a recipe may pay out into; anything else is an item. */
 export const RESOURCE_KEYS = ['pog', 'wood', 'ice', 'fish'];
+
+/** What each plaza building calls itself, on the sign over its roof. */
+export const STATION_SIGNS = {
+  craft: 'Workbench',
+  shop: 'Hat stall',
+  fire: 'Cookout',
+  cairn: 'Season cairn',
+  furnish: 'Furnishings',
+  market: 'Igloo market',
+};
 
 /* ------------------------------------------------------------------ *
  * Daily quests
@@ -156,7 +230,7 @@ export function dailyQuests(wallet, day = questDay()) {
 /* ------------------------------------------------------------------ *
  * Furniture, igloo levels and the daily yield
  *
- * Bought with soft $POG at the stall east of the plaza, placed inside your
+ * Bought with soft $POG at the stall on the plaza ring, placed inside your
  * own igloo, and worth `value` toward its level. The level pays a small
  * daily $POG yield — deliberately a slow payback, so furnishing is a SINK
  * that trickles back rather than a faucet you buy once and farm.
@@ -542,6 +616,7 @@ const FOOTPRINT = {
   banner: 80,
   workbench: 46,
   stall: 52,
+  market: 54,
   campfire: 44,
   cairn: 40,
   furnishop: 54,
@@ -596,32 +671,38 @@ export function getProps() {
   // Landmarks go down first so the scattered pass has to work around them.
   const sx = WORLD.spawn.x;
   const sy = WORLD.spawn.y;
+  const RING = 400;
+  const RING_Y = 0.82; // the plaza is painted as an ellipse; follow it
+  const onRing = (deg) => ({
+    x: sx + Math.cos((deg * Math.PI) / 180) * RING,
+    y: sy + Math.sin((deg * Math.PI) / 180) * RING * RING_Y,
+  });
+
   const landmarks = [
-    { type: 'banner', x: sx, y: sy - 215, r: 16, scale: 1, variant: 0 },
-    // the two places you actually do business
-    { type: 'workbench', x: sx - 205, y: sy - 55, r: 30, scale: 1, variant: 0 },
-    { type: 'stall', x: sx + 205, y: sy - 55, r: 32, scale: 1, variant: 0 },
-    // a catch is worth nothing raw; the fire is where fish becomes $POG
-    { type: 'campfire', x: sx, y: sy + 120, r: 24, scale: 1, variant: 0 },
-    // and the cairn is where a season's work is counted
-    { type: 'cairn', x: sx - 250, y: sy + 185, r: 22, scale: 1, variant: 0 },
-    // The furnishing stall sits outside the plaza ring rather than on it:
-    // the plaza is where you work, and this is where you spend.
-    { type: 'furnishop', x: sx + 470, y: sy + 150, r: 34, scale: 1, variant: 0 },
-    { type: 'snowman', x: sx - 118, y: sy + 150, r: 16, scale: 1.2, variant: 3 },
-    { type: 'snowman', x: sx + 132, y: sy + 152, r: 16, scale: 1.1, variant: 7 },
-    { type: 'pine', x: sx - 322, y: sy + 252, r: 16, scale: 1.3, variant: 4 },
-    { type: 'pine', x: sx + 330, y: sy + 244, r: 16, scale: 1.25, variant: 5 },
-    { type: 'pine', x: sx + 302, y: sy - 292, r: 16, scale: 1.1, variant: 6 },
-    { type: 'pine', x: sx - 340, y: sy - 300, r: 16, scale: 1.2, variant: 9 },
+    // Six trades, evenly spaced, so the plaza reads as a square of shops
+    // rather than a pile. The banner comes off the ring and back to the
+    // middle, where it is a landmark instead of a seventh shopfront.
+    { type: 'workbench', ...onRing(210), r: 30, scale: 1, variant: 0 },
+    { type: 'stall', ...onRing(270), r: 32, scale: 1, variant: 0 },
+    { type: 'furnishop', ...onRing(330), r: 34, scale: 1, variant: 0 },
+    { type: 'market', ...onRing(30), r: 32, scale: 1, variant: 0 },
+    { type: 'campfire', ...onRing(90), r: 24, scale: 1, variant: 0 },
+    { type: 'cairn', ...onRing(150), r: 22, scale: 1, variant: 0 },
+    { type: 'banner', x: sx, y: sy - 150, r: 16, scale: 1, variant: 0 },
+    { type: 'snowman', x: sx - 150, y: sy + 140, r: 16, scale: 1.2, variant: 3 },
+    { type: 'snowman', x: sx + 158, y: sy + 142, r: 16, scale: 1.1, variant: 7 },
+    { type: 'pine', x: sx - 452, y: sy + 332, r: 16, scale: 1.3, variant: 4 },
+    { type: 'pine', x: sx + 460, y: sy + 324, r: 16, scale: 1.25, variant: 5 },
+    { type: 'pine', x: sx + 432, y: sy - 392, r: 16, scale: 1.1, variant: 6 },
+    { type: 'pine', x: sx - 470, y: sy - 400, r: 16, scale: 1.2, variant: 9 },
   ];
-  // ice lanterns ring the plaza where the igloos used to stand
-  for (let i = 0; i < 8; i++) {
-    const a = (i / 8) * Math.PI * 2 + 0.4;
+  // ice lanterns ring the plaza, just inside the painted edge
+  for (let i = 0; i < 10; i++) {
+    const a = (i / 10) * Math.PI * 2 + 0.31;
     landmarks.push({
       type: 'lantern',
-      x: sx + Math.cos(a) * 292,
-      y: sy + Math.sin(a) * 292 * 0.82,
+      x: sx + Math.cos(a) * 500,
+      y: sy + Math.sin(a) * 500 * RING_Y,
       r: 10,
       scale: 1,
       variant: i,
@@ -796,13 +877,20 @@ export function getNodes() {
 
   // The plaza stations are interactable the same way resource nodes are —
   // walk up, press E — they just open a panel instead of yielding anything.
-  nodes.push(
-    { id: 'station-craft', type: 'craft', x: WORLD.spawn.x - 205, y: WORLD.spawn.y - 55 },
-    { id: 'station-shop', type: 'shop', x: WORLD.spawn.x + 205, y: WORLD.spawn.y - 55 },
-    { id: 'station-fire', type: 'fire', x: WORLD.spawn.x, y: WORLD.spawn.y + 120 },
-    { id: 'station-cairn', type: 'cairn', x: WORLD.spawn.x - 250, y: WORLD.spawn.y + 185 },
-    { id: 'station-furnish', type: 'furnish', x: WORLD.spawn.x + 470, y: WORLD.spawn.y + 150 }
-  );
+  // Stations are the props, so read their positions from the same place
+  // rather than repeating the arithmetic and letting the two drift.
+  const stationOf = {
+    workbench: 'craft',
+    stall: 'shop',
+    campfire: 'fire',
+    cairn: 'cairn',
+    furnishop: 'furnish',
+    market: 'market',
+  };
+  for (const prop of getProps()) {
+    const kind = stationOf[prop.type];
+    if (kind) nodes.push({ id: 'station-' + kind, type: kind, x: prop.x, y: prop.y });
+  }
 
   // Every pine is choppable.
   getProps().forEach((p, i) => {

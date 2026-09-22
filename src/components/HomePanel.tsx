@@ -13,9 +13,11 @@ interface Props {
   onTakeNearest: () => Promise<string | null>;
   onChanged: () => void;
   onClose: () => void;
+  /** which tab the building that opened this wants to show */
+  initialTab?: Tab;
 }
 
-type Tab = 'home' | 'shop' | 'market';
+export type Tab = 'home' | 'shop' | 'market';
 
 const big = (n: number) => n.toLocaleString('en-US');
 
@@ -27,9 +29,9 @@ const big = (n: number) => n.toLocaleString('en-US');
  * cannot touch it — an igloo that paid toward the airdrop would be passive
  * income toward the drop, which is the thing the gate exists to stop.
  */
-export function HomePanel({ guest, refresh, hud, onPlace, onTakeNearest, onChanged, onClose }: Props) {
+export function HomePanel({ guest, refresh, hud, onPlace, onTakeNearest, onChanged, onClose, initialTab = "home" }: Props) {
   const [state, setState] = useState<HomeState | null>(null);
-  const [tab, setTab] = useState<Tab>('home');
+  const [tab, setTab] = useState<Tab>(initialTab);
   const [busy, setBusy] = useState('');
   const [note, setNote] = useState('');
   const [asking, setAsking] = useState('250');

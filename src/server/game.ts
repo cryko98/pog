@@ -41,6 +41,7 @@ import {
   canBuildAt,
   dailyQuests,
   getCoins,
+  gatherYield,
   getNode,
   questDay,
   skinById,
@@ -198,6 +199,12 @@ export interface Profile extends FrostFields {
   skin: string;
   /** minutes actually played, credited at most one per real minute */
   playMinutes: number;
+  /**
+   * Completed gathers per kind, which is all the XP there is. Levels and
+   * yields are derived from these, never stored — a stored level would
+   * drift the first time the curve was tuned.
+   */
+  skills: Record<string, number>;
   /** consecutive days on which all three daily quests were cleared */
   streak: number;
   /** the last day that streak was extended, so it can lapse */
@@ -225,6 +232,18 @@ export interface Igloo {
   lastYield?: number;
 }
 
+/** Only the three known skills, only whole non-negative counts. */
+function sanitizeSkills(raw: unknown): Record<string, number> {
+  const out: Record<string, number> = { tree: 0, ice: 0, hole: 0 };
+  if (raw && typeof raw === 'object') {
+    for (const kind of Object.keys(out)) {
+      const n = Math.floor(Number((raw as Record<string, unknown>)[kind]) || 0);
+      out[kind] = Math.max(0, Math.min(1_000_000, n));
+    }
+  }
+  return out;
+}
+
 /** Older records predate the inventory, so fill in whatever is missing. */
 function normalize(p: Partial<Profile> & { wallet: string }): Profile {
   return {
@@ -239,6 +258,7 @@ function normalize(p: Partial<Profile> & { wallet: string }): Profile {
     skins: Array.isArray(p.skins) ? p.skins : ['default'],
     skin: typeof p.skin === 'string' ? p.skin : 'default',
     playMinutes: Math.max(0, Math.floor(Number(p.playMinutes) || 0)),
+    skills: sanitizeSkills(p.skills),
     streak: Math.max(0, Math.floor(Number(p.streak) || 0)),
     lastQuestDay: typeof p.lastQuestDay === 'string' ? p.lastQuestDay : '',
     ...normalizeFrost(p),
@@ -746,12 +766,14 @@ export async function gather(
   }
   await store.del(K.hits(wallet, node.id));
 
-  const gained: Record<string, number> = {};
-  for (const [res, amount] of Object.entries(rule.yields)) {
-    const key = res as 'wood' | 'ice' | 'fish';
-    profile[key] += amount as number;
-    gained[res] = amount as number;
+  // What it gives depends on how good you are at this. The count is read
+  // before the increment, so the level you had when you swung is the
+  // level that pays — not the one you reach by landing the blow.
+  const gained = gatherYield(node.type, profile.skills[node.type] || 0) as Record<string, number>;
+  for (const [res, amount] of Object.entries(gained)) {
+    profile[res as 'wood' | 'ice' | 'fish'] += amount;
   }
+  profile.skills[node.type] = (profile.skills[node.type] || 0) + 1;
 
   const saved = await putProfile(profile);
   await bumpQuest(wallet, node.type, 1);

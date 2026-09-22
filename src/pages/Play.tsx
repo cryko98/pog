@@ -3,7 +3,7 @@ import type { Route } from '../App';
 import { useSession } from '../state/session';
 import { shortAddress } from '../lib/wallet';
 import { api, type LeaderboardEntry, type QuestBoard } from '../lib/api';
-import { PogGame, type ChatLine, type HudState } from '../game/engine';
+import { PogGame, type ChatLine, type HudState, type StationKind } from '../game/engine';
 import { PenguinMark } from '../components/PenguinMark';
 import { ProfileModal } from '../components/ProfileModal';
 import { BackpackPanel } from '../components/BackpackPanel';
@@ -50,6 +50,12 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
   const [showQuests, setShowQuests] = useState(false);
   const [showSeason, setShowSeason] = useState(false);
   const [showHome, setShowHome] = useState(false);
+  /**
+   * Which plaza building is open, if any. Buildings get a window in the
+   * middle of the screen rather than the side rail — you walked up to a
+   * shopfront, so the shop should be what you are looking at.
+   */
+  const [station, setStation] = useState<StationKind | null>(null);
   /** bumped when the igloo, its furniture or its level changed */
   const [homeTick, setHomeTick] = useState(0);
   /** bumped whenever something may have moved the Frost ledger */
@@ -89,23 +95,18 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
       onSeason: () => setSeasonTick((n) => n + 1),
       onHome: () => setHomeTick((n) => n + 1),
       onStation: (which) => {
-        // the cairn has its own panel; the other three are backpack tabs
-        if (which === 'cairn') {
-          setShowBag(false);
-          setBagPinned(false);
-          setShowSeason(true);
-          return;
+        // walking up to a shopfront closes the side rail and opens the
+        // building itself, centred
+        setShowBag(false);
+        setBagPinned(false);
+        setShowSeason(false);
+        setShowQuests(false);
+        setShowBoard(false);
+        setShowHome(false);
+        if (which === 'fire' || which === 'craft' || which === 'shop') {
+          setBagTab(which === 'fire' ? 'cook' : which);
         }
-        if (which === 'furnish') {
-          setShowBag(false);
-          setBagPinned(false);
-          setShowSeason(false);
-          setShowHome(true);
-          return;
-        }
-        setBagTab(which === 'fire' ? 'cook' : (which as 'craft' | 'shop'));
-        setBagPinned(true); // opened from a station, so it stays until closed
-        setShowBag(true);
+        setStation(which);
       },
     });
     gameRef.current = game;
@@ -148,6 +149,8 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
         chatInputRef.current?.focus();
       } else if (e.key === 'Escape' && typing) {
         chatInputRef.current?.blur();
+      } else if (e.key === 'Escape' && !typing) {
+        setStation(null);
       }
     };
     window.addEventListener('keydown', onKey);
@@ -443,6 +446,61 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
               setShowBag(false);
             }}
           />
+        )}
+
+        {station && (
+          <div
+            className="station-modal"
+            onClick={(e) => {
+              if (e.target === e.currentTarget) setStation(null);
+            }}
+          >
+            {(station === 'craft' || station === 'shop' || station === 'fire') && (
+              <BackpackPanel
+                key={bagTab}
+                initialTab={bagTab}
+                inventory={hud.inventory}
+                scarf={identity!.color}
+                skins={profileSkins}
+                equipped={equippedSkin}
+                guest={!!identity?.guest}
+                onCraft={(r) => gameRef.current?.craft(r) ?? Promise.resolve('Not in the world yet.')}
+                onBuild={(st) => {
+                  setStation(null);
+                  gameRef.current?.startBuilding(st);
+                }}
+                onBuy={buySkin}
+                onEquip={equipSkin}
+                onClose={() => setStation(null)}
+              />
+            )}
+            {station === 'cairn' && (
+              <SeasonPanel
+                guest={!!identity?.guest}
+                inventory={hud.inventory}
+                refresh={seasonTick}
+                onOffer={(id) => gameRef.current?.offer(id) ?? Promise.resolve('Not in the world yet.')}
+                onClose={() => setStation(null)}
+              />
+            )}
+            {(station === 'furnish' || station === 'market') && (
+              <HomePanel
+                guest={!!identity?.guest}
+                refresh={homeTick}
+                hud={hud}
+                initialTab={station === 'market' ? 'market' : 'shop'}
+                onPlace={(id) => {
+                  setStation(null);
+                  gameRef.current?.startPlacing(id);
+                }}
+                onTakeNearest={() =>
+                  gameRef.current?.takeNearestPiece() ?? Promise.resolve('Not in the world yet.')
+                }
+                onChanged={() => setHomeTick((n) => n + 1)}
+                onClose={() => setStation(null)}
+              />
+            )}
+          </div>
         )}
 
         {showHome && !showBag && (

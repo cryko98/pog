@@ -16,6 +16,8 @@ import {
   resolveInterior,
   iglooAt,
   iglooLevel,
+  playerLevel,
+  STATION_SIGNS,
   canPlaceFurniture,
   furnitureById,
   GATHER,
@@ -33,6 +35,7 @@ import {
   drawIglooInterior,
   drawNode,
   drawProp,
+  drawSign,
   drawStump,
   getGroundChunk,
   type Prop,
@@ -57,7 +60,13 @@ import {
 import { api, type QuestBoard } from '../lib/api';
 
 export const Y_SCALE = 0.62;
-const ZOOM = 1;
+/**
+ * Pulled back from 1. The plaza grew and the stations moved out onto its
+ * ring, so at 1:1 you could only see two of them at once. Everything
+ * drawn in the world takes this, so the whole scene scales together
+ * rather than the ground sliding under props that stayed the same size.
+ */
+const ZOOM = 0.82;
 const PENGUIN_WORLD_HEIGHT = 78;
 const HEARTBEAT_MS = 25_000;
 
@@ -127,9 +136,9 @@ interface Options {
   onHome: () => void;
 }
 
-export type StationKind = 'craft' | 'shop' | 'fire' | 'cairn' | 'furnish';
+export type StationKind = 'craft' | 'shop' | 'fire' | 'cairn' | 'furnish' | 'market';
 
-const STATION_KINDS: StationKind[] = ['craft', 'shop', 'fire', 'cairn', 'furnish'];
+const STATION_KINDS: StationKind[] = ['craft', 'shop', 'fire', 'cairn', 'furnish', 'market'];
 const isStation = (type: string): type is StationKind => STATION_KINDS.includes(type as StationKind);
 
 const STATION_PROMPT: Record<StationKind, string> = {
@@ -138,6 +147,17 @@ const STATION_PROMPT: Record<StationKind, string> = {
   fire: 'Press E to cook at the fire',
   cairn: 'Press E to leave an offering',
   furnish: 'Press E to browse furnishings',
+  market: 'Press E to open the igloo market',
+};
+
+/** How high each building stands, so its sign clears the roof. */
+const SIGN_HEIGHT: Record<string, number> = {
+  craft: 62,
+  shop: 86,
+  market: 96,
+  fire: 58,
+  cairn: 84,
+  furnish: 92,
 };
 
 const DIR_KEYS: Record<string, [number, number]> = {
@@ -246,6 +266,8 @@ export class PogGame {
    * normal size so it stays readable in a scaled-down room.
    */
   private roomScale = 1;
+  /** completed gathers per kind, mirrored from the profile for the tag */
+  private skills: Record<string, number> = {};
   /** a furnishing being positioned inside the room, ghost following you */
   private placing: { id: string } | null = null;
   private placeCheck = { ok: false, reason: '' };
@@ -311,6 +333,7 @@ export class PogGame {
         // entirely, and everyone in the same room to read them as room
         // coordinates, which is exactly what they are.
         inside: this.interior?.igloo.wallet,
+        level: playerLevel(this.skills),
       })),
 
       subscribePresence(this.selfId, (players) => {
@@ -458,8 +481,10 @@ export class PogGame {
     ice: number;
     fish: number;
     items: Record<string, number>;
+    skills?: Record<string, number>;
   }) {
     this.me.pog = profile.pog;
+    this.skills = profile.skills ?? this.skills;
     this.inventory = {
       pog: profile.pog,
       wood: profile.wood,
@@ -1139,7 +1164,9 @@ export class PogGame {
       const { rx, ry } = IGLOO.interior;
       const wide = rx * 2 * 1.12; // the room plus a margin
       const tall = rx * 0.58 + ry * 2 * Y_SCALE + ry * 0.42 * Y_SCALE + 60;
-      this.roomScale = Math.min(1, this.w / wide, this.h / tall);
+      // divided by ZOOM because sx/sy multiply by both: the room should
+      // fill the window, not be pulled back with the world
+      this.roomScale = Math.min(1, this.w / wide, this.h / tall) / ZOOM;
     } else {
       this.roomScale = 1;
     }
@@ -1273,8 +1300,8 @@ export class PogGame {
 
   /** The level of the igloo this wallet owns, or 0 if they have none. */
   private levelOf(id: string): number {
-    const igloo = this.igloos.get(id);
-    return igloo ? iglooLevel(igloo.furniture ?? []).level : 0;
+    if (id === this.selfId) return playerLevel(this.skills);
+    return this.remotes.get(id)?.level ?? 0;
   }
 
   private drawNameTag(x: number, y: number, name: string, color: string, isSelf: boolean, guest: boolean, level = 0) {
@@ -1432,7 +1459,17 @@ export class PogGame {
       if (igloo.x < minX || igloo.x > maxX || igloo.y < minY || igloo.y > maxY) continue;
       items.push({
         y: igloo.y,
-        draw: () => drawIgloo(ctx, this.sx(igloo.x), this.sy(igloo.y), ZOOM, igloo.style, igloo.owner, now),
+        draw: () =>
+          drawIgloo(
+            ctx,
+            this.sx(igloo.x),
+            this.sy(igloo.y),
+            ZOOM,
+            igloo.style,
+            igloo.owner,
+            now,
+            iglooLevel(igloo.furniture ?? []).level
+          ),
       });
     }
 
@@ -1498,6 +1535,18 @@ export class PogGame {
 
     items.sort((a, b) => a.y - b.y);
     for (const item of items) item.draw();
+
+    // Building names, drawn after the sort so nothing can cover them —
+    // a sign you cannot read is worse than no sign.
+    if (!this.interior) {
+      for (const n of this.nodes) {
+        const sign = STATION_SIGNS[n.type as keyof typeof STATION_SIGNS];
+        if (!sign) continue;
+        if (n.x < minX || n.x > maxX || n.y < minY || n.y > maxY) continue;
+        const top = (SIGN_HEIGHT[n.type] ?? 70) + 20;
+        drawSign(ctx, this.sx(n.x), this.sy(n.y) - top * ZOOM, sign, ZOOM);
+      }
+    }
 
     // wood splinters and ice shards from the last swing
     if (this.chips.length) {

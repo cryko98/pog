@@ -2,7 +2,7 @@
 // no licences to track, and the whole map is a few kilobytes of code.
 
 import { WORLD, fbm, hash2, getLakes } from '../../shared/world.js';
-import { drawFurnishStall } from './furniture';
+import { drawFurnishStall, drawMarketHouse } from './furniture';
 
 export const CHUNK = 512;
 
@@ -213,6 +213,7 @@ const PROP_HEIGHT: Record<string, number> = {
   campfire: 58,
   cairn: 84,
   furnishop: 92,
+  market: 96,
 };
 
 export const propHeight = (p: Prop) => (PROP_HEIGHT[p.type] ?? 40) * p.scale;
@@ -593,6 +594,39 @@ function drawCairn(ctx: CanvasRenderingContext2D, h: number, time: number) {
   ctx.fill();
 }
 
+/**
+ * The name plate over a plaza building, so you can tell the workbench
+ * from the cairn without walking into each one to find out.
+ */
+export function drawSign(ctx: CanvasRenderingContext2D, x: number, y: number, text: string, zoom: number) {
+  ctx.save();
+  ctx.font = '700 ' + Math.round(12 * zoom) + 'px Inter, system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  const w = ctx.measureText(text).width + 20 * zoom;
+  const h = 21 * zoom;
+
+  // post down to the roof
+  ctx.strokeStyle = 'rgba(74,56,39,0.55)';
+  ctx.lineWidth = 2 * zoom;
+  ctx.beginPath();
+  ctx.moveTo(x, y + h * 0.5);
+  ctx.lineTo(x, y + h * 0.5 + 9 * zoom);
+  ctx.stroke();
+
+  ctx.fillStyle = 'rgba(9,41,48,0.82)';
+  ctx.beginPath();
+  ctx.roundRect(x - w / 2, y - h / 2, w, h, 6 * zoom);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(255,255,255,0.22)';
+  ctx.lineWidth = 1 * zoom;
+  ctx.stroke();
+
+  ctx.fillStyle = '#e8f6ff';
+  ctx.fillText(text, x, y + 0.5 * zoom);
+  ctx.restore();
+}
+
 export function drawProp(
   ctx: CanvasRenderingContext2D,
   prop: Prop,
@@ -643,6 +677,9 @@ export function drawProp(
       break;
     case 'furnishop':
       drawFurnishStall(ctx, h);
+      break;
+    case 'market':
+      drawMarketHouse(ctx, h);
       break;
   }
   ctx.restore();
@@ -961,7 +998,8 @@ export function drawIgloo(
   zoom: number,
   style: string,
   owner: string,
-  time = 0
+  time = 0,
+  level = 0
 ) {
   const h = 96 * zoom;
   const w = h * 1.75;
@@ -1016,7 +1054,9 @@ export function drawIgloo(
   ctx.font = `700 ${12 * zoom}px Inter, system-ui, sans-serif`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  const label = `${owner}'s igloo`;
+  // the level rides on the label, so a furnished igloo reads as one from
+  // outside without having to knock
+  const label = level > 0 ? `${owner}'s igloo · L${level}` : `${owner}'s igloo`;
   const tw = ctx.measureText(label).width + 18;
   ctx.fillStyle = 'rgba(9,41,48,0.78)';
   ctx.beginPath();
