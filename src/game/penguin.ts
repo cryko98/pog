@@ -28,15 +28,17 @@ function ellipse(ctx: CanvasRenderingContext2D, x: number, y: number, rx: number
   ctx.fill();
 }
 
-/** Body silhouette: a wide torso blob with an oversized head fused on top. */
-function drawSilhouette(ctx: CanvasRenderingContext2D, headX: number) {
+function bodyGradient(ctx: CanvasRenderingContext2D) {
   const grad = ctx.createLinearGradient(0, -86, 0, 0);
   grad.addColorStop(0, BODY_LIGHT);
   grad.addColorStop(0.45, BODY_MID);
   grad.addColorStop(1, BODY_DARK);
-  ctx.fillStyle = grad;
+  return grad;
+}
 
-  // torso
+/** The wide torso blob. */
+function drawTorso(ctx: CanvasRenderingContext2D) {
+  ctx.fillStyle = bodyGradient(ctx);
   ctx.beginPath();
   ctx.moveTo(-30, -20);
   ctx.bezierCurveTo(-33, -46, -22, -60, 0, -60);
@@ -45,8 +47,11 @@ function drawSilhouette(ctx: CanvasRenderingContext2D, headX: number) {
   ctx.bezierCurveTo(-17, 0, -28, -6, -30, -20);
   ctx.closePath();
   ctx.fill();
+}
 
-  // head
+/** The oversized head fused on top. */
+function drawHead(ctx: CanvasRenderingContext2D, headX: number) {
+  ctx.fillStyle = bodyGradient(ctx);
   ellipse(ctx, headX, -58, 28, 26);
 }
 
@@ -239,9 +244,186 @@ function drawHat(ctx: CanvasRenderingContext2D, hat: string, dir: Dir) {
   ctx.restore();
 }
 
+/* ------------------------------------------------------------------ *
+ * Tools in hand
+ *
+ * The flipper is an ellipse hung from a shoulder. When a tool is held that
+ * flipper is drawn separately, rotated about the shoulder, and the tool's
+ * handle runs on along the same line — so the grip is always exactly at the
+ * flipper's tip, whatever the arm is doing. A swing is one rotation of that
+ * arm: back over the shoulder, then fast down into the node, then recoil.
+ * ------------------------------------------------------------------ */
+
+export type ToolKind = 'axe' | 'pick' | 'rod';
+
+export interface ToolPose {
+  kind: ToolKind;
+  /** 0 at the start of a swing, 1 once it is over (the ready stance) */
+  phase: number;
+  /** which side the node is on: +1 right, -1 left */
+  side: 1 | -1;
+}
+
+const SHOULDER_Y = -32;
+const SHOULDER_X = 29;
+const ARM_LEN = 30;
+const HANDLE = '#7a5230';
+const HANDLE_DARK = '#4e321c';
+const STEEL = '#c3ced8';
+const STEEL_DARK = '#6f7d8a';
+
+const easeOut = (t: number) => 1 - (1 - t) * (1 - t);
+const easeIn = (t: number) => t * t * t;
+const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
+
+/**
+ * Arm angle for a swing, measured from hanging-down toward the node side.
+ * Negative is back over the shoulder, positive is forward.
+ */
+function swingAngle(kind: ToolKind, phase: number): number {
+  const READY = 0.5;
+  if (kind === 'rod') {
+    // held out forward and a little down, below the beak; a bite pulls it lower
+    const tug = phase < 1 ? Math.sin(Math.min(1, phase) * Math.PI) : 0;
+    return 1.15 - tug * 0.3;
+  }
+  // Raised almost straight up beside the head, then swung down through
+  // horizontal into the node — an overhead chop, as this view shows it.
+  const WINDUP = 2.8;
+  const IMPACT = 1.2;
+  const p = Math.max(0, Math.min(1, phase));
+  if (p < 0.3) return lerp(READY, WINDUP, easeOut(p / 0.3));
+  if (p < 0.5) return lerp(WINDUP, IMPACT, easeIn((p - 0.3) / 0.2));
+  if (p < 0.62) return IMPACT + Math.sin(((p - 0.5) / 0.12) * Math.PI) * -0.12;
+  return lerp(IMPACT, READY, easeOut((p - 0.62) / 0.38));
+}
+
+/** Draw the tool head and handle in a frame where +y runs along the arm. */
+function drawToolAlongArm(ctx: CanvasRenderingContext2D, kind: ToolKind, side: number, phase: number) {
+  if (kind === 'rod') {
+    // the rod angles up from the grip; a bite bends the tip down
+    const bend = phase < 1 ? Math.sin(phase * Math.PI) * 10 : 0;
+    ctx.rotate(-side * 0.95);
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = HANDLE_DARK;
+    ctx.lineWidth = 3.2;
+    ctx.beginPath();
+    ctx.moveTo(0, -6);
+    ctx.quadraticCurveTo(side * bend * 0.3, 30, side * bend, 62);
+    ctx.stroke();
+    ctx.strokeStyle = '#a9713f';
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    ctx.moveTo(0, 6);
+    ctx.quadraticCurveTo(side * bend * 0.3, 30, side * bend, 62);
+    ctx.stroke();
+    // reel
+    ctx.fillStyle = STEEL_DARK;
+    ctx.beginPath();
+    ctx.arc(-side * 4, 8, 3.6, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = STEEL;
+    ctx.beginPath();
+    ctx.arc(-side * 4, 8, 2, 0, Math.PI * 2);
+    ctx.fill();
+    return;
+  }
+
+  // handle, through the grip and on past it
+  ctx.lineCap = 'round';
+  ctx.strokeStyle = HANDLE_DARK;
+  ctx.lineWidth = 5;
+  ctx.beginPath();
+  ctx.moveTo(0, -5);
+  ctx.lineTo(0, 30);
+  ctx.stroke();
+  ctx.strokeStyle = HANDLE;
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(0, -4);
+  ctx.lineTo(0, 29);
+  ctx.stroke();
+
+  ctx.lineJoin = 'round';
+  ctx.strokeStyle = STEEL_DARK;
+  ctx.lineWidth = 1.6;
+  ctx.fillStyle = STEEL;
+  if (kind === 'axe') {
+    // a wedge with the edge facing the node
+    ctx.beginPath();
+    ctx.moveTo(-3, 21);
+    ctx.lineTo(side * 15, 18);
+    ctx.lineTo(side * 17, 33);
+    ctx.lineTo(-3, 31);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = '#eef3f7';
+    ctx.beginPath();
+    ctx.moveTo(side * 13, 19.5);
+    ctx.lineTo(side * 16, 19);
+    ctx.lineTo(side * 17, 32);
+    ctx.lineTo(side * 14, 31);
+    ctx.closePath();
+    ctx.fill();
+  } else {
+    // a pick: two points curving down from a collar on the handle
+    ctx.beginPath();
+    ctx.moveTo(-17, 30);
+    ctx.quadraticCurveTo(-8, 21, 0, 22);
+    ctx.quadraticCurveTo(8, 21, 17, 30);
+    ctx.lineTo(16, 32);
+    ctx.quadraticCurveTo(8, 25.5, 0, 26.5);
+    ctx.quadraticCurveTo(-8, 25.5, -16, 32);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = STEEL_DARK;
+    ctx.fillRect(-3, 20, 6, 8);
+  }
+}
+
+/**
+ * The working arm with its tool. Returns the rod tip in penguin space when
+ * the tool is a rod, so the caller can run a line from it to the water.
+ */
+function drawArmWithTool(ctx: CanvasRenderingContext2D, tool: ToolPose): { x: number; y: number } | null {
+  const { side } = tool;
+  const a = swingAngle(tool.kind, tool.phase);
+  const sx = side * SHOULDER_X;
+  const dx = side * Math.sin(a);
+  const dy = Math.cos(a);
+  const handX = sx + dx * ARM_LEN;
+  const handY = SHOULDER_Y + dy * ARM_LEN;
+
+  ctx.save();
+  ctx.translate(handX, handY);
+  // +y along the arm: rotate the frame so (0,1) points from shoulder to hand
+  ctx.rotate(Math.atan2(dy, dx) - Math.PI / 2);
+  drawToolAlongArm(ctx, tool.kind, side, tool.phase);
+  ctx.restore();
+
+  // the flipper over the grip, hung from the shoulder along the same line
+  ctx.fillStyle = BODY_DARK;
+  ctx.beginPath();
+  ctx.ellipse(sx + (dx * ARM_LEN) / 2, SHOULDER_Y + (dy * ARM_LEN) / 2, 7.5, ARM_LEN / 2 + 2, Math.atan2(dy, dx) - Math.PI / 2, 0, Math.PI * 2);
+  ctx.fill();
+
+  if (tool.kind !== 'rod') return null;
+  // the rod tip: 62 along the rod, which is the arm line turned up by 0.95
+  const ra = a + 0.95;
+  const bend = tool.phase < 1 ? Math.sin(tool.phase * Math.PI) * 10 : 0;
+  const rdx = side * Math.sin(ra);
+  const rdy = Math.cos(ra);
+  // perpendicular (toward the node side) for the bend
+  return { x: handX + rdx * 62 + side * rdy * bend, y: handY + rdy * 62 - rdx * side * bend };
+}
+
 /**
  * Draw a penguin with its feet at the current origin, facing `dir`.
  * `frame` drives the waddle: a vertical bob plus an alternating body tilt.
+ * With a `tool`, the flipper on that side holds it. Returns the rod tip in
+ * the same coordinates when there is one.
  */
 export function drawPenguin(
   ctx: CanvasRenderingContext2D,
@@ -249,25 +431,35 @@ export function drawPenguin(
   frame: number,
   scarfColor: string,
   moving: boolean,
-  hat: string | null = null
-) {
+  hat: string | null = null,
+  tool: ToolPose | null = null
+): { rodTip: { x: number; y: number } | null } {
   const f = moving ? frame % FRAMES : 0;
   const bob = moving ? [0, -2.5, 0, -2.5][f] : 0;
   const tilt = moving ? [0, -0.06, 0, 0.06][f] : 0;
   const leftLift = moving ? [0, 5, 0, 0][f] : 0;
   const rightLift = moving ? [0, 0, 0, 5][f] : 0;
   const headX = dir === 'left' ? -3 : dir === 'right' ? 3 : 0;
+  let rodTip: { x: number; y: number } | null = null;
 
   ctx.save();
   drawFeet(ctx, leftLift, rightLift);
   ctx.translate(0, bob);
   ctx.rotate(tilt);
 
-  // back flipper first so it reads behind the torso
-  if (dir !== 'left') drawFlipper(ctx, 28, -30, moving ? 0.35 + tilt * 2 : 0.18);
-  if (dir !== 'right') drawFlipper(ctx, -28, -30, moving ? -0.35 + tilt * 2 : -0.18);
+  // Facing away, the working arm is behind the body: draw it first so the
+  // axe rises over the head and the rest is hidden, which is what you would
+  // see from behind.
+  const armBehind = !!tool && dir === 'up';
+  if (tool && armBehind) rodTip = drawArmWithTool(ctx, tool);
 
-  drawSilhouette(ctx, headX);
+  // back flipper first so it reads behind the torso; the working flipper is
+  // drawn with its tool instead
+  if (dir !== 'left' && !(tool && tool.side === 1)) drawFlipper(ctx, 28, -30, moving ? 0.35 + tilt * 2 : 0.18);
+  if (dir !== 'right' && !(tool && tool.side === -1)) drawFlipper(ctx, -28, -30, moving ? -0.35 + tilt * 2 : -0.18);
+
+  drawTorso(ctx);
+  drawHead(ctx, headX);
   drawScarf(ctx, scarfColor, tilt * 8, dir === 'up');
 
   ctx.save();
@@ -276,7 +468,38 @@ export function drawPenguin(
   if (hat) drawHat(ctx, hat, dir);
   ctx.restore();
 
+  // The working arm hangs from the torso's edge and swings up BESIDE the
+  // head, so it can sit in front of everything without crossing the face.
+  if (tool && !armBehind) rodTip = drawArmWithTool(ctx, tool);
+
   ctx.restore();
+  // undo the bob/tilt for the returned point (tilt is small; bob matters)
+  return { rodTip: rodTip ? { x: rodTip.x, y: rodTip.y + bob } : null };
+}
+
+/**
+ * Draw a penguin live (no sprite sheet) with a tool in hand, feet on
+ * (x, y) in screen space. Returns the rod tip in screen space, if any.
+ */
+export function drawPenguinWithTool(
+  ctx: CanvasRenderingContext2D,
+  scarfColor: string,
+  dir: Dir,
+  frame: number,
+  moving: boolean,
+  x: number,
+  y: number,
+  height: number,
+  hat: string | null,
+  tool: ToolPose
+): { x: number; y: number } | null {
+  const scale = height / PENGUIN_HEIGHT;
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(scale, scale);
+  const { rodTip } = drawPenguin(ctx, dir, frame, scarfColor, moving, hat, tool);
+  ctx.restore();
+  return rodTip ? { x: x + rodTip.x * scale, y: y + rodTip.y * scale } : null;
 }
 
 /* ------------------------------------------------------------------ *

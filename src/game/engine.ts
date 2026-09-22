@@ -28,7 +28,7 @@ import {
   canBuildAt,
 } from '../../shared/world.js';
 import { drawFurniture, drawFurnitureGhost } from './furniture';
-import { blitPenguin, type Dir } from './penguin';
+import { blitPenguin, drawPenguinWithTool, type Dir, type ToolKind, type ToolPose } from './penguin';
 import {
   CHUNK,
   drawCoin,
@@ -69,6 +69,10 @@ export const Y_SCALE = 0.62;
  * rather than the ground sliding under props that stayed the same size.
  */
 const ZOOM = 0.82;
+
+/** The tool stays in hand this long after the last swing. */
+const TOOL_HOLD_MS = 1800;
+const TOOL_FOR: Record<string, ToolKind> = { tree: 'axe', ice: 'pick', hole: 'rod' };
 const PENGUIN_WORLD_HEIGHT = 78;
 const HEARTBEAT_MS = 25_000;
 
@@ -115,6 +119,8 @@ interface Remote extends Presence {
   ry: number;
   frame: number;
   anim: number;
+  /** when their last swing started, on our clock */
+  toolAt?: number;
 }
 
 interface Options {
@@ -239,6 +245,9 @@ export class PogGame {
   /** swings landed on the node under us, as the API counts them */
   private hits = new Map<string, { hits: number; needed: number; at: number }>();
   private swingUntil = 0;
+  /** the tool comes out on the first swing and goes away a moment after the last */
+  private toolAt = -Infinity;
+  private toolNode: WorldNode | null = null;
   private lastRodNotice = -Infinity;
   private shake = new Map<string, number>();
   private chips: Array<{ x: number; y: number; vx: number; vy: number; life: number; color: string }> = [];
@@ -336,6 +345,9 @@ export class PogGame {
         // coordinates, which is exactly what they are.
         inside: this.interior?.igloo.wallet,
         level: playerLevel(this.skills),
+        ...(this.toolNode && performance.now() - this.toolAt < TOOL_HOLD_MS
+          ? { tool: TOOL_FOR[this.toolNode.type], swing: Math.round(performance.now() - this.toolAt), node: this.toolNode.id }
+          : {}),
       })),
 
       subscribePresence(this.selfId, (players) => {
@@ -343,8 +355,11 @@ export class PogGame {
         for (const p of players) {
           seen.add(p.id);
           const existing = this.remotes.get(p.id);
-          if (existing) Object.assign(existing, p);
-          else this.remotes.set(p.id, { ...p, rx: p.x, ry: p.y, frame: 0, anim: 0 });
+          // their swing clock, translated onto ours: `swing` is how long ago
+          // it started when they published
+          const toolAt = p.tool && typeof p.swing === 'number' ? performance.now() - p.swing : undefined;
+          if (existing) Object.assign(existing, p, { toolAt });
+          else this.remotes.set(p.id, { ...p, rx: p.x, ry: p.y, frame: 0, anim: 0, toolAt });
         }
         // anyone who stopped broadcasting has left the ice
         for (const id of [...this.remotes.keys()]) {
@@ -578,10 +593,14 @@ export class PogGame {
     this.busy = true;
     this.swingUntil = performance.now() + GATHER.swingMs;
 
-    // land the blow locally straight away: the shake and the chips should
-    // not wait on a round trip
-    this.shake.set(node.id, performance.now());
-    this.throwChips(node);
+    // The tool comes out now; the blow lands when the swing does. The shake
+    // and the chips wait for the impact, not for the round trip.
+    this.toolAt = performance.now();
+    this.toolNode = node;
+    window.setTimeout(() => {
+      this.shake.set(node.id, performance.now());
+      this.throwChips(node);
+    }, GATHER.swingMs * (node.type === 'hole' ? 0.35 : 0.5));
     this.me.dir = Math.abs(node.x - this.me.x) > Math.abs(node.y - this.me.y)
       ? node.x < this.me.x ? 'left' : 'right'
       : node.y < this.me.y ? 'up' : 'down';
@@ -662,6 +681,66 @@ export class PogGame {
   }
 
   /** Splinters, ice shards or spray, depending on what you just hit. */
+  /** What is in our own hands right now, if anything. */
+  private selfTool(now: number): { pose: ToolPose; node: WorldNode } | null {
+    if (!this.toolNode || now - this.toolAt > TOOL_HOLD_MS) return null;
+    return { pose: this.poseFor(this.toolNode, this.me.x, now - this.toolAt), node: this.toolNode };
+  }
+
+  /** And in somebody else's, from what they published. */
+  private remoteTool(r: Remote, now: number): { pose: ToolPose; node: WorldNode } | null {
+    if (!r.tool || r.toolAt === undefined || now - r.toolAt > TOOL_HOLD_MS) return null;
+    const node = r.node ? this.nodes.find((n) => n.id === r.node) : undefined;
+    if (!node) return null;
+    return { pose: this.poseFor(node, r.rx, now - r.toolAt), node };
+  }
+
+  private poseFor(node: WorldNode, fromX: number, sinceMs: number): ToolPose {
+    return {
+      kind: TOOL_FOR[node.type] ?? 'axe',
+      phase: Math.min(1, sinceMs / GATHER.swingMs),
+      side: node.x >= fromX ? 1 : -1,
+    };
+  }
+
+  /** From the rod tip down to the water, with a bobber where it lands. */
+  private drawFishingLine(tip: { x: number; y: number }, hole: WorldNode, phase: number, now: number) {
+    const ctx = this.ctx;
+    const wx = this.sx(hole.x) + (tip.x > this.sx(hole.x) ? 6 : -6) * ZOOM;
+    const wy = this.sy(hole.y) - 2 * ZOOM;
+    const tug = phase < 1 ? Math.sin(phase * Math.PI) : 0;
+    ctx.save();
+    ctx.strokeStyle = 'rgba(240,248,255,0.85)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(tip.x, tip.y);
+    // the line sags between the tip and the water, less when something pulls
+    const sag = (24 - tug * 18) * ZOOM;
+    ctx.quadraticCurveTo((tip.x + wx) / 2, Math.max(tip.y, wy) + sag, wx, wy);
+    ctx.stroke();
+    // bobber: red cap, white belly, dipping on a bite
+    const by = wy + tug * 4 * ZOOM;
+    ctx.fillStyle = '#f4f7fa';
+    ctx.beginPath();
+    ctx.arc(wx, by, 3.2 * ZOOM, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#ef4444';
+    ctx.beginPath();
+    ctx.arc(wx, by, 3.2 * ZOOM, Math.PI, Math.PI * 2);
+    ctx.fill();
+    // ripples ring out from where the line meets the water
+    const ripple = ((now / 900) % 1);
+    for (const k of [0, 0.5]) {
+      const t = (ripple + k) % 1;
+      ctx.globalAlpha = (1 - t) * 0.45;
+      ctx.strokeStyle = '#dff3ff';
+      ctx.beginPath();
+      ctx.ellipse(wx, wy + 2 * ZOOM, (4 + t * 16) * ZOOM, (2 + t * 7) * ZOOM, 0, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
   private throwChips(node: WorldNode) {
     const color = node.type === 'tree' ? '#8a6a48' : node.type === 'ice' ? '#dff3ff' : '#7fd4f0';
     for (let i = 0; i < 7; i++) {
@@ -1496,7 +1575,8 @@ export class PogGame {
       name: string,
       id: string,
       isSelf: boolean,
-      guest: boolean
+      guest: boolean,
+      tool: { pose: ToolPose; node: WorldNode } | null
     ) => {
       const x = this.sx(wx);
       const y = this.sy(wy);
@@ -1504,7 +1584,12 @@ export class PogGame {
       ctx.beginPath();
       ctx.ellipse(x, y, 20 * ZOOM, 8 * ZOOM, 0, 0, Math.PI * 2);
       ctx.fill();
-      blitPenguin(ctx, color, dir, frame, moving, x, y, PENGUIN_WORLD_HEIGHT * ZOOM, isSelf ? this.hat : null);
+      if (tool) {
+        const tip = drawPenguinWithTool(ctx, color, dir, frame, moving, x, y, PENGUIN_WORLD_HEIGHT * ZOOM, isSelf ? this.hat : null, tool.pose);
+        if (tip) this.drawFishingLine(tip, tool.node, tool.pose.phase, now);
+      } else {
+        blitPenguin(ctx, color, dir, frame, moving, x, y, PENGUIN_WORLD_HEIGHT * ZOOM, isSelf ? this.hat : null);
+      }
       this.drawNameTag(x, y - PENGUIN_WORLD_HEIGHT * ZOOM - 14, name, color, isSelf, guest, this.levelOf(id));
       const bubble = this.bubbles.get(id);
       if (bubble && bubble.until > now) {
@@ -1519,7 +1604,7 @@ export class PogGame {
       if (!this.interior && (r.rx < minX || r.rx > maxX || r.ry < minY || r.ry > maxY)) continue;
       items.push({
         y: r.ry,
-        draw: () => drawActor(r.rx, r.ry, r.dir, r.frame, r.moving, r.color, r.name, r.id, false, r.guest),
+        draw: () => drawActor(r.rx, r.ry, r.dir, r.frame, r.moving, r.color, r.name, r.id, false, r.guest, this.remoteTool(r, now)),
       });
     }
 
@@ -1536,7 +1621,8 @@ export class PogGame {
           this.opts.name,
           this.selfId,
           true,
-          this.opts.guest
+          this.opts.guest,
+          this.selfTool(now)
         ),
     });
 
