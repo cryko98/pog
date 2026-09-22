@@ -147,9 +147,9 @@ interface Options {
   onHome: () => void;
 }
 
-export type StationKind = 'craft' | 'shop' | 'fire' | 'cairn' | 'furnish' | 'market';
+export type StationKind = 'craft' | 'shop' | 'fire' | 'cairn' | 'furnish' | 'market' | 'arena';
 
-const STATION_KINDS: StationKind[] = ['craft', 'shop', 'fire', 'cairn', 'furnish', 'market'];
+const STATION_KINDS: StationKind[] = ['craft', 'shop', 'fire', 'cairn', 'furnish', 'market', 'arena'];
 const isStation = (type: string): type is StationKind => STATION_KINDS.includes(type as StationKind);
 
 const STATION_PROMPT: Record<StationKind, string> = {
@@ -159,6 +159,7 @@ const STATION_PROMPT: Record<StationKind, string> = {
   cairn: 'Press E to leave an offering',
   furnish: 'Press E to browse furnishings',
   market: 'Press E to open the igloo market',
+  arena: 'Press E to enter the snowball arena',
 };
 
 /** How high each building stands, so its sign clears the roof. */
@@ -169,6 +170,7 @@ const SIGN_HEIGHT: Record<string, number> = {
   fire: 58,
   cairn: 84,
   furnish: 92,
+  arena: 74,
 };
 
 const DIR_KEYS: Record<string, [number, number]> = {
@@ -253,6 +255,19 @@ export class PogGame {
   private toolNode: WorldNode | null = null;
   /** cast at a hole: bites come on the clock until you walk away */
   private fishing: { node: WorldNode; nextBite: number } | null = null;
+  /** somewhere off the snow that is not an igloo — the arena, for now */
+  private away: string | null = null;
+
+  /** Off the map (in the arena) or back on it; others stop drawing us meanwhile. */
+  setAway(where: string | null) {
+    this.away = where;
+    if (where) this.fishing = null;
+  }
+
+  /** Where the penguin stands, in world units. */
+  position() {
+    return { x: this.me.x, y: this.me.y };
+  }
   private lastRodNotice = -Infinity;
   private shake = new Map<string, number>();
   private chips: Array<{ x: number; y: number; vx: number; vy: number; life: number; color: string }> = [];
@@ -348,7 +363,7 @@ export class PogGame {
         // but `inside` tells everyone outside to skip this penguin
         // entirely, and everyone in the same room to read them as room
         // coordinates, which is exactly what they are.
-        inside: this.interior?.igloo.wallet,
+        inside: this.away ?? this.interior?.igloo.wallet,
         level: playerLevel(this.skills),
         ...(this.toolNode && (this.fishing || performance.now() - this.toolAt < TOOL_HOLD_MS)
           ? { tool: TOOL_FOR[this.toolNode.type], swing: Math.round(performance.now() - this.toolAt), node: this.toolNode.id }

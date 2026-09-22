@@ -185,6 +185,65 @@ export interface SaleRecord {
   at: number;
 }
 
+/* --- the snowball arena --- */
+
+export interface DuelChoice {
+  throwLane: string;
+  throwHeight: string;
+  dodgeLane: string;
+  jump: boolean;
+}
+
+export type DuelStake = { kind: 'soft'; items: Record<string, number> } | { kind: 'pog'; amount: number };
+
+export interface DuelSide {
+  wallet: string;
+  name: string;
+  color: string;
+  hits: number;
+  strikes: number;
+  committed: boolean;
+  revealed: boolean;
+  funded: boolean;
+  choice?: DuelChoice;
+}
+
+export interface DuelPayout {
+  to: string;
+  amount: number;
+  kind: 'win' | 'refund';
+  status: 'paid' | 'queued';
+  signature?: string;
+}
+
+export interface DuelView {
+  id: string;
+  state: 'open' | 'funding' | 'live' | 'done' | 'cancelled';
+  stake: DuelStake;
+  createdAt: number;
+  volley: number;
+  phase: 'commit' | 'reveal';
+  phaseEndsAt: number;
+  fundingEndsAt?: number;
+  serverNow: number;
+  iAmHost: boolean;
+  me: DuelSide;
+  them?: DuelSide;
+  history: Array<{ mine: DuelChoice | null; theirs: DuelChoice | null; myHits: number; theirHits: number }>;
+  winner?: string | null;
+  won?: boolean;
+  reason?: string;
+  payouts?: DuelPayout[];
+  rules: { volleys: number; maxVolleys: number; strikes: number; commitMs: number; revealMs: number };
+}
+
+export interface OpenChallenge {
+  id: string;
+  host: { wallet: string; name: string; color: string };
+  stake: DuelStake;
+  createdAt: number;
+}
+
 export interface LeaderboardEntry {
   rank: number;
   name: string;
@@ -382,6 +441,31 @@ export const api = {
     request<{ igloo?: Igloo; pending?: boolean }>('/home/settle', post({ seller, signature })),
 
   recentSales: () => request<{ sales: SaleRecord[] }>('/home/sales'),
+
+  /* --- the snowball arena --- */
+
+  openChallenges: () =>
+    request<{ challenges: OpenChallenge[]; rules: Record<string, unknown>; realStakes: boolean }>('/arena/open'),
+
+  duel: (id?: string) => request<{ match: DuelView | null }>('/arena/state' + (id ? '?id=' + id : '')),
+
+  createChallenge: (kind: 'soft' | 'pog', stake: Record<string, number> | number, x: number, y: number) =>
+    request<{ id: string }>('/arena/create', post({ kind, stake, x: Math.round(x), y: Math.round(y) })),
+
+  cancelChallenge: () => request<{ ok: boolean }>('/arena/cancel', post()),
+
+  acceptChallenge: (id: string, x: number, y: number) =>
+    request<{ id: string }>('/arena/accept', post({ id, x: Math.round(x), y: Math.round(y) })),
+
+  duelCommit: (id: string, hash: string) => request<{ match: DuelView }>('/arena/commit', post({ id, hash })),
+
+  duelReveal: (id: string, choice: DuelChoice, nonce: string) =>
+    request<{ match: DuelView }>('/arena/reveal', post({ id, choice, nonce })),
+
+  duelInvoice: (id: string) => request<{ transaction: string; memo: string; amount: number }>('/arena/invoice', post({ id })),
+
+  duelDeposit: (id: string, signature: string) =>
+    request<{ match?: DuelView; pending?: boolean }>('/arena/deposit', post({ id, signature })),
 
   buySkin: (skin: string) => request<{ profile: Profile }>('/game/buy', post({ skin })),
 

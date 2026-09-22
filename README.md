@@ -132,6 +132,51 @@ Nothing about the transaction is taken from the request but its signature.
 dishonest variations of it, which is the only way it can be tested before
 the token exists.
 
+## The snowball arena
+
+Off the plaza, past the lanterns. Two penguins, a stake each, winner takes the
+pot. It is the one place in the game where players play *against* each other,
+and it is built so that neither of them — nor anyone watching the network —
+can bend it.
+
+**Why it is not a real-time fight.** Presence is peer-to-peer and unauthenticated,
+so a fight in which a client reports "I hit them" cannot be made honest: either
+side could say anything. What can be made honest is a fight resolved by the
+server from **sealed choices**. Each volley, both players secretly pick a throw
+(a lane, high or low) and a dodge (a lane, and whether to jump). Each sends a
+SHA-256 of the choice first, then the choice itself once both hashes are in. The
+server checks the hash, resolves both throws at once, and scores the hits. A
+jump clears a low ball and meets a high one; standing meets both; the wrong lane
+meets nothing. Ten volleys, sudden death on a tie, a draw after twenty. The
+client's job is only to animate what the server decided. It plays like a penalty
+shoot-out with snowballs: read your opponent, and do not be read.
+
+**Stakes are escrowed before the first throw.** A soft stake (wood, ice, fish,
+$POG) leaves the host's pack when the challenge goes up and the challenger's
+when it is taken; the winner gets both, with 5% of any $POG burned. A stake is
+refused if winning it would overfill the winner's playtime-bound pack, so the
+arena cannot launder resources past the cap. A real-token stake is paid by each
+side into the **arena pool wallet** (`POG_ARENA_POOL`) on chain, with a memo
+naming the match and the player, and verified at finalized commitment the same
+way an igloo sale is. Nothing starts until both are in; if one side never pays,
+the other is refunded.
+
+**Paying the winner.** With `POG_ARENA_POOL_KEYPAIR` set, the pool signs the
+payout the moment the match ends. That hot key is the one real trade-off in the
+feature: keep the pool wallet holding stakes and nothing else. Without the key,
+payouts queue in Redis (`pog:payouts`) and the operator sends them from a
+keypair file with `tools/payout.mjs`, dry run by default — the same shape as
+`send.mjs`. Either way every payout is created only by a settled match, for the
+verified deposit amounts, to the verified winner; nothing takes an amount or a
+recipient from a request.
+
+**What a cheat cannot do**, and `arenacheck` proves: reveal a choice other than
+the sealed one, reveal before the other side has sealed, seal twice, throw in a
+match they are not in, take their own challenge, take one twice, put up a stake
+they do not hold, act from anywhere but the arena, or keep playing once it is
+over. Stalling does not work either: a side that does not seal or does not
+reveal in time sits the volley out, and three of those forfeit.
+
 ## The season, and the airdrop
 
 Two currencies, because they have two different jobs.
@@ -281,6 +326,7 @@ node tools/loopcheck.mjs     # the honest loop: chop, craft, fish, build
 node tools/questcheck.mjs    # rod -> fish -> cookout -> quests -> streak
 node tools/seasonmath.mjs    # caps, tiers, shares and the merkle tree (no server)
 node tools/salecheck.mjs     # the on-chain sale verifier against fixtures, and the yield clock (no server)
+node tools/arenacheck.mjs    # two wallets fight a full duel, and try every way to cheat it
 node tools/seasoncheck.mjs   # the season against a real API
 node tools/send.mjs          # dry run: what a payout would do, sending nothing
 

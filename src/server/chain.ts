@@ -171,6 +171,12 @@ export async function latestBlockhash(): Promise<{ blockhash: string; lastValidB
     : null;
 }
 
+/** Broadcast a signed transaction; the signature, or null if the RPC refused it. */
+export async function sendRawTransaction(base64: string): Promise<string | null> {
+  const r = await rpc<string>('sendTransaction', [base64, { encoding: 'base64', preflightCommitment: 'confirmed' }], 8000);
+  return r && typeof r.result === 'string' ? r.result : null;
+}
+
 /**
  * One transaction, parsed, at FINALIZED commitment. Returns `undefined`
  * when the chain does not know it yet (or not finally), `null` on an RPC

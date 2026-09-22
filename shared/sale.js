@@ -115,7 +115,7 @@ export function verifySaleTx(tx, terms) {
 }
 
 /** Top-level and inner instructions together, in one list. */
-function flattenInstructions(tx) {
+export function flattenInstructions(tx) {
   const top = tx.transaction?.message?.instructions ?? [];
   const inner = (tx.meta?.innerInstructions ?? []).flatMap((g) => g?.instructions ?? []);
   return [...top, ...inner].filter((ix) => ix && typeof ix === 'object');
@@ -134,7 +134,7 @@ function rawAmount(info) {
  * summed across all their token accounts. Pre/post balances are what the
  * validator itself recorded, so they cannot be dressed up by the sender.
  */
-function ownerDelta(meta, mint, owner) {
+export function ownerDelta(meta, mint, owner) {
   const sum = (rows) =>
     (rows ?? [])
       .filter((b) => b && b.mint === mint && b.owner === owner)

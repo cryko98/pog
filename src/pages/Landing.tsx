@@ -32,14 +32,14 @@ const FEATURES = [
     body: 'The igloo market sells the plot, the level and everything inside in one go — for in-game $POG, or for the real token once it is live, paid wallet to wallet with 8% burned on chain. The game never holds a key or a coin.',
   },
   {
-    icon: 'quest' as IconName,
-    title: 'A reason to come back tomorrow',
-    body: 'Three quests a day, drawn from your own wallet address so nobody can reroll into easy ones. Clear all three and the streak bonus grows — miss a day and it starts over.',
+    icon: 'snowflake' as IconName,
+    title: 'The snowball arena',
+    body: 'Off the plaza, past the lanterns: two penguins, a stake each, winner takes the pot. Ten volleys — throw at a lane, high or low, and pick where to stand and whether to jump, both sealed before either is shown. Stake wood, ice, fish or $POG, or the real token into the arena pool once it is live. The server scores every hit from the sealed choices, so nobody can claim one.',
   },
   {
-    icon: 'fire' as IconName,
-    title: 'Cook your catch',
-    body: 'A raw fish is worth nothing. Smoke five over the plaza fire and the crowd tips you in $POG — the one way to earn coins by skill rather than by finding them.',
+    icon: 'quest' as IconName,
+    title: 'A reason to come back tomorrow',
+    body: 'Three quests a day, drawn from your own wallet address so nobody can reroll into easy ones. Clear all three and the streak bonus grows — miss a day and it starts over. And a raw fish is worth nothing until you smoke five over the plaza fire for $POG.',
   },
   {
     icon: 'snowflake' as IconName,
@@ -129,11 +129,12 @@ const ROADMAP = [
       'Igloo furniture, interiors & levels',
       'Skills: fish, chop and cut better',
       'The igloo market — in-game or real $POG',
+      'The snowball arena — duels for stakes',
     ],
   },
   {
     phase: 'Phase 6 — Glacier',
-    items: ['Snowball PvP arena', 'Guilds', 'The claim contract', 'NFT penguin skins'],
+    items: ['Guilds', 'The claim contract', 'NFT penguin skins', 'Seasonal tournaments'],
   },
 ];
 

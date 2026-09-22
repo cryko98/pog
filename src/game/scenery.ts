@@ -2,7 +2,7 @@
 // no licences to track, and the whole map is a few kilobytes of code.
 
 import { WORLD, fbm, hash2, getLakes } from '../../shared/world.js';
-import { drawFurnishStall, drawMarketHouse } from './furniture';
+import { drawArenaRink, drawFurnishStall, drawMarketHouse } from './furniture';
 
 export const CHUNK = 512;
 
@@ -214,6 +214,7 @@ const PROP_HEIGHT: Record<string, number> = {
   cairn: 84,
   furnishop: 92,
   market: 96,
+  arena: 70,
 };
 
 export const propHeight = (p: Prop) => (PROP_HEIGHT[p.type] ?? 40) * p.scale;
@@ -680,6 +681,9 @@ export function drawProp(
       break;
     case 'market':
       drawMarketHouse(ctx, h);
+      break;
+    case 'arena':
+      drawArenaRink(ctx, h, time);
       break;
   }
   ctx.restore();

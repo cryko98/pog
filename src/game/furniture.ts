@@ -379,3 +379,92 @@ export function drawMarketHouse(ctx: CanvasRenderingContext2D, h: number) {
   ctx.lineWidth = 1.2;
   ctx.stroke();
 }
+
+/**
+ * The snowball arena: a low-walled rink of packed snow with two flags, a
+ * pile of ready-made snowballs at each end, and a scoreboard post. Drawn
+ * with its footprint at the origin, `h` tall.
+ */
+export function drawArenaRink(ctx: CanvasRenderingContext2D, h: number, time: number) {
+  const w = h * 2.2;
+  const d = h * 0.62; // the rink's depth on screen
+
+  // packed-snow floor with a faint centre line
+  ctx.fillStyle = '#dceefb';
+  ctx.beginPath();
+  ctx.ellipse(0, 0, w * 0.5, d * 0.5, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(120,170,205,0.55)';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(0, -d * 0.42);
+  ctx.lineTo(0, d * 0.42);
+  ctx.stroke();
+
+  // the wall: a snow bank all the way round
+  ctx.strokeStyle = '#f6fbff';
+  ctx.lineWidth = h * 0.16;
+  ctx.beginPath();
+  ctx.ellipse(0, 0, w * 0.5, d * 0.5, 0, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.strokeStyle = 'rgba(160,200,225,0.7)';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.ellipse(0, 0, w * 0.5 + h * 0.08, d * 0.5 + h * 0.08, 0, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // snowball piles at each end
+  for (const side of [-1, 1]) {
+    const px = side * w * 0.34;
+    ctx.fillStyle = '#ffffff';
+    for (const [dx, dy, r] of [
+      [-7, 2, 6],
+      [7, 2, 6],
+      [0, 3, 6.5],
+      [0, -5, 5.5],
+    ]) {
+      ctx.beginPath();
+      ctx.arc(px + dx, dy, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.strokeStyle = 'rgba(150,190,215,0.6)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(px, 3, 6.5, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  // two flags, one per corner, flapping
+  const flap = Math.sin(time / 260) * 3;
+  for (const [fx, colour] of [
+    [-w * 0.46, '#ff5c17'],
+    [w * 0.46, '#38bdf8'],
+  ] as Array<[number, string]>) {
+    ctx.strokeStyle = '#4e321c';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(fx, -d * 0.1);
+    ctx.lineTo(fx, -h * 0.95);
+    ctx.stroke();
+    ctx.fillStyle = colour;
+    ctx.beginPath();
+    ctx.moveTo(fx, -h * 0.95);
+    ctx.lineTo(fx + 22 + flap, -h * 0.88);
+    ctx.lineTo(fx, -h * 0.8);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  // the scoreboard post at the back
+  ctx.fillStyle = '#4e321c';
+  ctx.fillRect(-3, -h * 0.9, 6, h * 0.55);
+  ctx.fillStyle = '#0f2f38';
+  ctx.beginPath();
+  ctx.roundRect(-30, -h, 60, h * 0.22, 4);
+  ctx.fill();
+  ctx.fillStyle = '#ffd44d';
+  ctx.font = `800 ${Math.max(8, h * 0.12)}px "Baloo 2", system-ui, sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('0 : 0', 0, -h * 0.89);
+}

@@ -242,6 +242,7 @@ export const STATION_SIGNS = {
   cairn: 'Season cairn',
   furnish: 'Furnishings',
   market: 'Igloo market',
+  arena: 'Snowball arena',
 };
 
 /* ------------------------------------------------------------------ *
@@ -753,6 +754,7 @@ const FOOTPRINT = {
   campfire: 44,
   cairn: 40,
   furnishop: 54,
+  arena: 76,
 };
 
 const footprintOf = (p) => (FOOTPRINT[p.type] ?? 24) * p.scale;
@@ -821,6 +823,9 @@ export function getProps() {
     { type: 'market', ...onRing(30), r: 32, scale: 1, variant: 0 },
     { type: 'campfire', ...onRing(90), r: 24, scale: 1, variant: 0 },
     { type: 'cairn', ...onRing(150), r: 22, scale: 1, variant: 0 },
+    // The arena sits off the ring, out past the lanterns: it is somewhere
+    // you go to, not a shop you pass.
+    { type: 'arena', x: sx + 690, y: sy + 20, r: 58, scale: 1, variant: 0 },
     { type: 'banner', x: sx, y: sy - 150, r: 16, scale: 1, variant: 0 },
     { type: 'snowman', x: sx - 150, y: sy + 140, r: 16, scale: 1.2, variant: 3 },
     { type: 'snowman', x: sx + 158, y: sy + 142, r: 16, scale: 1.1, variant: 7 },
@@ -1019,6 +1024,7 @@ export function getNodes() {
     cairn: 'cairn',
     furnishop: 'furnish',
     market: 'market',
+    arena: 'arena',
   };
   for (const prop of getProps()) {
     const kind = stationOf[prop.type];

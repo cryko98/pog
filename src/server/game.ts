@@ -170,7 +170,7 @@ async function jumpedHome(wallet: string, x: number, y: number): Promise<boolean
  * Accept an action at (x, y) only if the wallet could plausibly be there.
  * Returns an error string, or null when the move checks out.
  */
-async function trackMovement(
+export async function trackMovement(
   wallet: string,
   x: number,
   y: number,
@@ -203,7 +203,7 @@ async function trackMovement(
 }
 
 /** How much of a resource this wallet has earned the right to hold. */
-const holdCap = (profile: Profile) => HOLD_BASE + (profile.playMinutes || 0) * HOLD_PER_MINUTE;
+export const holdCap = (profile: Profile) => HOLD_BASE + (profile.playMinutes || 0) * HOLD_PER_MINUTE;
 
 export interface Profile extends FrostFields {
   wallet: string;

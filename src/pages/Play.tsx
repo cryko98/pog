@@ -10,6 +10,8 @@ import { BackpackPanel } from '../components/BackpackPanel';
 import { QuestPanel } from '../components/QuestPanel';
 import { SeasonPanel } from '../components/SeasonPanel';
 import { HomePanel } from '../components/HomePanel';
+import { ArenaPanel } from '../components/ArenaPanel';
+import { DuelScene } from '../components/DuelScene';
 import { Icon } from '../components/Icon';
 import { skinById } from '../../shared/world.js';
 
@@ -56,6 +58,11 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
    * shopfront, so the shop should be what you are looking at.
    */
   const [station, setStation] = useState<StationKind | null>(null);
+  /** the match being fought on the duel screen, over the world */
+  const [duelId, setDuelId] = useState<string | null>(null);
+  useEffect(() => {
+    gameRef.current?.setAway(duelId ? 'arena' : null);
+  }, [duelId]);
   /** bumped when the igloo, its furniture or its level changed */
   const [homeTick, setHomeTick] = useState(0);
   /** bumped whenever something may have moved the Frost ledger */
@@ -463,6 +470,8 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
         </div>
 
 
+        {duelId && <DuelScene id={duelId} onLeave={() => setDuelId(null)} />}
+
         {station && (
           <div
             className="station-modal"
@@ -495,6 +504,18 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
                 inventory={hud.inventory}
                 refresh={seasonTick}
                 onOffer={(id) => gameRef.current?.offer(id) ?? Promise.resolve('Not in the world yet.')}
+                onClose={() => setStation(null)}
+              />
+            )}
+            {station === 'arena' && (
+              <ArenaPanel
+                guest={!!identity?.guest}
+                inventory={hud.inventory}
+                position={() => gameRef.current?.position() ?? { x: 0, y: 0 }}
+                onEnter={(id) => {
+                  setStation(null);
+                  setDuelId(id);
+                }}
                 onClose={() => setStation(null)}
               />
             )}
