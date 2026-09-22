@@ -14,7 +14,7 @@
  */
 
 import { Redis } from '@upstash/redis';
-import { FROST, GATE, SEASON } from '../shared/season.js';
+import { FROST, GATE, SEASON, STREAK, multipliers, seasonState } from '../shared/season.js';
 
 const url = process.env.POG_KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL;
 const token =
@@ -51,13 +51,31 @@ const flag = (wallet, reason) => {
 
 /* --- per-wallet checks ------------------------------------------- */
 
+// The most Frost the rules can produce in one day, for the best possible
+// wallet. Anything past `days elapsed x this` is not suspicious, it is
+// impossible — so it is worth separating from the softer signals below.
+const BEST_DAY = Math.floor(
+  FROST.dailyCap * multipliers({ streakDays: STREAK.capDays, hasIgloo: true, balance: Infinity }).total
+);
+const daysElapsed = Math.max(1, seasonState().dayNumber);
+
+/**
+ * A generous ceiling on Frost per minute played. Note this is deliberately
+ * NOT derived from playtime-to-days: someone playing 30 minutes a day for
+ * three weeks legitimately banks far more than their total minutes would
+ * suggest, and an earlier version of this check flagged exactly those
+ * players. This only catches a wallet earning faster than the game pays.
+ */
+const FROST_PER_MINUTE = 15;
+
 for (const p of profiles) {
   const minutes = p.playMinutes || 0;
 
-  // More Frost than the rules can produce in the minutes played. The daily
-  // cap is per day, so allow one full cap per 24h of playtime plus slack.
-  const maxPlausible = (Math.floor(minutes / 60 / 4) + 1) * FROST.dailyCap * 3;
-  if (p.frost > maxPlausible) flag(p.wallet, `frost-vs-playtime(${p.frost}>${maxPlausible})`);
+  const hardMax = daysElapsed * BEST_DAY;
+  if (p.frost > hardMax) flag(p.wallet, `impossible(${p.frost}>${hardMax})`);
+  else if (minutes > 0 && p.frost > minutes * FROST_PER_MINUTE) {
+    flag(p.wallet, `high-yield(${(p.frost / minutes).toFixed(1)}/min)`);
+  }
 
   // Qualified but barely present: the gate is a floor, not a signal of life.
   if (p.frost > 0 && minutes < GATE.minutes) flag(p.wallet, `frost-below-gate(${minutes}m)`);
