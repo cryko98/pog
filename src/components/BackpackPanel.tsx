@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { IGLOO, RECIPES, RESOURCE_KEYS, SKINS } from '../../shared/world.js';
+import { FISH, GATHER, IGLOO, RARITY, RECIPES, RESOURCE_KEYS, SKINS } from '../../shared/world.js';
 import type { Inventory } from '../game/engine';
 import { Icon, type IconName } from './Icon';
 import { PenguinPreview } from './PenguinPreview';
@@ -136,6 +136,27 @@ export function BackpackPanel({
                 </div>
               ))
           )}
+          <h5>Tackle box</h5>
+          <p className="bp-note">
+            Cast at a hole and a bite comes every {GATHER.hole.biteMs / 1000} seconds. What bites is
+            luck — and a little skill.
+          </p>
+          {Object.values(FISH).map((f) => {
+            const n = inventory.fishLog?.[f.id] || 0;
+            const tone = RARITY[f.rarity as keyof typeof RARITY];
+            return (
+              <div className="bp-row" key={f.id}>
+                <span className="with-icon">
+                  <i className="fish-dot" style={{ background: tone.color }} />
+                  {n > 0 ? f.label : '???'}
+                  <small className="fish-rarity" style={{ color: tone.color }}>
+                    {tone.label} · {f.fish} fish
+                  </small>
+                </span>
+                <b>{n > 0 ? `×${n}` : '—'}</b>
+              </div>
+            );
+          })}
           {inventory.items.iglooKit > 0 && (
             <div className="bp-build">
               <h5>Raise an igloo</h5>

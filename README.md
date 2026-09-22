@@ -82,7 +82,10 @@ to five. Miss a day and it starts over.
 four-minute respawn — and the only thing they buy is a hat in the shop.
 Nothing purchasable makes you gather faster; the real economy is wood, ice
 and fish. The cookout and the quest board add two more ways in, both bounded
-by the same gathering caps: the 21 fishing holes can only produce so much fish
+by the same gathering caps: a wallet gets one bite every five seconds (a server-held
+clock, whatever the client sends), each bite is one server-side roll on the fish
+table in `shared/world.js` — six species by rarity, or nothing at all — and the 21
+fishing holes can only produce so much fish
 per minute no matter how many players work them.
 
 Guests can walk, slide and chat, but nothing they do is recorded: $POG is

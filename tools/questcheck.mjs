@@ -118,13 +118,15 @@ async function work(node) {
     });
     at = { x: node.x, y: node.y, t: Date.now() };
     if (r.status !== 200) {
-      // a cap or a neighbour beating us to it: back off and move on
-      await sleep(/breath|Slow/i.test(r.json.error || '') ? 5200 : 400);
-      if (/breath|Slow/i.test(r.json.error || '')) continue;
+      // a cap, a neighbour beating us to it, or no bite yet: back off
+      const wait = /biting/i.test(r.json.error || '') ? GATHER.hole.biteMs : /breath|Slow/i.test(r.json.error || '') ? 5200 : 400;
+      await sleep(wait);
+      if (/breath|Slow|biting/i.test(r.json.error || '')) continue;
       return null;
     }
     if (r.json.gained) return r.json.gained;
-    await sleep(SWING_GAP);
+    // a bite comes on the clock, and sometimes it gets away
+    await sleep(node.type === 'hole' ? GATHER.hole.biteMs + 120 : SWING_GAP);
   }
   return null;
 }

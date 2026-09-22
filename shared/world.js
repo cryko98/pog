@@ -45,8 +45,77 @@ export const GATHER = {
   /** `bonusEvery` levels of the matching skill add one more to the yield */
   tree: { yields: { wood: 2 }, respawnMs: 300000, hits: 5, label: 'Chop', verb: 'chopping', bonusEvery: 3 },
   ice: { yields: { ice: 2 }, respawnMs: 240000, hits: 3, label: 'Cut ice', verb: 'cutting ice', bonusEvery: 3 },
-  hole: { yields: { fish: 1 }, respawnMs: 180000, hits: 3, label: 'Fish', verb: 'reeling in', needs: 'rod', bonusEvery: 4 },
+  /**
+   * Fishing is not swung. Cast once and a bite comes every `biteMs`; each
+   * bite is one server roll on the fish table below — or nothing, if it
+   * got away. Holes never deplete: the bite clock is the limit, per wallet.
+   */
+  hole: { yields: { fish: 1 }, respawnMs: 0, hits: 1, biteMs: 5000, label: 'Fish', verb: 'reeling in', needs: 'rod', bonusEvery: 4 },
 };
+
+/* ------------------------------------------------------------------ *
+ * What is in the water
+ *
+ * Every bite rolls once against these weights. The value is how many
+ * "fish" the catch is worth in the pack — the cookout, the cairn and the
+ * quests all count fish, so a rare one is simply worth more of them.
+ * ------------------------------------------------------------------ */
+
+export const RARITY = {
+  common: { label: 'Common', color: '#cfe8f5' },
+  uncommon: { label: 'Uncommon', color: '#4ade80' },
+  rare: { label: 'Rare', color: '#fbbf24' },
+  epic: { label: 'Epic', color: '#c084fc' },
+  legendary: { label: 'Legendary', color: '#38bdf8' },
+};
+
+export const FISH = {
+  smelt: { id: 'smelt', label: 'Arctic smelt', rarity: 'common', weight: 52, fish: 1 },
+  char: { id: 'char', label: 'Arctic char', rarity: 'common', weight: 28, fish: 1 },
+  icefish: { id: 'icefish', label: 'Crocodile icefish', rarity: 'uncommon', weight: 13, fish: 2 },
+  trout: { id: 'trout', label: 'Golden trout', rarity: 'rare', weight: 5.5, fish: 3 },
+  pike: { id: 'pike', label: 'Glacier pike', rarity: 'epic', weight: 1.3, fish: 6 },
+  king: { id: 'king', label: 'The Frost King', rarity: 'legendary', weight: 0.2, fish: 15 },
+};
+
+/** The chance a bite comes to nothing, before skill brings it down. */
+export const FISH_ESCAPE = 0.3;
+
+export const fishById = (id) => (typeof id === 'string' && Object.hasOwn(FISH, id) ? FISH[id] : null);
+
+/**
+ * One bite. `rnd` is supplied so the server decides — the client only
+ * ever previews odds. Returns null when it got away. Skill helps twice:
+ * fewer escapes, and the rarer rows weigh a little more.
+ */
+export function rollFish(level = 1, rnd = Math.random) {
+  const lv = Math.max(1, Math.floor(level));
+  const escape = Math.max(0.1, FISH_ESCAPE - (lv - 1) * 0.02);
+  if (rnd() < escape) return null;
+
+  const rows = Object.values(FISH).map((f) => ({
+    f,
+    w: f.rarity === 'common' ? f.weight : f.weight * (1 + (lv - 1) * 0.06),
+  }));
+  const total = rows.reduce((s, r) => s + r.w, 0);
+  let roll = rnd() * total;
+  for (const r of rows) {
+    roll -= r.w;
+    if (roll <= 0) return r.f;
+  }
+  return rows[rows.length - 1].f;
+}
+
+/** Odds per species at a level, for the tackle-box readout. */
+export function fishOdds(level = 1) {
+  const lv = Math.max(1, Math.floor(level));
+  const rows = Object.values(FISH).map((f) => ({
+    f,
+    w: f.rarity === 'common' ? f.weight : f.weight * (1 + (lv - 1) * 0.06),
+  }));
+  const total = rows.reduce((s, r) => s + r.w, 0);
+  return rows.map((r) => ({ id: r.f.id, chance: r.w / total }));
+}
 
 /* ------------------------------------------------------------------ *
  * Skills
@@ -118,7 +187,7 @@ export const MAX_PLAYER_LEVEL = Object.keys(SKILLS).length * SKILL_XP.length - (
  * Per-minute ceilings on COMPLETED gathers — the individual swings that
  * lead up to one are bounded separately, by SWINGS_PER_MIN.
  */
-export const GATHER_PER_MIN = { tree: 12, ice: 12, hole: 6 };
+export const GATHER_PER_MIN = { tree: 12, ice: 12, hole: 13 };
 export const SWINGS_PER_MIN = 110;
 
 /**

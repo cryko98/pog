@@ -460,6 +460,28 @@ console.log('\n--- concurrency (needs POG_DEV_KEY=localtest on the server) ---')
     check('four racing cookouts on five fish: exactly one succeeds', cooked === 1, cooks.map((r) => r.status).join(','));
     check('...and the pack shows 0 fish, 1 $POG', after.profile.fish === 0 && after.profile.pog === 1, `fish=${after.profile.fish} pog=${after.profile.pog}`);
 
+    // Fishing is on a clock: a second cast straight after the first is told
+    // to wait, however fast the client asks. The clock is per wallet, so
+    // it cannot be dodged by hopping holes either.
+    let fishedAt = null;
+    {
+      await grant(c.token, { items: { rod: 1 } });
+      const hole = holes[1] ?? holes[0];
+      fishedAt = hole;
+      await sleep(1100);
+      const first = await call('/api/game/gather', { method: 'POST', token: c.token, body: { node: hole.id, x: hole.x, y: hole.y } });
+      check('a cast with a rod is accepted', first.status === 200 && (first.json.escaped || first.json.catch), first.json.error || JSON.stringify(first.json.catch || 'escaped'));
+      await sleep(300);
+      const again = await call('/api/game/gather', { method: 'POST', token: c.token, body: { node: hole.id, x: hole.x, y: hole.y } });
+      check('reeling in again at once is told to wait', again.status === 409 && /biting/i.test(again.json.error), again.json.error);
+      const other = holes.find((h) => h.id !== hole.id && Math.hypot(h.x - hole.x, h.y - hole.y) < 400);
+      if (other) {
+        await sleep(300);
+        const hop = await call('/api/game/gather', { method: 'POST', token: c.token, body: { node: other.id, x: other.x, y: other.y } });
+        check('hopping to the next hole does not reset the clock', hop.status === 409 && /biting|two places|Slow/i.test(hop.json.error), hop.json.error);
+      }
+    }
+
     // Now the furniture dupe: one rug, placed twice at once; then removed
     // twice at once. Each has to net out to exactly one rug.
     await grant(c.token, { pog: 100, items: { iglooKit: 1 } });
@@ -467,8 +489,11 @@ console.log('\n--- concurrency (needs POG_DEV_KEY=localtest on the server) ---')
     const taken = w.igloos || [];
     let spot = null;
     for (let tries = 0; tries < 400 && !spot; tries++) {
-      const x = WORLD.spawn.x + (Math.random() - 0.5) * 3000;
-      const y = WORLD.spawn.y + (Math.random() - 0.5) * 3000;
+      // within walking reach of where the wallet last acted, or the
+      // movement rule refuses the build for the right reason
+      const c0 = fishedAt ?? WORLD.spawn;
+      const x = c0.x + (Math.random() - 0.5) * 700;
+      const y = c0.y + (Math.random() - 0.5) * 700;
       if (canBuildAt(x, y, taken).ok) spot = { x: Math.round(x), y: Math.round(y) };
     }
     check('found clear snow to test on', !!spot);

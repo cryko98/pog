@@ -19,7 +19,7 @@ const FEATURES = [
   {
     icon: 'wood' as IconName,
     title: 'Chop, cut, fish — and get better at it',
-    body: 'Five swings to fell a pine, three to saw a block of ice, three to land a fish. Every one you finish is a point of skill in that trade, and higher levels haul more per swing. The number over your penguin is those three levels added up.',
+    body: 'Five swings to fell a pine, three to saw a block of ice. Fishing is patience: cast once and a bite comes every five seconds — six species from Arctic smelt to the Frost King, rolled by rarity, and sometimes it gets away. Every catch and every felling is a point of skill, and higher levels haul more.',
   },
   {
     icon: 'igloo' as IconName,
@@ -64,7 +64,7 @@ const STEPS = [
   },
   {
     title: 'Work the ice',
-    body: 'Walk up to a pine, a block of ice or a fishing hole and hold E — or the round button, on a phone. WASD to move, Shift to sprint, and the frozen lakes are fast but slippery.',
+    body: 'Walk up to a pine or a block of ice and hold E — or the round button, on a phone — to swing; press it once at a fishing hole to cast and stay put. WASD to move, Shift to sprint, and the frozen lakes are fast but slippery.',
   },
   {
     title: 'Craft, cook, build, furnish',

@@ -10,6 +10,9 @@ export interface Profile {
   skins: string[];
   skin: string;
   playMinutes: number;
+  skills?: Record<string, number>;
+  /** every species landed, by count */
+  fishLog?: Record<string, number>;
   streak?: number;
   lastQuestDay?: string;
   createdAt?: number;
@@ -303,6 +306,9 @@ export const api = {
       profile?: Profile;
       gained?: Record<string, number>;
       respawnAt?: number;
+      /** fishing: what bit, or that it got away */
+      catch?: { id: string; label: string; rarity: string };
+      escaped?: boolean;
     }>('/game/gather', post({ node, x: Math.round(x), y: Math.round(y) })),
 
   craft: (recipe: string) => request<{ profile: Profile }>('/game/craft', post({ recipe })),

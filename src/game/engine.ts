@@ -19,6 +19,7 @@ import {
   iglooLevel,
   playerLevel,
   MAX_PLAYER_LEVEL,
+  RARITY,
   STATION_SIGNS,
   canPlaceFurniture,
   furnitureById,
@@ -82,6 +83,8 @@ export interface Inventory {
   ice: number;
   fish: number;
   items: Record<string, number>;
+  /** every species landed, by count */
+  fishLog?: Record<string, number>;
 }
 
 export interface HudState {
@@ -222,7 +225,7 @@ export class PogGame {
   private taken = new Set<number>();
   private claiming = new Set<number>();
   private bubbles = new Map<string, { text: string; until: number }>();
-  private pickupFx: Array<{ x: number; y: number; t: number; label: string }> = [];
+  private pickupFx: Array<{ x: number; y: number; t: number; label: string; color?: string }> = [];
   private snow: Array<{ x: number; y: number; r: number; s: number; d: number }> = [];
   private sinceHud = 0;
 
@@ -248,6 +251,8 @@ export class PogGame {
   /** the tool comes out on the first swing and goes away a moment after the last */
   private toolAt = -Infinity;
   private toolNode: WorldNode | null = null;
+  /** cast at a hole: bites come on the clock until you walk away */
+  private fishing: { node: WorldNode; nextBite: number } | null = null;
   private lastRodNotice = -Infinity;
   private shake = new Map<string, number>();
   private chips: Array<{ x: number; y: number; vx: number; vy: number; life: number; color: string }> = [];
@@ -345,7 +350,7 @@ export class PogGame {
         // coordinates, which is exactly what they are.
         inside: this.interior?.igloo.wallet,
         level: playerLevel(this.skills),
-        ...(this.toolNode && performance.now() - this.toolAt < TOOL_HOLD_MS
+        ...(this.toolNode && (this.fishing || performance.now() - this.toolAt < TOOL_HOLD_MS)
           ? { tool: TOOL_FOR[this.toolNode.type], swing: Math.round(performance.now() - this.toolAt), node: this.toolNode.id }
           : {}),
       })),
@@ -499,6 +504,7 @@ export class PogGame {
     fish: number;
     items: Record<string, number>;
     skills?: Record<string, number>;
+    fishLog?: Record<string, number>;
   }) {
     this.me.pog = profile.pog;
     this.skills = profile.skills ?? this.skills;
@@ -508,6 +514,7 @@ export class PogGame {
       ice: profile.ice,
       fish: profile.fish,
       items: profile.items || {},
+      fishLog: profile.fishLog || {},
     };
   }
 
@@ -541,6 +548,13 @@ export class PogGame {
     if (!rule) return '';
     if (this.opts.guest) return 'Connect a wallet to gather';
     if (node.type === 'hole' && !(this.inventory.items.rod > 0)) return 'You need a fishing rod';
+    if (node.type === 'hole') {
+      if (this.fishing?.node.id === node.id) {
+        const s = Math.max(0, Math.ceil((this.fishing.nextBite - performance.now()) / 1000));
+        return 'Fishing — next bite in ' + s + 's. Walk away to stop';
+      }
+      return 'Press E to cast';
+    }
     const progress = this.hits.get(node.id);
     if (progress) return `${rule.label} — ${progress.hits}/${progress.needed}`;
     return `Press E to ${rule.label.toLowerCase()} (${rule.hits} hits)`;
@@ -590,6 +604,21 @@ export class PogGame {
       return;
     }
 
+    this.me.dir = Math.abs(node.x - this.me.x) > Math.abs(node.y - this.me.y)
+      ? node.x < this.me.x ? 'left' : 'right'
+      : node.y < this.me.y ? 'up' : 'down';
+
+    // Fishing is cast once and then left alone: the rod comes out, the
+    // line goes in, and a bite comes on the clock until you walk away.
+    if (node.type === 'hole') {
+      if (this.fishing?.node.id === node.id) return;
+      this.fishing = { node, nextBite: performance.now() + GATHER.hole.biteMs };
+      this.toolAt = performance.now() - GATHER.swingMs; // rod out, no tug yet
+      this.toolNode = node;
+      this.pushChat({ id: crypto.randomUUID(), text: 'Line in. Stay put — something will bite.', system: true });
+      return;
+    }
+
     this.busy = true;
     this.swingUntil = performance.now() + GATHER.swingMs;
 
@@ -600,10 +629,7 @@ export class PogGame {
     window.setTimeout(() => {
       this.shake.set(node.id, performance.now());
       this.throwChips(node);
-    }, GATHER.swingMs * (node.type === 'hole' ? 0.35 : 0.5));
-    this.me.dir = Math.abs(node.x - this.me.x) > Math.abs(node.y - this.me.y)
-      ? node.x < this.me.x ? 'left' : 'right'
-      : node.y < this.me.y ? 'up' : 'down';
+    }, GATHER.swingMs * 0.5);
 
     api
       .gather(node.id, this.me.x, this.me.y)
@@ -683,13 +709,15 @@ export class PogGame {
   /** Splinters, ice shards or spray, depending on what you just hit. */
   /** What is in our own hands right now, if anything. */
   private selfTool(now: number): { pose: ToolPose; node: WorldNode } | null {
+    if (this.fishing) return { pose: this.poseFor(this.fishing.node, this.me.x, now - this.toolAt), node: this.fishing.node };
     if (!this.toolNode || now - this.toolAt > TOOL_HOLD_MS) return null;
     return { pose: this.poseFor(this.toolNode, this.me.x, now - this.toolAt), node: this.toolNode };
   }
 
   /** And in somebody else's, from what they published. */
   private remoteTool(r: Remote, now: number): { pose: ToolPose; node: WorldNode } | null {
-    if (!r.tool || r.toolAt === undefined || now - r.toolAt > TOOL_HOLD_MS) return null;
+    // a rod is published for as long as the line is in, however long ago it last tugged
+    if (!r.tool || r.toolAt === undefined || (r.tool !== 'rod' && now - r.toolAt > TOOL_HOLD_MS)) return null;
     const node = r.node ? this.nodes.find((n) => n.id === r.node) : undefined;
     if (!node) return null;
     return { pose: this.poseFor(node, r.rx, now - r.toolAt), node };
@@ -704,7 +732,7 @@ export class PogGame {
   }
 
   /** From the rod tip down to the water, with a bobber where it lands. */
-  private drawFishingLine(tip: { x: number; y: number }, hole: WorldNode, phase: number, now: number) {
+  private drawFishingLine(tip: { x: number; y: number }, hole: WorldNode, phase: number, now: number, wait = -1) {
     const ctx = this.ctx;
     const wx = this.sx(hole.x) + (tip.x > this.sx(hole.x) ? 6 : -6) * ZOOM;
     const wy = this.sy(hole.y) - 2 * ZOOM;
@@ -728,6 +756,14 @@ export class PogGame {
     ctx.beginPath();
     ctx.arc(wx, by, 3.2 * ZOOM, Math.PI, Math.PI * 2);
     ctx.fill();
+    // how long until the next bite, as a ring filling up around the bobber
+    if (wait >= 0) {
+      ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(wx, by, 7 * ZOOM, -Math.PI / 2, -Math.PI / 2 + wait * Math.PI * 2);
+      ctx.stroke();
+    }
     // ripples ring out from where the line meets the water
     const ripple = ((now / 900) % 1);
     for (const k of [0, 0.5]) {
@@ -1089,12 +1125,81 @@ export class PogGame {
     this.keys.delete('KeyE');
   }
 
+  /**
+   * Keep the line in while we stand here; reel in when the clock says so.
+   * Walking off, stepping indoors or losing the rod ends it.
+   */
+  private tendLine(now: number) {
+    const f = this.fishing;
+    if (!f) return;
+    const away = Math.hypot(f.node.x - this.me.x, f.node.y - this.me.y) > GATHER.range * 1.25;
+    if (this.me.moving || away || this.interior || !(this.inventory.items.rod > 0)) {
+      this.fishing = null;
+      return;
+    }
+    if (now < f.nextBite || this.busy) return;
+    f.nextBite = now + GATHER.hole.biteMs;
+    this.bite(f.node);
+  }
+
+  private bite(node: WorldNode) {
+    this.busy = true;
+    this.toolAt = performance.now();
+    this.toolNode = node;
+    window.setTimeout(() => {
+      this.shake.set(node.id, performance.now());
+      this.throwChips(node);
+    }, GATHER.swingMs * 0.35);
+
+    api
+      .gather(node.id, this.me.x, this.me.y)
+      .then(({ profile, gained, catch: landed, escaped }) => {
+        if (escaped) {
+          this.pickupFx.push({ x: node.x, y: node.y, t: performance.now(), label: 'It got away…', color: '#9fb8c8' });
+          return;
+        }
+        if (profile && gained && landed) {
+          this.applyProfile(profile);
+          const tone = RARITY[landed.rarity as keyof typeof RARITY];
+          this.pickupFx.push({
+            x: node.x,
+            y: node.y,
+            t: performance.now(),
+            label: landed.label + '! +' + gained.fish + ' fish',
+            color: tone?.color ?? '#ffd44d',
+          });
+          if (landed.rarity !== 'common') {
+            this.pushChat({
+              id: crypto.randomUUID(),
+              text: (tone?.label ?? '') + ' catch: ' + landed.label + '.',
+              system: true,
+            });
+          }
+          this.pokeQuests();
+        }
+      })
+      .catch((err: Error) => {
+        // asked before the fish were ready: try again shortly
+        if (/biting/i.test(err.message)) {
+          if (this.fishing) this.fishing.nextBite = performance.now() + 1200;
+          return;
+        }
+        if (/rod/i.test(err.message) || /pack is as full/i.test(err.message)) this.fishing = null;
+        if (!/Slow down/i.test(err.message)) {
+          this.pushChat({ id: crypto.randomUUID(), text: err.message, system: true });
+        }
+      })
+      .finally(() => {
+        this.busy = false;
+      });
+  }
+
   /** Holding E keeps swinging at whatever you are standing next to. */
   private autoSwing() {
     if (this.building || !this.keys.has('KeyE')) return;
     if (performance.now() < this.swingUntil) return;
     const node = this.nearNode;
-    if (!node || isStation(node.type)) return;
+    if (!node || isStation(node.type) || node.type === 'hole') return;
     if (!this.canWork(node)) return;
     this.interact();
   }
@@ -1178,6 +1283,7 @@ export class PogGame {
 
     const moved = Math.hypot(this.me.vx, this.me.vy);
     this.me.moving = moved > 12;
+    this.tendLine(performance.now());
 
     if (Math.abs(ax) > 0.15 || Math.abs(ay) > 0.15) {
       this.me.dir = Math.abs(ax) > Math.abs(ay) ? (ax < 0 ? 'left' : 'right') : ay < 0 ? 'up' : 'down';
@@ -1586,7 +1692,10 @@ export class PogGame {
       ctx.fill();
       if (tool) {
         const tip = drawPenguinWithTool(ctx, color, dir, frame, moving, x, y, PENGUIN_WORLD_HEIGHT * ZOOM, isSelf ? this.hat : null, tool.pose);
-        if (tip) this.drawFishingLine(tip, tool.node, tool.pose.phase, now);
+        if (tip) {
+          const wait = isSelf && this.fishing ? 1 - Math.max(0, this.fishing.nextBite - now) / GATHER.hole.biteMs : -1;
+          this.drawFishingLine(tip, tool.node, tool.pose.phase, now, wait);
+        }
       } else {
         blitPenguin(ctx, color, dir, frame, moving, x, y, PENGUIN_WORLD_HEIGHT * ZOOM, isSelf ? this.hat : null);
       }
@@ -1682,7 +1791,7 @@ export class PogGame {
       const t = (now - fx.t) / 700;
       ctx.save();
       ctx.globalAlpha = 1 - t;
-      ctx.fillStyle = '#ffd44d';
+      ctx.fillStyle = fx.color ?? '#ffd44d';
       ctx.font = `800 ${18 + t * 8}px "Baloo 2", system-ui, sans-serif`;
       ctx.textAlign = 'center';
       ctx.fillText(fx.label, this.sx(fx.x), this.sy(fx.y) - 40 - t * 34);

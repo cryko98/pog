@@ -41,8 +41,11 @@ import {
   WORLD,
   canBuildAt,
   dailyQuests,
+  fishById,
   getCoins,
   gatherYield,
+  rollFish,
+  skillLevel,
   getNode,
   questDay,
   skinById,
@@ -82,6 +85,8 @@ export const K = {
   quests: (wallet: string, day: string) => `pog:quests:${wallet}:${day}`,
   /** one key per reward, set atomically so a reward can only be taken once */
   questClaim: (wallet: string, day: string, id: string) => `pog:qc:${wallet}:${day}:${id}`,
+  /** one bite per wallet per `biteMs`, whatever the client sends */
+  bite: (wallet: string) => `pog:bite:${wallet}`,
   /** throttles the free jump home, so it cannot shortcut a farming route */
   homeJump: (wallet: string) => `pog:home:${wallet}`,
   /** and the jump back to the plaza, which is otherwise the same shortcut */
@@ -221,6 +226,8 @@ export interface Profile extends FrostFields {
    * drift the first time the curve was tuned.
    */
   skills: Record<string, number>;
+  /** every species landed, by count — the tackle box */
+  fishLog: Record<string, number>;
   /** consecutive days on which all three daily quests were cleared */
   streak: number;
   /** the last day that streak was extended, so it can lapse */
@@ -269,6 +276,18 @@ const ITEM_IDS: Record<string, true> = Object.fromEntries(
   Object.values(RECIPES).flatMap((r) => Object.keys(r.gives).filter((g) => !RESOURCE_KEYS.includes(g)).map((g) => [g, true]))
 );
 
+/** Only real species, only whole non-negative counts. */
+function sanitizeFishLog(raw: unknown): Record<string, number> {
+  const out: Record<string, number> = {};
+  if (!raw || typeof raw !== 'object') return out;
+  for (const [id, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (!fishById(id)) continue;
+    const n = Math.floor(Number(value) || 0);
+    if (n > 0) out[id] = Math.min(1_000_000, n);
+  }
+  return out;
+}
+
 /** Only the three known skills, only whole non-negative counts. */
 function sanitizeSkills(raw: unknown): Record<string, number> {
   const out: Record<string, number> = { tree: 0, ice: 0, hole: 0 };
@@ -296,6 +315,7 @@ function normalize(p: Partial<Profile> & { wallet: string }): Profile {
     skin: typeof p.skin === 'string' ? p.skin : 'default',
     playMinutes: Math.max(0, Math.floor(Number(p.playMinutes) || 0)),
     skills: sanitizeSkills(p.skills),
+    fishLog: sanitizeFishLog(p.fishLog),
     streak: Math.max(0, Math.floor(Number(p.streak) || 0)),
     lastQuestDay: typeof p.lastQuestDay === 'string' ? p.lastQuestDay : '',
     ...normalizeFrost(p),
@@ -745,6 +765,9 @@ export interface GatherResult {
   profile?: Profile;
   gained?: Record<string, number>;
   respawnAt?: number;
+  /** fishing: what bit, or that it got away */
+  catch?: { id: string; label: string; rarity: string };
+  escaped?: boolean;
   error?: string;
 }
 
@@ -769,7 +792,7 @@ async function gatherNow(
 
   // one shape for all three node kinds; only fishing carries a `needs`
   const rule = (Object.hasOwn(GATHER, node.type) ? GATHER[node.type as 'tree' | 'ice' | 'hole'] : undefined) as
-    | { yields: Record<string, number>; respawnMs: number; hits: number; needs?: string }
+    | { yields: Record<string, number>; respawnMs: number; hits: number; needs?: string; biteMs?: number }
     | undefined;
   if (!rule) return { error: 'Nothing to do here.' };
 
@@ -798,10 +821,18 @@ async function gatherNow(
   const swings = await store.incrWithTtl(K.swingRate(wallet), 60);
   if (swings > SWINGS_PER_MIN) return { error: 'Catch your breath.' };
 
+  // Fishing is on a clock, not a count: one bite per wallet per biteMs,
+  // held as a lock that is never released so it expires exactly on time.
+  // A client asking early is told to wait; it cannot make the fish hurry.
+  if (rule.biteMs) {
+    const bite = await store.lock(K.bite(wallet), rule.biteMs - 350);
+    if (!bite) return { error: 'Nothing is biting yet.' };
+  }
+
   // Count the blow. Half-finished work expires, so you cannot chip a tree
   // now and come back in an hour to collect it.
   const needed = Math.max(1, rule.hits || 1);
-  const landed = await store.incrWithTtl(K.hits(wallet, node.id), 90);
+  const landed = needed > 1 ? await store.incrWithTtl(K.hits(wallet, node.id), 90) : 1;
   if (landed < needed) return { hits: landed, needed };
 
   // The felling blow: now the expensive checks apply.
@@ -819,17 +850,34 @@ async function gatherNow(
     return { error: 'Your pack is as full as your playtime allows. Keep playing to carry more.' };
   }
 
+  // A node that respawns is claimed atomically, so two players cannot both
+  // bank the same tree. A hole never depletes; the bite clock is its limit.
   const respawnAt = Date.now() + rule.respawnMs;
-  if (!(await store.zaddnx(K.nodes, respawnAt, node.id))) {
+  if (rule.respawnMs > 0) {
+    if (!(await store.zaddnx(K.nodes, respawnAt, node.id))) {
+      await store.del(K.hits(wallet, node.id));
+      return { error: 'Someone just worked this spot.' };
+    }
     await store.del(K.hits(wallet, node.id));
-    return { error: 'Someone just worked this spot.' };
   }
-  await store.del(K.hits(wallet, node.id));
 
   // What it gives depends on how good you are at this. The count is read
   // before the increment, so the level you had when you swung is the
   // level that pays — not the one you reach by landing the blow.
-  const gained = gatherYield(node.type, profile.skills[node.type] || 0) as Record<string, number>;
+  const count = profile.skills[node.type] || 0;
+  const gained = gatherYield(node.type, count) as Record<string, number>;
+
+  // Fishing rolls the table here, with the server's dice. The skill bonus
+  // rides on top of whatever bit; nothing bit, nothing gained, no XP.
+  let landedFish: { id: string; label: string; rarity: string } | undefined;
+  if (rule.biteMs) {
+    const species = rollFish(skillLevel(count).level);
+    if (!species) return { escaped: true, respawnAt, hits: needed, needed };
+    gained.fish = species.fish + (gained.fish - rule.yields.fish);
+    landedFish = { id: species.id, label: species.label, rarity: species.rarity };
+    profile.fishLog[species.id] = (profile.fishLog[species.id] || 0) + 1;
+  }
+
   for (const [res, amount] of Object.entries(gained)) {
     profile[res as 'wood' | 'ice' | 'fish'] += amount;
   }
@@ -837,7 +885,7 @@ async function gatherNow(
 
   const saved = await putProfile(profile);
   await bumpQuest(wallet, node.type, 1);
-  return { profile: saved, gained, respawnAt, hits: needed, needed };
+  return { profile: saved, gained, respawnAt, hits: needed, needed, catch: landedFish };
 }
 
 /** Node ids currently on cooldown, so a joining client hides them too. */
