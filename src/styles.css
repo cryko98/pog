@@ -304,6 +304,40 @@ input {
   margin-left: auto;
 }
 
+.nav-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+/*
+ * On a phone the section anchors are the first thing to go: the page
+ * scrolls to all of them anyway, and without dropping them the row grows
+ * past the viewport and pushes "Connect wallet" off the right edge — the
+ * one control that has to stay reachable.
+ */
+@media (max-width: 760px) {
+  .nav-links {
+    display: none;
+  }
+
+  .nav-actions {
+    margin-left: auto;
+  }
+
+  .nav-actions .btn {
+    white-space: nowrap;
+    max-width: 46vw;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .brand {
+    font-size: 1.12rem;
+  }
+}
+
 .nav-links a {
   padding: 9px 14px;
   border-radius: 10px;
@@ -568,7 +602,7 @@ section.band {
 
 .roadmap {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
   gap: 18px;
 }
 
@@ -1552,4 +1586,153 @@ section.band {
 
 .bp-row.shop .nm {
   font-size: 0.84rem;
+}
+
+/* ---- daily quests ---- */
+
+.icon-btn {
+  position: relative;
+}
+
+.badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.68rem;
+  font-weight: 800;
+  font-style: normal;
+  line-height: 17px;
+  text-align: center;
+  box-shadow: 0 0 0 2px rgba(9, 41, 48, 0.85);
+}
+
+.side-panel.quests {
+  width: 292px;
+}
+
+.q-streak {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+  border-radius: 12px;
+  background: rgba(255, 122, 28, 0.13);
+  box-shadow: inset 0 0 0 1px rgba(255, 122, 28, 0.32);
+}
+
+.q-streak b {
+  display: block;
+  font-size: 0.9rem;
+}
+
+.q-streak small {
+  display: block;
+  font-size: 0.74rem;
+  color: #a9cbd6;
+  line-height: 1.35;
+}
+
+.q-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.q-row.claimed {
+  opacity: 0.55;
+}
+
+.q-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.q-label {
+  display: block;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.q-body small {
+  font-size: 0.72rem;
+  color: #a9cbd6;
+}
+
+.q-bar {
+  height: 5px;
+  margin: 5px 0 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+}
+
+.q-bar i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--teal-400);
+  transition: width 0.3s ease;
+}
+
+.q-done {
+  color: #52d6a3;
+  display: grid;
+  place-items: center;
+  width: 28px;
+}
+
+.bp-cost .gain {
+  background: rgba(82, 214, 163, 0.16);
+  box-shadow: inset 0 0 0 1px rgba(82, 214, 163, 0.4);
+  color: #9fe8cb;
+}
+
+/* ---- touch interact button ----
+   Hidden wherever there is a keyboard to press E on. */
+
+.touch-action {
+  display: none;
+  grid-area: 2 / 3;
+  align-self: end;
+  justify-self: end;
+  margin-bottom: 14px;
+  width: 78px;
+  height: 78px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  border-radius: 50%;
+  background: rgba(22, 154, 148, 0.92);
+  color: var(--snow);
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.35), 0 6px 18px rgba(4, 26, 32, 0.4);
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.touch-action:active {
+  background: var(--teal-400);
+  color: #07333a;
+  transform: scale(0.94);
+}
+
+@media (pointer: coarse) {
+  .touch-action {
+    display: flex;
+  }
 }

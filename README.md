@@ -17,7 +17,9 @@ game server to keep alive.
 | **The world** | 6400 × 6400 units of pine forest, frozen lakes and lantern-lit plazas, generated deterministically from one seed. Shelters are deliberately absent — players will build those. |
 | **Multiplayer** | Everyone shares one map over a public MQTT broker — positions, chat and name tags in real time. |
 | **Survival loop** | Chop wood, cut ice, fish. Craft a rod, then an igloo kit, then raise the igloo — all validated server-side. |
-| **Play to earn** | 70 scarce $POG coins on the ice, spendable only on hats. Balances are banked per wallet on a live leaderboard. |
+| **Daily quests** | Three a day, derived from your wallet address and the UTC date. Clear all three and a streak bonus stacks on top. |
+| **Play to earn** | 70 scarce $POG coins on the ice, the plaza cookout, and quest rewards — spendable only on hats. Balances are banked per wallet on a live leaderboard. |
+| **Phone support** | An on-screen action button next to the virtual stick, so gathering, the stations and building all work without a keyboard. |
 
 Every visual is drawn procedurally with Canvas 2D — the penguin, the trees, the ice, the
 coins. No sprite sheets to ship and no third-party art licences to track.
@@ -26,12 +28,21 @@ coins. No sprite sheets to ship and no third-party art licences to track.
 
 Chop pines for **wood**, saw blocks of **ice** out on the lakes, and fish the
 holes once you have a rod. Crafting happens at the workbench on the spawn
-plaza; the stall next to it sells hats.
+plaza; the stall next to it sells hats, and the fire between the snowmen is
+where a catch becomes currency.
 
 ```
 25 wood              ->  fishing rod  ->  fish the holes
 300 wood + 120 ice   ->  igloo kit    ->  raise your own igloo
+5 fish   -> 1 $POG   |   30 fish -> 7 $POG     (the plaza fire)
 ```
+
+A raw fish has no other use, which is the point: the rod is what turns a
+pile of wood into an income, and the fire is the only way to earn coins by
+working rather than by stumbling across them.
+
+Once your igloo is standing you wake up at its door instead of back on the
+plaza. That is most of what 300 wood buys you.
 
 Nothing gives way in one press. A pine takes **five swings**, ice three,
 and a fish three — counted on the server, one per request, so a bot has to
@@ -51,10 +62,27 @@ Igloos are the one part of the world players author. Build one on clear snow
 and it is stored against your wallet, carries your name, and every other
 player sees it from then on.
 
+## Daily quests
+
+Three a day, and you do not get to pick them: they are drawn deterministically
+from your wallet address and the UTC date, so logging out and back in gives you
+the same three. The server recomputes them from scratch on every request rather
+than trusting a list the client sends.
+
+Progress is only ever incremented from inside `gather`, `craft` and `claimCoin`,
+which means it inherits every rate cap those already enforce — there is no
+endpoint that takes "I did the thing" as input. Rewards are gated on an atomic
+`setnx` per quest, so two racing claims pay out exactly once.
+
+Clearing all three extends a streak, worth an extra $POG per consecutive day up
+to five. Miss a day and it starts over.
+
 **$POG is cosmetic only.** Coins are scarce — 70 on the whole map with a
 four-minute respawn — and the only thing they buy is a hat in the shop.
 Nothing purchasable makes you gather faster; the real economy is wood, ice
-and fish.
+and fish. The cookout and the quest board add two more ways in, both bounded
+by the same gathering caps: the 21 fishing holes can only produce so much fish
+per minute no matter how many players work them.
 
 Guests can walk, slide and chat, but nothing they do is recorded: $POG is
 credited to a wallet address, and a guest has none.
@@ -72,12 +100,16 @@ it can do is refuse anything a real player could not have done.
 | What a wallet may hold scales with minutes actually played, credited at most one per real minute | Pumping a freshly created wallet |
 | Node cooldowns live in a Redis sorted set, claimed with an atomic add | Two players banking the same tree |
 | Balances, skins and igloos are only ever written by the API | Anything forged on the MQTT presence channel |
+| Quest progress is incremented from inside the actions, never from a request | Reporting quests complete without playing |
+| Quest rewards are gated on an atomic per-quest key | Claiming the same reward twice, or racing two claims |
+| The respawn jump is only ever to *your own* igloo, once a minute | Using a built igloo as a teleport between resource nodes |
 
-Two scripts keep this honest:
+Three scripts keep this honest:
 
 ```bash
-node tools/cheatcheck.mjs   # 21 attacks, every line must read PASS
+node tools/cheatcheck.mjs   # 32 attacks, every line must read PASS
 node tools/loopcheck.mjs    # the honest loop: chop, craft, fish, build
+node tools/questcheck.mjs   # rod -> fish -> cookout -> quests -> streak
 ```
 
 None of this makes cheating impossible — a determined attacker can simulate a
@@ -143,6 +175,7 @@ api/
   auth/[action].ts      nonce, verify, logout     (Solana ed25519 signature)
   profile/[action].ts   me, set, namecheck, leaderboard
   world/[action].ts     coins, claim, stats
+  game/[action].ts      state, gather, craft, build, buy, equip, quests, quest
   online/[action].ts    beat, count
 shared/world.js         deterministic world gen — imported by the client AND the API
 src/
@@ -203,6 +236,10 @@ an extensionless specifier throws on load and every route answers
 | Name uniqueness index | Redis hash | `pog:names` |
 | Login sessions (7 days) | Redis | `pog:sess:<token>` |
 | Coins currently picked up | Redis sorted set | `pog:coins` |
+| Nodes on cooldown | Redis sorted set | `pog:nodes` |
+| Player-built igloos | Redis hash | `pog:igloos` |
+| Today's quest progress | Redis (3-day TTL) | `pog:quests:<address>:<yyyy-mm-dd>` |
+| Quest rewards already paid | Redis (3-day TTL) | `pog:qc:<address>:<day>:<quest>` |
 | Leaderboard | Redis sorted set | `pog:lb` |
 | Penguin positions, chat | nowhere — in flight only | MQTT topics |
 
@@ -216,9 +253,15 @@ change.
 ## Roadmap
 
 - **Phase 1 — Ice break** ✅ wallet login, spawn plaza, multiplayer, usernames
-- **Phase 2 — Waddle** — emotes, proximity chat, cosmetics
-- **Phase 3 — Blizzard** — snowball PvP, ice fishing, player-built igloos
-- **Phase 4 — Glacier** — on-chain reward claims, NFT skins, tournaments
+- **Phase 2 — Waddle** ✅ wood, ice and fishing, the workbench and stall, player-built igloos, hats
+- **Phase 3 — Deep winter** ✅ daily quests and streaks, the plaza cookout, respawning at your igloo, phone controls
+- **Phase 4 — Blizzard** — igloo furniture and interiors, an igloo marketplace, a snowball PvP arena, guilds
+- **Phase 5 — Glacier** — on-chain reward claims, NFT skins, tournaments
+
+A note on the PvP arena: presence is peer-to-peer and unauthenticated, so
+real-time combat with anything at stake cannot be made honest in this
+architecture. Either it stays purely for fun, or it gets its own stateful
+server process — there is no middle ground worth shipping.
 
 ---
 

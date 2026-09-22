@@ -209,6 +209,7 @@ const PROP_HEIGHT: Record<string, number> = {
   banner: 132,
   workbench: 62,
   stall: 86,
+  campfire: 58,
 };
 
 export const propHeight = (p: Prop) => (PROP_HEIGHT[p.type] ?? 40) * p.scale;
@@ -443,6 +444,78 @@ function drawBanner(ctx: CanvasRenderingContext2D, h: number) {
   ctx.fill();
 }
 
+/**
+ * The plaza cookout: a ring of stones, crossed logs, and flames that never
+ * repeat because each tongue is driven by its own offset sine.
+ */
+function drawCampfire(ctx: CanvasRenderingContext2D, h: number, time: number) {
+  const w = h * 0.95;
+
+  // stone ring, drawn in the squashed ground plane
+  for (let i = 0; i < 9; i++) {
+    const a = (i / 9) * Math.PI * 2 + 0.3;
+    const sx = Math.cos(a) * w * 0.48;
+    const sy = Math.sin(a) * w * 0.48 * 0.45;
+    ctx.fillStyle = i % 2 ? '#8ea3b2' : '#7b8f9e';
+    ctx.beginPath();
+    ctx.ellipse(sx, sy, w * 0.11, w * 0.082, a * 0.4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(38,62,79,0.5)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }
+
+  // ember bed glowing through the stones
+  const bed = ctx.createRadialGradient(0, -h * 0.02, 1, 0, -h * 0.02, w * 0.42);
+  bed.addColorStop(0, 'rgba(255,186,90,0.85)');
+  bed.addColorStop(1, 'rgba(255,120,40,0)');
+  ctx.fillStyle = bed;
+  ctx.beginPath();
+  ctx.ellipse(0, -h * 0.02, w * 0.42, w * 0.2, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // two crossed logs
+  ctx.lineCap = 'round';
+  ctx.strokeStyle = '#5b4632';
+  ctx.lineWidth = h * 0.11;
+  ctx.beginPath();
+  ctx.moveTo(-w * 0.32, -h * 0.02);
+  ctx.lineTo(w * 0.3, -h * 0.16);
+  ctx.moveTo(w * 0.32, -h * 0.02);
+  ctx.lineTo(-w * 0.3, -h * 0.16);
+  ctx.stroke();
+  ctx.strokeStyle = '#7a5f42';
+  ctx.lineWidth = h * 0.045;
+  ctx.beginPath();
+  ctx.moveTo(-w * 0.3, -h * 0.04);
+  ctx.lineTo(w * 0.28, -h * 0.17);
+  ctx.stroke();
+
+  // flames: three tongues, each on its own phase
+  for (let i = 0; i < 3; i++) {
+    const phase = time * (2.1 + i * 0.55) + i * 2.4;
+    const sway = Math.sin(phase) * w * 0.07;
+    const lift = (0.72 + Math.sin(phase * 1.3) * 0.16) * (1 - i * 0.2);
+    const base = w * (0.2 - i * 0.045);
+    ctx.fillStyle = i === 0 ? '#ff7a1c' : i === 1 ? '#ffb43c' : '#ffe58a';
+    ctx.beginPath();
+    ctx.moveTo(-base, -h * 0.12);
+    ctx.quadraticCurveTo(-base * 0.8 + sway, -h * (0.12 + lift * 0.6), sway, -h * (0.12 + lift));
+    ctx.quadraticCurveTo(base * 0.8 + sway, -h * (0.12 + lift * 0.6), base, -h * 0.12);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  // warm light pooling on the snow
+  const pool = ctx.createRadialGradient(0, 0, 1, 0, 0, w * 1.15);
+  pool.addColorStop(0, 'rgba(255,170,70,0.22)');
+  pool.addColorStop(1, 'rgba(255,170,70,0)');
+  ctx.fillStyle = pool;
+  ctx.beginPath();
+  ctx.ellipse(0, 0, w * 1.15, w * 0.52, 0, 0, Math.PI * 2);
+  ctx.fill();
+}
+
 export function drawProp(
   ctx: CanvasRenderingContext2D,
   prop: Prop,
@@ -484,6 +557,9 @@ export function drawProp(
       break;
     case 'stall':
       drawStall(ctx, h);
+      break;
+    case 'campfire':
+      drawCampfire(ctx, h, time);
       break;
   }
   ctx.restore();

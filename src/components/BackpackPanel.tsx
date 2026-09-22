@@ -1,16 +1,20 @@
 import { useState } from 'react';
-import { IGLOO, RECIPES, SKINS } from '../../shared/world.js';
+import { IGLOO, RECIPES, RESOURCE_KEYS, SKINS } from '../../shared/world.js';
 import type { Inventory } from '../game/engine';
 import { Icon, type IconName } from './Icon';
 import { PenguinPreview } from './PenguinPreview';
 
-type Tab = 'bag' | 'craft' | 'shop';
+type Tab = 'bag' | 'craft' | 'cook' | 'shop';
+
+const TAB_LABEL: Record<Tab, string> = { bag: 'Bag', craft: 'Craft', cook: 'Cook', shop: 'Shop' };
 
 interface Recipe {
   id: string;
   label: string;
   blurb: string;
+  station: string;
   cost: Record<string, number>;
+  gives: Record<string, number>;
 }
 
 interface Skin {
@@ -96,9 +100,9 @@ export function BackpackPanel({
       </div>
 
       <div className="bp-tabs">
-        {(['bag', 'craft', 'shop'] as Tab[]).map((t) => (
+        {(['bag', 'craft', 'cook', 'shop'] as Tab[]).map((t) => (
           <button key={t} className={`bp-tab${tab === t ? ' active' : ''}`} onClick={() => setTab(t)}>
-            {t === 'bag' ? 'Bag' : t === 'craft' ? 'Craft' : 'Shop'}
+            {TAB_LABEL[t]}
           </button>
         ))}
       </div>
@@ -164,28 +168,47 @@ export function BackpackPanel({
         </>
       )}
 
-      {tab === 'craft' && (
+      {(tab === 'craft' || tab === 'cook') && (
         <>
-          {recipes.map((r) => (
-            <div className="bp-card" key={r.id}>
-              <b>{r.label}</b>
-              <small>{r.blurb}</small>
-              <div className="bp-cost">
-                {Object.entries(r.cost).map(([res, need]) => (
-                  <span key={res} className={(inventory[res as keyof Inventory] as number) >= need ? '' : 'short'}>
-                    {need} {res}
-                  </span>
-                ))}
+          {tab === 'cook' && (
+            <p className="bp-note">
+              <Icon name="fire" size={14} /> The plaza fire is the only thing a raw fish is good for.
+            </p>
+          )}
+          {recipes
+            .filter((r) => r.station === (tab === 'cook' ? 'fire' : 'craft'))
+            .map((r) => (
+              <div className="bp-card" key={r.id}>
+                <b>{r.label}</b>
+                <small>{r.blurb}</small>
+                <div className="bp-cost">
+                  {Object.entries(r.cost).map(([res, need]) => (
+                    <span
+                      key={res}
+                      className={(inventory[res as keyof Inventory] as number) >= need ? '' : 'short'}
+                    >
+                      {need} {res}
+                    </span>
+                  ))}
+                  {/* only a payout worth spelling out — the card title
+                      already names the item a craft hands you */}
+                  {Object.entries(r.gives)
+                    .filter(([res]) => RESOURCE_KEYS.includes(res))
+                    .map(([res, amount]) => (
+                      <span key={res} className="gain">
+                        +{amount} {res === 'pog' ? '$POG' : res}
+                      </span>
+                    ))}
+                </div>
+                <button
+                  className="btn btn-primary btn-sm bp-wide"
+                  disabled={busy || guest || !canAfford(r.cost)}
+                  onClick={() => run(() => onCraft(r.id), `${tab === 'cook' ? 'Cooked' : 'Crafted'} ${r.label}.`)}
+                >
+                  {tab === 'cook' ? 'Cook' : 'Craft'}
+                </button>
               </div>
-              <button
-                className="btn btn-primary btn-sm bp-wide"
-                disabled={busy || guest || !canAfford(r.cost)}
-                onClick={() => run(() => onCraft(r.id), `Crafted ${r.label}.`)}
-              >
-                Craft
-              </button>
-            </div>
-          ))}
+            ))}
         </>
       )}
 

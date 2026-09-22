@@ -32,6 +32,16 @@ const FEATURES = [
     body: 'Everyone online shares one map in real time. Jump in as a guest to roam, slide and chat; connect a wallet when you want what you do to count.',
   },
   {
+    icon: 'quest' as IconName,
+    title: 'A reason to come back tomorrow',
+    body: 'Three quests a day, drawn from your own wallet address so nobody can reroll into easy ones. Clear all three and the streak bonus grows — miss a day and it starts over.',
+  },
+  {
+    icon: 'fire' as IconName,
+    title: 'Cook your catch',
+    body: 'A raw fish is worth nothing. Smoke five over the plaza fire and the crowd tips you in $POG — the one way to earn coins by skill rather than by finding them.',
+  },
+  {
     icon: 'coin' as IconName,
     title: '$POG buys looks, not power',
     body: 'Coins are deliberately scarce and the shop only sells hats. Nothing you can buy makes you gather faster — the real economy is wood, ice and fish.',
@@ -54,11 +64,11 @@ const STEPS = [
   },
   {
     title: 'Work the ice',
-    body: 'Walk up to a pine, a block of ice or a fishing hole and hold E. WASD to move, Shift to sprint — and the frozen lakes are fast but slippery.',
+    body: 'Walk up to a pine, a block of ice or a fishing hole and hold E — or the round button, on a phone. WASD to move, Shift to sprint, and the frozen lakes are fast but slippery.',
   },
   {
-    title: 'Craft, then build',
-    body: 'The workbench on the plaza turns wood into a rod and a season of logging into an igloo kit. Place the igloo on clear snow and it is yours for good.',
+    title: 'Craft, cook, then build',
+    body: 'The workbench turns wood into a rod and a season of logging into an igloo kit; the fire turns fish into $POG. Raise the igloo on clear snow and you will wake up at its door from then on.',
   },
 ];
 
@@ -93,16 +103,21 @@ const ROADMAP = [
     ],
   },
   {
-    phase: 'Phase 3 — Blizzard',
+    phase: 'Phase 3 — Deep winter',
+    done: true,
     items: [
-      'Igloo furniture & interiors',
-      'Igloo marketplace',
-      'Snowball PvP arena',
-      'Guilds and daily quests',
+      'Daily quests & streaks',
+      'The plaza cookout: fish into $POG',
+      'Respawn at your own igloo',
+      'Playable on a phone',
     ],
   },
   {
-    phase: 'Phase 4 — Glacier',
+    phase: 'Phase 4 — Blizzard',
+    items: ['Igloo furniture & interiors', 'Igloo marketplace', 'Snowball PvP arena', 'Guilds'],
+  },
+  {
+    phase: 'Phase 5 — Glacier',
     items: ['On-chain reward claims', 'NFT penguin skins', 'Seasonal tournaments', 'Community-built zones'],
   },
 ];
@@ -202,7 +217,7 @@ export function Landing({ navigate }: { navigate: (r: Route) => void }) {
             <a href="#token">Tokenomics</a>
             <a href="#roadmap">Roadmap</a>
           </nav>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <div className="nav-actions">
             {identity && (
               <button
                 className="btn btn-ghost btn-sm"
@@ -299,7 +314,7 @@ export function Landing({ navigate }: { navigate: (r: Route) => void }) {
               you work for everything in it.
             </p>
           </div>
-          <div className="grid grid-3">
+          <div className="grid grid-4">
             {FEATURES.map((f) => (
               <article className="card feature" key={f.title}>
                 <div className="ico">
@@ -350,13 +365,14 @@ export function Landing({ navigate }: { navigate: (r: Route) => void }) {
             <div className="card">
               <h3 style={{ marginBottom: 12 }}>Play to earn, honestly explained</h3>
               <p>
-                Every $POG coin you pick up is recorded against your wallet and shown on the live
-                leaderboard. In game, coins buy hats and nothing else — they never make you gather
-                faster, so nobody can spend their way up the board.
+                There are three ways to bank $POG: find a coin on the ice, cook a catch over the
+                plaza fire, or clear a daily quest. All three are recorded against your wallet and
+                shown on the live leaderboard. In game, coins buy hats and nothing else — they never
+                make you gather faster, so nobody can spend their way up the board.
               </p>
               <p style={{ marginTop: 14 }}>
                 Those balances are the ledger for future on-chain reward distributions from the
-                community treasury. <strong>Nothing is claimable on chain yet</strong> — Phase 4
+                community treasury. <strong>Nothing is claimable on chain yet</strong> — Phase 5
                 wires the claim contract. Until then, playing is free and every coin you bank counts
                 toward your place in line.
               </p>

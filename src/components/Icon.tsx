@@ -27,7 +27,11 @@ export type IconName =
   | 'world'
   | 'players'
   | 'key'
-  | 'snowflake';
+  | 'snowflake'
+  | 'fire'
+  | 'quest'
+  | 'check'
+  | 'hand';
 
 interface Props {
   name: IconName;
@@ -193,6 +197,42 @@ const PATHS: Record<IconName, React.ReactNode> = {
         stroke="currentColor"
         strokeWidth="1.3"
         strokeLinecap="round"
+      />
+    </>
+  ),
+  fire: (
+    <>
+      <path
+        d="M12 2.8c.6 3.2-1.4 4.3-2.9 6C7.4 10.7 6.4 12.4 6.4 14.6a5.6 5.6 0 0 0 11.2 0c0-2.8-1.6-4.6-3.1-6.3-1-1.1-1.7-2.2-1.5-3.6-.4.7-1 1.2-1 1.2S12.2 4.4 12 2.8Z"
+        fill="#ff7a1c"
+        stroke="#d1490b"
+        strokeWidth="1.2"
+      />
+      <path
+        d="M12 11.4c.4 1.6-1.6 2-1.6 3.9a1.9 1.9 0 0 0 3.7 0c0-1.5-1.5-2.2-2.1-3.9Z"
+        fill="#ffe58a"
+      />
+    </>
+  ),
+  quest: (
+    <>
+      <path
+        d="M5.6 3.6h9.6l3.2 3.4v13.4H5.6Z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.6"
+      />
+      <path d="M8.6 9.4h6.8M8.6 13h6.8M8.6 16.6h4.2" stroke="currentColor" strokeWidth="1.5" />
+    </>
+  ),
+  check: <path d="M5 12.6 9.8 17.4 19 7.4" stroke="currentColor" strokeWidth="2.4" fill="none" />,
+  hand: (
+    <>
+      <path
+        d="M9.4 12.6V5.4a1.5 1.5 0 0 1 3 0v5.6m0-.6V4.2a1.5 1.5 0 0 1 3 0v6.4m0-.4a1.5 1.5 0 0 1 3 0v5.2a5.6 5.6 0 0 1-5.6 5.6h-1.2A5.6 5.6 0 0 1 6 15.4v-4a1.5 1.5 0 0 1 3 0"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.6"
       />
     </>
   ),

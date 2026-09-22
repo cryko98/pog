@@ -10,8 +10,28 @@ export interface Profile {
   skins: string[];
   skin: string;
   playMinutes: number;
+  streak?: number;
+  lastQuestDay?: string;
   createdAt?: number;
   updatedAt?: number;
+}
+
+export interface QuestView {
+  id: string;
+  label: string;
+  icon: string;
+  reward: number;
+  target: number;
+  progress: number;
+  claimed: boolean;
+}
+
+export interface QuestBoard {
+  day: string;
+  quests: QuestView[];
+  streak: number;
+  streakBonus: number;
+  claimable: number;
 }
 
 export interface Igloo {
@@ -121,7 +141,17 @@ export const api = {
   /* --- survival layer --- */
 
   gameState: () =>
-    request<{ profile: Profile; depleted: string[]; igloos: Igloo[] }>('/game/state'),
+    request<{ profile: Profile; depleted: string[]; igloos: Igloo[]; quests: QuestBoard }>(
+      '/game/state'
+    ),
+
+  quests: () => request<QuestBoard>('/game/quests'),
+
+  claimQuest: (id: string) =>
+    request<{ profile: Profile; reward: number; bonus: number; streak: number }>(
+      '/game/quest',
+      post({ id })
+    ),
 
   /**
    * One swing. The profile, yield and respawn only come back on the blow

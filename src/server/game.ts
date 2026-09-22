@@ -9,17 +9,22 @@ import bs58 from 'bs58';
 import { kv } from './kv.js';
 import {
   COIN,
+  DAILY_QUESTS,
   GATHER,
   GATHER_PER_MIN,
   SWINGS_PER_MIN,
   IGLOO,
   PLAYER,
   RECIPES,
+  RESOURCE_KEYS,
   SKINS,
+  STREAK_BONUS_CAP,
   WORLD,
   canBuildAt,
+  dailyQuests,
   getCoins,
   getNode,
+  questDay,
   skinById,
 } from '../../shared/world.js';
 
@@ -53,6 +58,12 @@ const K = {
   track: (wallet: string) => `pog:track:${wallet}`,
   /** last minute of play credited, so playtime cannot be spammed upward */
   playTick: (wallet: string) => `pog:playtick:${wallet}`,
+  /** today's quest progress, expiring on its own a few days later */
+  quests: (wallet: string, day: string) => `pog:quests:${wallet}:${day}`,
+  /** one key per reward, set atomically so a reward can only be taken once */
+  questClaim: (wallet: string, day: string, id: string) => `pog:qc:${wallet}:${day}:${id}`,
+  /** throttles the free jump home, so it cannot shortcut a farming route */
+  homeJump: (wallet: string) => `pog:home:${wallet}`,
 };
 
 const NONCE_TTL = 5 * 60;
@@ -91,11 +102,30 @@ const MIN_ACTION_GAP_MS = 800;
 /** Starting allowance, then this much more per minute actually played. */
 const HOLD_BASE = 120;
 const HOLD_PER_MINUTE = 90;
+/** At most one free jump to your own igloo per this many seconds. */
+const HOME_JUMP_COOLDOWN_S = 60;
 
 interface Track {
   x: number;
   y: number;
   t: number;
+}
+
+/**
+ * Did this wallet just respawn at its own igloo?
+ *
+ * Players who have built one spawn at their door instead of the plaza, so
+ * that one jump has to be allowed. It is narrower than it sounds: the
+ * destination is a single fixed point the player chose long ago, it can
+ * never sit on a lake, and it is rate-limited — so it cannot be used to
+ * shuttle between resource nodes.
+ */
+async function jumpedHome(wallet: string, x: number, y: number): Promise<boolean> {
+  const store = await kv();
+  const home = await store.hget<Igloo>(K.igloos, wallet);
+  if (!home || !Number.isFinite(home.x)) return false;
+  if (Math.hypot(x - home.x, y - home.y) > IGLOO.clearance) return false;
+  return store.setnx(K.homeJump(wallet), Date.now(), HOME_JUMP_COOLDOWN_S);
 }
 
 /**
@@ -115,13 +145,16 @@ async function trackMovement(
   if (last) {
     if (now - last.t < minGapMs) return 'Slow down.';
 
-    // Rejoining always puts you back on the spawn plaza, so that one jump
-    // is legitimate. Everything else has to be walkable.
+    // Rejoining puts you back on the spawn plaza — or, once you have raised
+    // one, at your own igloo door. Those jumps are legitimate. Everything
+    // else has to be walkable.
     const respawned = Math.hypot(x - WORLD.spawn.x, y - WORLD.spawn.y) <= WORLD.spawnRadius;
     if (!respawned) {
       const seconds = (now - last.t) / 1000;
       const reach = PLAYER.maxSpeed * PLAYER.iceSpeedBoost * seconds + POSITION_SLACK;
-      if (Math.hypot(x - last.x, y - last.y) > reach) return 'You cannot be in two places at once.';
+      if (Math.hypot(x - last.x, y - last.y) > reach && !(await jumpedHome(wallet, x, y))) {
+        return 'You cannot be in two places at once.';
+      }
     }
   }
 
@@ -147,6 +180,10 @@ export interface Profile {
   skin: string;
   /** minutes actually played, credited at most one per real minute */
   playMinutes: number;
+  /** consecutive days on which all three daily quests were cleared */
+  streak: number;
+  /** the last day that streak was extended, so it can lapse */
+  lastQuestDay: string;
   createdAt: number;
   updatedAt: number;
 }
@@ -174,6 +211,8 @@ function normalize(p: Partial<Profile> & { wallet: string }): Profile {
     skins: Array.isArray(p.skins) ? p.skins : ['default'],
     skin: typeof p.skin === 'string' ? p.skin : 'default',
     playMinutes: Math.max(0, Math.floor(Number(p.playMinutes) || 0)),
+    streak: Math.max(0, Math.floor(Number(p.streak) || 0)),
+    lastQuestDay: typeof p.lastQuestDay === 'string' ? p.lastQuestDay : '',
     createdAt: p.createdAt ?? Date.now(),
     updatedAt: p.updatedAt ?? Date.now(),
   };
@@ -376,6 +415,7 @@ export async function claimCoin(
   profile.pog += COIN.value;
   await putProfile(profile);
   await store.zadd(K.leaderboard, profile.pog, wallet);
+  await bumpQuest(wallet, 'coin', 1);
   return { pog: profile.pog };
 }
 
@@ -483,7 +523,9 @@ export async function gather(
     gained[res] = amount as number;
   }
 
-  return { profile: await putProfile(profile), gained, respawnAt, hits: needed, needed };
+  const saved = await putProfile(profile);
+  await bumpQuest(wallet, node.type, 1);
+  return { profile: saved, gained, respawnAt, hits: needed, needed };
 }
 
 /** Node ids currently on cooldown, so a joining client hides them too. */
@@ -518,11 +560,170 @@ export async function craft(wallet: string, recipeId: unknown): Promise<{ profil
     const key = res as 'wood' | 'ice' | 'fish' | 'pog';
     profile[key] -= need as number;
   }
-  for (const [item, amount] of Object.entries(recipe.gives)) {
-    profile.items[item] = (profile.items[item] || 0) + (amount as number);
+  // A recipe pays out either a crafted item or a resource the profile
+  // already tracks — the cookout turns fish straight into $POG.
+  for (const [give, amount] of Object.entries(recipe.gives)) {
+    if (RESOURCE_KEYS.includes(give)) {
+      profile[give as 'pog' | 'wood' | 'ice' | 'fish'] += amount as number;
+    } else {
+      profile.items[give] = (profile.items[give] || 0) + (amount as number);
+    }
   }
 
-  return { profile: await putProfile(profile) };
+  const saved = await putProfile(profile);
+  if (Object.hasOwn(recipe.gives, 'pog')) {
+    await (await kv()).zadd(K.leaderboard, saved.pog, wallet);
+  }
+  await bumpQuest(wallet, 'craft', 1);
+  return { profile: saved };
+}
+
+/* ------------------------------------------------------------------ *
+ * Daily quests
+ *
+ * Three a day, recomputed server-side from the wallet and the UTC date —
+ * the client never tells us which quests it has. Progress is only ever
+ * incremented from inside gather/craft/claim, so it inherits every rate
+ * cap those already enforce; a reward is handed out at most once because
+ * the claim is gated on an atomic setnx rather than on a list we read,
+ * modified and wrote back.
+ * ------------------------------------------------------------------ */
+
+const QUEST_TTL = 3 * 24 * 60 * 60;
+
+/**
+ * Only progress is stored as a document. Whether a reward has been taken
+ * lives in one key per quest instead, created with setnx — read-modify-write
+ * on a `claimed` array would lose an entry when two claims race, and the
+ * streak would then never see all three as done.
+ */
+interface QuestProgress {
+  progress: Record<string, number>;
+}
+
+export interface QuestView {
+  id: string;
+  label: string;
+  icon: string;
+  reward: number;
+  target: number;
+  progress: number;
+  claimed: boolean;
+}
+
+export interface QuestBoard {
+  day: string;
+  quests: QuestView[];
+  streak: number;
+  /** what finishing the last one today is additionally worth */
+  streakBonus: number;
+  claimable: number;
+}
+
+async function readQuests(wallet: string, day: string): Promise<QuestProgress> {
+  const store = await kv();
+  const raw = await store.get<Partial<QuestProgress>>(K.quests(wallet, day));
+  return { progress: raw?.progress && typeof raw.progress === 'object' ? raw.progress : {} };
+}
+
+/** Which of `ids` have already paid out today, straight from the claim keys. */
+async function claimedIds(wallet: string, day: string, ids: string[]): Promise<Set<string>> {
+  const store = await kv();
+  const marks = await store.mget<unknown>(ids.map((id) => K.questClaim(wallet, day, id)));
+  return new Set(ids.filter((_, i) => marks[i] != null));
+}
+
+/** Yesterday, in the same UTC calendar the quests roll over on. */
+const previousDay = (day: string) => questDay(Date.parse(day + 'T00:00:00Z') - 86_400_000);
+
+/**
+ * Record progress against whichever of today's quests tracks `what`.
+ * Called from the actions themselves, never from a request the client
+ * can shape, so there is nothing here to forge.
+ */
+async function bumpQuest(wallet: string, what: string, amount: number): Promise<void> {
+  const day = questDay();
+  const todays = dailyQuests(wallet, day).filter((q) => q.track === what);
+  if (!todays.length) return;
+
+  const store = await kv();
+  const state = await readQuests(wallet, day);
+  for (const q of todays) {
+    state.progress[q.id] = Math.min(q.target, (state.progress[q.id] || 0) + amount);
+  }
+  await store.set(K.quests(wallet, day), state, { ex: QUEST_TTL });
+}
+
+export async function questBoard(wallet: string): Promise<QuestBoard> {
+  const day = questDay();
+  const defs = dailyQuests(wallet, day);
+  const [state, profile, claimed] = await Promise.all([
+    readQuests(wallet, day),
+    getProfile(wallet),
+    claimedIds(wallet, day, defs.map((q) => q.id)),
+  ]);
+
+  const quests: QuestView[] = defs.map((q) => ({
+    id: q.id,
+    label: q.label,
+    icon: q.icon,
+    reward: q.reward,
+    target: q.target,
+    progress: Math.min(q.target, state.progress[q.id] || 0),
+    claimed: claimed.has(q.id),
+  }));
+
+  // A streak that was not extended yesterday has already lapsed, so show 0
+  // rather than a number the player can no longer build on.
+  const last = profile?.lastQuestDay || '';
+  const live = last === day || last === previousDay(day);
+  const streak = live ? profile?.streak || 0 : 0;
+
+  return {
+    day,
+    quests,
+    streak,
+    streakBonus: Math.min(STREAK_BONUS_CAP, streak + 1),
+    claimable: quests.filter((q) => !q.claimed && q.progress >= q.target).length,
+  };
+}
+
+export async function claimQuest(
+  wallet: string,
+  questId: unknown
+): Promise<{ profile?: Profile; reward?: number; bonus?: number; streak?: number; error?: string }> {
+  const day = questDay();
+  const defs = dailyQuests(wallet, day);
+  const def = defs.find((q) => q.id === questId);
+  if (!def) return { error: 'That is not one of today’s quests.' };
+
+  const state = await readQuests(wallet, day);
+  if ((state.progress[def.id] || 0) < def.target) return { error: 'Not finished yet.' };
+
+  const profile = await getProfile(wallet);
+  if (!profile) return { error: 'Pick a username first.' };
+
+  const store = await kv();
+  // The atomic gate. Two requests racing here: exactly one creates the key.
+  if (!(await store.setnx(K.questClaim(wallet, day, def.id), Date.now(), QUEST_TTL))) {
+    return { error: 'Already claimed.' };
+  }
+
+  const claimed = await claimedIds(wallet, day, defs.map((q) => q.id));
+
+  let bonus = 0;
+  // Clearing the last one extends the streak — once per day, and only if
+  // yesterday was the last day it moved.
+  if (claimed.size >= Math.min(DAILY_QUESTS, defs.length) && profile.lastQuestDay !== day) {
+    profile.streak = profile.lastQuestDay === previousDay(day) ? profile.streak + 1 : 1;
+    profile.lastQuestDay = day;
+    bonus = Math.min(STREAK_BONUS_CAP, profile.streak);
+  }
+
+  profile.pog += def.reward + bonus;
+  const saved = await putProfile(profile);
+  await store.zadd(K.leaderboard, saved.pog, wallet);
+  return { profile: saved, reward: def.reward, bonus, streak: saved.streak };
 }
 
 /* ------------------------------------------------------------------ *

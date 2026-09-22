@@ -54,11 +54,18 @@ export const GATHER = {
 export const GATHER_PER_MIN = { tree: 12, ice: 12, hole: 6 };
 export const SWINGS_PER_MIN = 110;
 
+/**
+ * `station` decides which panel a recipe shows up in — the workbench makes
+ * things, the plaza fire turns a catch into $POG. `gives` may name a crafted
+ * item (rod, iglooKit) or a resource the profile already tracks (pog); the
+ * server tells them apart by key.
+ */
 export const RECIPES = {
   rod: {
     id: 'rod',
     label: 'Fishing rod',
     blurb: 'Lets you fish the holes out on the lakes.',
+    station: 'craft',
     cost: { wood: 25 },
     gives: { rod: 1 },
   },
@@ -66,10 +73,85 @@ export const RECIPES = {
     id: 'iglooKit',
     label: 'Igloo kit',
     blurb: 'A season of logging and ice-cutting. Raise your own igloo on the snow.',
+    station: 'craft',
     cost: { wood: 300, ice: 120 },
     gives: { iglooKit: 1 },
   },
+  cookout: {
+    id: 'cookout',
+    label: 'Cookout',
+    blurb: 'Smoke five fish over the plaza fire and the crowd tips you in $POG.',
+    station: 'fire',
+    cost: { fish: 5 },
+    gives: { pog: 1 },
+  },
+  feast: {
+    id: 'feast',
+    label: 'Midwinter feast',
+    blurb: 'Empty the whole catch onto the coals. Worth more per fish than a cookout.',
+    station: 'fire',
+    cost: { fish: 30 },
+    gives: { pog: 7 },
+  },
 };
+
+/** Which profile fields a recipe may pay out into; anything else is an item. */
+export const RESOURCE_KEYS = ['pog', 'wood', 'ice', 'fish'];
+
+/* ------------------------------------------------------------------ *
+ * Daily quests
+ *
+ * Three a day, drawn deterministically from the wallet address and the
+ * UTC date. That matters: a player cannot reroll into easy ones by
+ * logging out, and the server can recompute the same three from scratch
+ * instead of trusting a list the client sends it.
+ * ------------------------------------------------------------------ */
+
+export const QUEST_POOL = [
+  { id: 'chop', track: 'tree', icon: 'wood', label: 'Fell {n} pine{s}', targets: [8, 12, 16], reward: 3 },
+  { id: 'cut', track: 'ice', icon: 'ice', label: 'Cut {n} block{s} of ice', targets: [6, 10, 14], reward: 3 },
+  { id: 'fish', track: 'hole', icon: 'fish', label: 'Land {n} fish', targets: [3, 5, 7], reward: 4 },
+  { id: 'coins', track: 'coin', icon: 'coin', label: 'Pocket {n} $POG coin{s}', targets: [2, 4, 6], reward: 2 },
+  { id: 'craft', track: 'craft', icon: 'rod', label: 'Craft {n} item{s}', targets: [1, 2], reward: 3 },
+];
+
+export const DAILY_QUESTS = 3;
+/** Every consecutive day of clearing all three adds one, up to this. */
+export const STREAK_BONUS_CAP = 5;
+
+/** UTC calendar day — one rollover for everyone, wherever they live. */
+export function questDay(now = Date.now()) {
+  return new Date(now).toISOString().slice(0, 10);
+}
+
+function hashStr(s) {
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619) >>> 0;
+  }
+  return h >>> 0;
+}
+
+/** The three quests this wallet has today. Same input => same three. */
+export function dailyQuests(wallet, day = questDay()) {
+  const rnd = mulberry32(hashStr(String(wallet) + '|' + day));
+  const pool = QUEST_POOL.slice();
+  const out = [];
+  while (out.length < DAILY_QUESTS && pool.length) {
+    const [pick] = pool.splice(Math.floor(rnd() * pool.length), 1);
+    const target = pick.targets[Math.floor(rnd() * pick.targets.length)];
+    out.push({
+      id: pick.id,
+      track: pick.track,
+      icon: pick.icon,
+      reward: pick.reward,
+      target,
+      label: pick.label.replace('{n}', String(target)).replace('{s}', target === 1 ? '' : 's'),
+    });
+  }
+  return out;
+}
 
 export const IGLOO = {
   /** an igloo needs this much clear snow around it */
@@ -267,6 +349,7 @@ const FOOTPRINT = {
   banner: 80,
   workbench: 46,
   stall: 52,
+  campfire: 44,
 };
 
 const footprintOf = (p) => (FOOTPRINT[p.type] ?? 24) * p.scale;
@@ -323,6 +406,8 @@ export function getProps() {
     // the two places you actually do business
     { type: 'workbench', x: sx - 205, y: sy - 55, r: 30, scale: 1, variant: 0 },
     { type: 'stall', x: sx + 205, y: sy - 55, r: 32, scale: 1, variant: 0 },
+    // a catch is worth nothing raw; the fire is where fish becomes $POG
+    { type: 'campfire', x: sx, y: sy + 120, r: 24, scale: 1, variant: 0 },
     { type: 'snowman', x: sx - 118, y: sy + 150, r: 16, scale: 1.2, variant: 3 },
     { type: 'snowman', x: sx + 132, y: sy + 152, r: 16, scale: 1.1, variant: 7 },
     { type: 'pine', x: sx - 322, y: sy + 252, r: 16, scale: 1.3, variant: 4 },
@@ -478,7 +563,8 @@ export function getNodes() {
   // walk up, press E — they just open a panel instead of yielding anything.
   nodes.push(
     { id: 'station-craft', type: 'craft', x: WORLD.spawn.x - 205, y: WORLD.spawn.y - 55 },
-    { id: 'station-shop', type: 'shop', x: WORLD.spawn.x + 205, y: WORLD.spawn.y - 55 }
+    { id: 'station-shop', type: 'shop', x: WORLD.spawn.x + 205, y: WORLD.spawn.y - 55 },
+    { id: 'station-fire', type: 'fire', x: WORLD.spawn.x, y: WORLD.spawn.y + 120 }
   );
 
   // Every pine is choppable.

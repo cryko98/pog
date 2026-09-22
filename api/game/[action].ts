@@ -3,9 +3,11 @@
  * Everything here needs a wallet session — guests can roam, but nothing
  * they do is recorded.
  *
- *   GET  state                                 -> { profile, depleted, igloos }
+ *   GET  state                                 -> { profile, depleted, igloos, quests }
  *   POST gather { node, x, y }                 -> { profile, gained, respawnAt }
  *   POST craft  { recipe }                     -> { profile }
+ *   GET  quests                                -> { day, quests, streak, ... }
+ *   POST quest  { id }                         -> { profile, reward, bonus }
  *   POST build  { x, y, style }                -> { igloo, profile }
  *   POST buy    { skin }                       -> { profile }
  *   POST equip  { skin }                       -> { profile }
@@ -19,12 +21,14 @@ import { RECIPES, SKINS } from '../../shared/world.js';
 import {
   buildIgloo,
   buySkin,
+  claimQuest,
   craft,
   depletedNodes,
   equipSkin,
   gather,
   getProfile,
   listIgloos,
+  questBoard,
   walletForToken,
 } from '../../src/server/game.js';
 
@@ -44,12 +48,23 @@ export default async function handler(req: any, res: any) {
     if (!wallet) return json(res, 401, { error: 'No valid session.' });
 
     if (action === 'state') {
-      const [profile, depleted, igloos] = await Promise.all([
+      const [profile, depleted, igloos, quests] = await Promise.all([
         getProfile(wallet),
         depletedNodes(),
         listIgloos(),
+        questBoard(wallet),
       ]);
-      return json(res, 200, { profile, depleted, igloos });
+      return json(res, 200, { profile, depleted, igloos, quests });
+    }
+
+    if (action === 'quests') {
+      return json(res, 200, await questBoard(wallet));
+    }
+
+    if (action === 'quest') {
+      const result = await claimQuest(wallet, body(req).id);
+      if (result.error) return json(res, 409, { error: result.error });
+      return json(res, 200, result);
     }
 
     if (action === 'gather') {

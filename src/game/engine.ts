@@ -46,7 +46,7 @@ import {
   type IglooMsg,
   type Presence,
 } from './presence';
-import { api } from '../lib/api';
+import { api, type QuestBoard } from '../lib/api';
 
 export const Y_SCALE = 0.62;
 const ZOOM = 1;
@@ -104,9 +104,22 @@ interface Options {
   onHud: (hud: HudState) => void;
   onChat: (line: ChatLine) => void;
   onFatal: (message: string) => void;
-  /** walking up to the bench or the stall opens the matching panel */
-  onStation: (which: 'craft' | 'shop') => void;
+  /** walking up to the bench, the stall or the fire opens the matching panel */
+  onStation: (which: StationKind) => void;
+  /** today's quests, whenever the server's view of them changes */
+  onQuests: (board: QuestBoard) => void;
 }
+
+export type StationKind = 'craft' | 'shop' | 'fire';
+
+const STATION_KINDS: StationKind[] = ['craft', 'shop', 'fire'];
+const isStation = (type: string): type is StationKind => STATION_KINDS.includes(type as StationKind);
+
+const STATION_PROMPT: Record<StationKind, string> = {
+  craft: 'Press E to use the workbench',
+  shop: 'Press E to browse the stall',
+  fire: 'Press E to cook at the fire',
+};
 
 const DIR_KEYS: Record<string, [number, number]> = {
   KeyW: [0, -1],
@@ -190,6 +203,10 @@ export class PogGame {
   private chips: Array<{ x: number; y: number; vx: number; vy: number; life: number; color: string }> = [];
   private building: { style: string } | null = null;
   private buildCheck = { ok: false, reason: '' };
+  /** true once the player has touched a control, so we stop relocating them */
+  private moved = false;
+  private homed = false;
+  private questTimer = 0;
 
   constructor(private canvas: HTMLCanvasElement, private opts: Options) {
     this.ctx = canvas.getContext('2d', { alpha: false })!;
@@ -320,6 +337,7 @@ export class PogGame {
     window.removeEventListener('pointercancel', this.onPointerUp);
     this.canvas.removeEventListener('lostpointercapture', this.onPointerUp);
     clearInterval(this.heartbeatTimer);
+    clearTimeout(this.questTimer);
     this.detach.forEach((fn) => fn());
     this.detach = [];
   }
@@ -331,20 +349,58 @@ export class PogGame {
     this.hat = hat;
   }
 
-  /** Pull inventory, node cooldowns and igloos back from the API. */
+  /** Pull inventory, node cooldowns, igloos and today's quests back. */
   async refreshState() {
     if (this.opts.guest) return;
     try {
-      const { profile, depleted, igloos } = await api.gameState();
+      const { profile, depleted, igloos, quests } = await api.gameState();
       this.applyProfile(profile);
       const now = Date.now();
       depleted.forEach((id) => {
         if (!this.depleted.has(id)) this.depleted.set(id, now + 60_000);
       });
       igloos.forEach((i) => this.igloos.set(i.wallet, i));
+      if (quests) this.opts.onQuests(quests);
+      this.goHome();
     } catch {
       /* the world still plays without it */
     }
+  }
+
+  /**
+   * Players who have built an igloo wake up at their own door rather than
+   * back on the plaza — which is most of what makes 300 wood worth
+   * spending. Only on arrival: once you have taken a step it would be a
+   * teleport, and the server would refuse the next action anyway.
+   */
+  private goHome() {
+    if (this.homed || this.moved) return;
+    const home = this.igloos.get(this.selfId);
+    if (!home) return;
+    this.homed = true;
+    // just south of the entrance, clear of the dome itself
+    this.me.x = home.x;
+    this.me.y = home.y + 64;
+    this.me.vx = 0;
+    this.me.vy = 0;
+    this.cam.x = this.me.x;
+    this.cam.y = this.me.y;
+    this.pushChat({ id: crypto.randomUUID(), text: 'Home sweet igloo.', system: true });
+  }
+
+  /**
+   * Quest progress is server-side, so it is re-read rather than guessed at.
+   * Debounced: a burst of swings should cost one request, not five.
+   */
+  private pokeQuests() {
+    if (this.opts.guest) return;
+    clearTimeout(this.questTimer);
+    this.questTimer = window.setTimeout(() => {
+      api
+        .quests()
+        .then((board) => this.opts.onQuests(board))
+        .catch(() => {});
+    }, 900);
   }
 
   applyProfile(profile: {
@@ -381,9 +437,7 @@ export class PogGame {
 
   private promptFor(node: WorldNode | null): string {
     if (!node) return '';
-    if (node.type === 'craft' || node.type === 'shop') {
-      return node.type === 'craft' ? 'Press E to use the workbench' : 'Press E to browse the stall';
-    }
+    if (isStation(node.type)) return STATION_PROMPT[node.type];
     const until = this.depleted.get(node.id);
     if (until && until > Date.now()) {
       return `${Math.ceil((until - Date.now()) / 1000)}s until it is back`;
@@ -402,7 +456,7 @@ export class PogGame {
     const node = this.nearNode;
     if (!node || this.busy) return;
 
-    if (node.type === 'craft' || node.type === 'shop') {
+    if (isStation(node.type)) {
       this.opts.onStation(node.type);
       return;
     }
@@ -447,6 +501,7 @@ export class PogGame {
           announceNode(node.id, respawnAt);
           const parts = Object.entries(gained).map(([k, v]) => `+${v} ${k}`);
           this.pickupFx.push({ x: node.x, y: node.y, t: performance.now(), label: parts.join(' ') });
+          this.pokeQuests();
         } else if (typeof hits === 'number' && typeof needed === 'number') {
           this.hits.set(node.id, { hits, needed, at: performance.now() });
         }
@@ -533,6 +588,7 @@ export class PogGame {
     try {
       const { profile } = await api.craft(recipe);
       this.applyProfile(profile);
+      this.pokeQuests();
       return null;
     } catch (err) {
       return err instanceof Error ? err.message : 'Could not craft that.';
@@ -648,6 +704,7 @@ export class PogGame {
         const c = this.coins[coinId];
         if (c) this.pickupFx.push({ x: c.x, y: c.y, t: performance.now(), label: "+1 $POG" });
         announceCoin(coinId);
+        this.pokeQuests();
       })
       .catch((err: Error) => {
         // a session that no longer works needs a fresh wallet login
@@ -678,12 +735,28 @@ export class PogGame {
 
   private onKeyUp = (e: KeyboardEvent) => this.keys.delete(e.code);
 
+  /**
+   * The touch equivalent of holding E. A phone has no keyboard, so without
+   * these the whole survival layer — gathering, the stations, confirming a
+   * build — is simply unreachable on mobile.
+   */
+  pressInteract() {
+    if (this.keys.has('KeyE')) return; // already held; the loop keeps swinging
+    this.keys.add('KeyE');
+    if (this.building) void this.confirmBuild();
+    else this.interact();
+  }
+
+  releaseInteract() {
+    this.keys.delete('KeyE');
+  }
+
   /** Holding E keeps swinging at whatever you are standing next to. */
   private autoSwing() {
     if (this.building || !this.keys.has('KeyE')) return;
     if (performance.now() < this.swingUntil) return;
     const node = this.nearNode;
-    if (!node || node.type === 'craft' || node.type === 'shop') return;
+    if (!node || isStation(node.type)) return;
     if (!this.canWork(node)) return;
     this.interact();
   }
@@ -750,6 +823,7 @@ export class PogGame {
 
   private update(dt: number) {
     const [ax, ay, sprint] = this.axis();
+    if (ax || ay) this.moved = true; // no relocating a player who is already walking
     const onIce = isOnIce(this.me.x, this.me.y);
 
     // A penguin on ice is in its element: noticeably faster than on snow, and

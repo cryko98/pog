@@ -2,11 +2,12 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Route } from '../App';
 import { useSession } from '../state/session';
 import { shortAddress } from '../lib/wallet';
-import { api, type LeaderboardEntry } from '../lib/api';
+import { api, type LeaderboardEntry, type QuestBoard } from '../lib/api';
 import { PogGame, type ChatLine, type HudState } from '../game/engine';
 import { PenguinMark } from '../components/PenguinMark';
 import { ProfileModal } from '../components/ProfileModal';
 import { BackpackPanel } from '../components/BackpackPanel';
+import { QuestPanel } from '../components/QuestPanel';
 import { Icon } from '../components/Icon';
 import { skinById } from '../../shared/world.js';
 
@@ -39,7 +40,9 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
   const [board, setBoard] = useState<LeaderboardEntry[]>([]);
   const [showBoard, setShowBoard] = useState(false);
   const [showBag, setShowBag] = useState(false);
-  const [bagTab, setBagTab] = useState<'bag' | 'craft' | 'shop'>('bag');
+  const [bagTab, setBagTab] = useState<'bag' | 'craft' | 'cook' | 'shop'>('bag');
+  const [quests, setQuests] = useState<QuestBoard | null>(null);
+  const [showQuests, setShowQuests] = useState(false);
   const [editing, setEditing] = useState(false);
   const [fatal, setFatal] = useState('');
   const [booting, setBooting] = useState(true);
@@ -71,8 +74,9 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
       onHud: setHud,
       onChat: pushLine,
       onFatal: setFatal,
+      onQuests: setQuests,
       onStation: (which) => {
-        setBagTab(which === 'craft' ? 'craft' : 'shop');
+        setBagTab(which === 'fire' ? 'cook' : which);
         setBagPinned(true); // opened from a station, so it stays until closed
         setShowBag(true);
       },
@@ -154,6 +158,24 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
       return null;
     } catch (err) {
       return err instanceof Error ? err.message : 'Could not buy that.';
+    }
+  };
+
+  const claimQuest = async (id: string): Promise<string | null> => {
+    try {
+      const { profile, reward, bonus } = await api.claimQuest(id);
+      gameRef.current?.applyProfile(profile);
+      setQuests(await api.quests());
+      pushLine({
+        id: crypto.randomUUID(),
+        system: true,
+        text: bonus
+          ? `Quest cleared: +${reward} $POG, and +${bonus} for the streak.`
+          : `Quest cleared: +${reward} $POG.`,
+      });
+      return null;
+    } catch (err) {
+      return err instanceof Error ? err.message : 'Could not claim that.';
     }
   };
 
@@ -298,6 +320,19 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
             </span>
           </div>
           <button
+            className={`icon-btn${showQuests ? ' active' : ''}`}
+            title="Daily quests"
+            onClick={() => {
+              setShowQuests((v) => !v);
+              setShowBoard(false);
+              setShowBag(false);
+              setBagPinned(false);
+            }}
+          >
+            <Icon name="quest" size={17} />
+            {!!quests?.claimable && <i className="badge">{quests.claimable}</i>}
+          </button>
+          <button
             className={`icon-btn${showBoard ? ' active' : ''}`}
             title="Leaderboard"
             onClick={() => setShowBoard((v) => !v)}
@@ -310,10 +345,15 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
             onMouseEnter={hoverOpenBag}
             onMouseLeave={hoverCloseBag}
             onClick={() => {
-              // a click pins it, so it survives the pointer wandering off
+              // A click pins it open so it survives the pointer wandering
+              // off. It must not toggle `showBag`: hovering the button has
+              // already opened the panel, so a toggle would close the thing
+              // the click was meant to keep.
+              const next = !bagPinned;
               setBagTab('bag');
-              setBagPinned((v) => !v);
-              setShowBag((v) => !v);
+              setBagPinned(next);
+              setShowBag(next);
+              setShowQuests(false);
             }}
           >
             <Icon name="backpack" size={17} />
@@ -348,7 +388,16 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
           />
         )}
 
-        {showBoard && !showBag && (
+        {showQuests && !showBag && (
+          <QuestPanel
+            board={quests}
+            guest={!!identity?.guest}
+            onClaim={claimQuest}
+            onClose={() => setShowQuests(false)}
+          />
+        )}
+
+        {showBoard && !showBag && !showQuests && (
           <div className="panel side-panel">
             <h4>
               <Icon name="trophy" size={16} /> Top holders on ice
@@ -436,6 +485,32 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
             'Enter to chat'
           )}
         </div>
+
+        {/*
+          A phone has no E key. Without this the entire survival layer —
+          gathering, the stations, confirming a build — is unreachable on
+          mobile. Hidden on fine pointers, where the keyboard does the job.
+        */}
+        <button
+          className="touch-action"
+          aria-label={hud.building ? 'Place your igloo' : 'Interact'}
+          onContextMenu={(e) => e.preventDefault()}
+          onPointerDown={(e) => {
+            e.preventDefault();
+            try {
+              e.currentTarget.setPointerCapture(e.pointerId);
+            } catch {
+              /* capture is best-effort; the release handlers still fire */
+            }
+            gameRef.current?.pressInteract();
+          }}
+          onPointerUp={() => gameRef.current?.releaseInteract()}
+          onPointerCancel={() => gameRef.current?.releaseInteract()}
+          onLostPointerCapture={() => gameRef.current?.releaseInteract()}
+        >
+          <Icon name={hud.building ? 'igloo' : 'hand'} size={26} />
+          <span>{hud.building ? 'Place' : 'Act'}</span>
+        </button>
 
         <div className="panel hud-minimap">
           <canvas ref={minimapRef} width={296} height={296} />

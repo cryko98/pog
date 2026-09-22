@@ -211,6 +211,55 @@ console.log('\n--- crafting and currency ---');
   );
 }
 
+console.log('\n--- the cookout (fish -> $POG) ---');
+{
+  const r = await call('/api/game/craft', { method: 'POST', token: me.token, body: { recipe: 'cookout' } });
+  check('cooking with no fish is rejected', r.status === 409, r.json.error);
+}
+{
+  const { json } = await call('/api/game/state', { token: me.token });
+  check('a refused cookout minted no $POG', (json.profile?.pog || 0) === 0, `pog=${json.profile?.pog}`);
+}
+
+console.log('\n--- daily quests ---');
+{
+  const r = await call('/api/game/quests', { token: me.token });
+  const ok = r.status === 200 && Array.isArray(r.json.quests) && r.json.quests.length === 3;
+  check('the board serves exactly three quests', ok, JSON.stringify(r.json.quests?.map((q) => q.id)));
+  check(
+    'a fresh wallet has no streak and nothing to claim',
+    (r.json.streak || 0) === 0 && (r.json.claimable || 0) === 0,
+    `streak=${r.json.streak} claimable=${r.json.claimable}`
+  );
+  // the same wallet must always get the same three — no rerolling into easy ones
+  const again = await call('/api/game/quests', { token: me.token });
+  check(
+    'quests cannot be rerolled',
+    JSON.stringify(r.json.quests.map((q) => q.id + q.target)) ===
+      JSON.stringify(again.json.quests.map((q) => q.id + q.target))
+  );
+  {
+    const unfinished = r.json.quests.find((q) => q.progress < q.target);
+    check('a fresh wallet has at least one unfinished quest', !!unfinished);
+    if (unfinished) {
+      const c = await call('/api/game/quest', {
+        method: 'POST',
+        token: me.token,
+        body: { id: unfinished.id },
+      });
+      check('claiming an unfinished quest is rejected', c.status === 409, c.json.error);
+    }
+  }
+}
+{
+  const r = await call('/api/game/quest', { method: 'POST', token: me.token, body: { id: 'nonesuch' } });
+  check('claiming a quest you were not given is rejected', r.status === 409, r.json.error);
+}
+{
+  const r = await call('/api/game/quest', { method: 'POST', token: me.token, body: { id: '__proto__' } });
+  check('a prototype-pollution quest id is rejected', r.status === 409, r.json.error);
+}
+
 console.log('\n--- coins ---');
 {
   const coin = getCoins()[0];
@@ -230,6 +279,27 @@ console.log('\n--- building ---');
     body: { x: WORLD.spawn.x, y: WORLD.spawn.y, style: 'classic' },
   });
   check('building without an igloo kit is rejected', r.status === 409, r.json.error);
+}
+
+console.log('\n--- the jump home ---');
+{
+  // Players who have raised an igloo respawn at their own door, so that one
+  // jump is allowed. A wallet with no igloo has no such allowance — and
+  // there is no one-shot credit to burn, so a second attempt fails too.
+  const far = trees.reduce((best, t) =>
+    Math.hypot(t.x - trees[0].x, t.y - trees[0].y) > Math.hypot(best.x - trees[0].x, best.y - trees[0].y)
+      ? t
+      : best
+  );
+  for (const attempt of [1, 2]) {
+    await sleep(1100);
+    const r = await call('/api/game/gather', {
+      method: 'POST',
+      token: me.token,
+      body: { node: far.id, x: far.x, y: far.y },
+    });
+    check(`a wallet with no igloo gets no free jump (attempt ${attempt})`, r.status === 409, r.json.error);
+  }
 }
 
 console.log('\n--- playtime cap ---');
