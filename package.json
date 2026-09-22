@@ -35,5 +35,10 @@
   },
   "engines": {
     "node": ">=20"
+  },
+  "overrides": {
+    "rpc-websockets": {
+      "uuid": "^9.0.1"
+    }
   }
 }
