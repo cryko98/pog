@@ -15,6 +15,7 @@ import {
   resolveIgloos,
   resolveInterior,
   iglooAt,
+  iglooLevel,
   canPlaceFurniture,
   furnitureById,
   GATHER,
@@ -486,12 +487,8 @@ export class PogGame {
   private promptFor(node: WorldNode | null): string {
     if (this.interior) return 'Press E to step back outside';
     // a doorway you are standing at beats a node you are standing near
-    if (this.nearIgloo && !node) {
-      const mine = this.nearIgloo.wallet === this.selfId;
-      return mine
-        ? 'Press E to go inside'
-        : `Press E to visit ${this.nearIgloo.owner || 'their'}'s igloo`;
-    }
+    // `nearIgloo` is only ever your own now, so there is one thing to say
+    if (this.nearIgloo && !node) return 'Press E to go inside';
     if (!node) return '';
     if (isStation(node.type)) return STATION_PROMPT[node.type];
     const until = this.depleted.get(node.id);
@@ -1170,7 +1167,11 @@ export class PogGame {
     }
 
     this.nearNode = this.interior ? null : this.findNearNode();
-    this.nearIgloo = this.interior ? null : iglooAt(this.me.x, this.me.y, [...this.igloos.values()]);
+    // Only your own. Somebody else's igloo is theirs — it is furnished
+    // with their $POG and it is the thing they can sell, so it is not a
+    // public building.
+    const mine = this.igloos.get(this.selfId);
+    this.nearIgloo = this.interior || !mine ? null : iglooAt(this.me.x, this.me.y, [mine]);
     this.autoSwing();
 
     for (const c of this.chips) {
@@ -1270,12 +1271,18 @@ export class PogGame {
     }
   }
 
-  private drawNameTag(x: number, y: number, name: string, color: string, isSelf: boolean, guest: boolean) {
+  /** The level of the igloo this wallet owns, or 0 if they have none. */
+  private levelOf(id: string): number {
+    const igloo = this.igloos.get(id);
+    return igloo ? iglooLevel(igloo.furniture ?? []).level : 0;
+  }
+
+  private drawNameTag(x: number, y: number, name: string, color: string, isSelf: boolean, guest: boolean, level = 0) {
     const ctx = this.ctx;
     ctx.font = `700 13px Inter, system-ui, sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    const label = guest ? name + ' · guest' : name;
+    const label = guest ? name + ' · guest' : level > 0 ? name + ' · L' + level : name;
     const w = ctx.measureText(label).width + 22;
 
     ctx.fillStyle = isSelf ? 'rgba(13,43,58,0.92)' : 'rgba(13,27,38,0.72)';
@@ -1454,7 +1461,7 @@ export class PogGame {
       ctx.ellipse(x, y, 20 * ZOOM, 8 * ZOOM, 0, 0, Math.PI * 2);
       ctx.fill();
       blitPenguin(ctx, color, dir, frame, moving, x, y, PENGUIN_WORLD_HEIGHT * ZOOM, isSelf ? this.hat : null);
-      this.drawNameTag(x, y - PENGUIN_WORLD_HEIGHT * ZOOM - 14, name, color, isSelf, guest);
+      this.drawNameTag(x, y - PENGUIN_WORLD_HEIGHT * ZOOM - 14, name, color, isSelf, guest, this.levelOf(id));
       const bubble = this.bubbles.get(id);
       if (bubble && bubble.until > now) {
         this.drawBubble(x, y - PENGUIN_WORLD_HEIGHT * ZOOM - 34, bubble.text);

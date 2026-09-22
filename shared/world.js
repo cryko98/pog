@@ -277,12 +277,16 @@ export const IGLOO = {
     /** how far past the wall you must step to trigger the way out */
     doorDepth: 26,
   },
-  /** an igloo needs this much clear snow around it */
-  clearance: 150,
+  /**
+   * Half the dome's VISUAL width, which is what has to clear the scenery.
+   * The dome is drawn 168 wide, so anything closer than this to another
+   * thing's footprint overlaps it on screen however walkable the gap is.
+   */
+  footprint: 88,
+  /** an igloo needs this much clear snow around it — two footprints, plus air */
+  clearance: 190,
   /** and this much distance from the spawn plaza */
   plazaGap: 120,
-  /** and this much room from trees, rocks and the like */
-  propGap: 70,
   styles: ['classic', 'frost', 'amber'],
 };
 
@@ -363,8 +367,13 @@ export function canBuildAt(x, y, others = []) {
   if (Math.hypot(x - WORLD.spawn.x, y - WORLD.spawn.y) < WORLD.spawnRadius + IGLOO.plazaGap) {
     return { ok: false, reason: 'The spawn plaza has to stay clear.' };
   }
-  for (const p of solidsNear(x, y)) {
-    if (Math.hypot(x - p.x, y - p.y) < p.r * p.scale + IGLOO.propGap) {
+  // Measured against what you can SEE, not what you bump into. The
+  // collision radius of a market stall is a fraction of its awning, so
+  // checking against that let an igloo sit halfway through the shopfront.
+  // `propsNear` rather than `solidsNear` for the same reason: a bush you
+  // can walk through is still a bush growing out of your wall.
+  for (const p of propsNear(x, y)) {
+    if (Math.hypot(x - p.x, y - p.y) < IGLOO.footprint + footprintOf(p)) {
       return { ok: false, reason: 'Something is in the way.' };
     }
   }
@@ -699,6 +708,41 @@ export function solidsNear(x, y) {
   for (let dy = -1; dy <= 1; dy++) {
     for (let dx = -1; dx <= 1; dx++) {
       const bucket = grid.get(gx + dx + ',' + (gy + dy));
+      if (bucket) out.push(...bucket);
+    }
+  }
+  return out;
+}
+
+/**
+ * Every prop nearby, walkable or not. `solidsNear` is for collision and
+ * skips the decorative ones; placement cares about what is visible, and a
+ * bush you can walk through still looks wrong under a dome.
+ */
+const ALL_CELL = 256;
+let _allGrid = null;
+
+export function propsNear(x, y) {
+  if (!_allGrid) {
+    _allGrid = new Map();
+    for (const p of getProps()) {
+      const key = Math.floor(p.x / ALL_CELL) + ',' + Math.floor(p.y / ALL_CELL);
+      let bucket = _allGrid.get(key);
+      if (!bucket) {
+        bucket = [];
+        _allGrid.set(key, bucket);
+      }
+      bucket.push(p);
+    }
+  }
+  const gx = Math.floor(x / ALL_CELL);
+  const gy = Math.floor(y / ALL_CELL);
+  const out = [];
+  // the widest footprint is the banner at 80, and an igloo reaches 88, so
+  // two rings of cells is the smallest that cannot miss a neighbour
+  for (let dy = -2; dy <= 2; dy++) {
+    for (let dx = -2; dx <= 2; dx++) {
+      const bucket = _allGrid.get(gx + dx + ',' + (gy + dy));
       if (bucket) out.push(...bucket);
     }
   }
