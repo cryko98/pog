@@ -93,6 +93,12 @@ export interface Offering {
   frost: number;
 }
 
+export interface FurniturePiece {
+  id: string;
+  x: number;
+  y: number;
+}
+
 export interface Igloo {
   wallet: string;
   owner: string;
@@ -100,6 +106,42 @@ export interface Igloo {
   y: number;
   style: string;
   builtAt: number;
+  furniture?: FurniturePiece[];
+  lastYield?: number;
+}
+
+export interface Furnishing {
+  id: string;
+  label: string;
+  blurb: string;
+  price: number;
+  value: number;
+  r: number;
+}
+
+export interface IglooListing {
+  wallet: string;
+  seller: string;
+  price: number;
+  level: number;
+  levelLabel: string;
+  pieces: number;
+  style: string;
+  listedAt: number;
+}
+
+export interface HomeState {
+  igloo: Igloo | null;
+  level: { level: number; label: string; value: number; daily: number; next: { level: number; label: string; needs: number; daily: number } | null };
+  pieces: FurniturePiece[];
+  limit: number;
+  listed: boolean;
+  pending: number;
+  collected: number;
+  catalogue: Furnishing[];
+  market: IglooListing[];
+  fee: number;
+  profile: Profile | null;
 }
 
 export interface LeaderboardEntry {
@@ -256,6 +298,33 @@ export const api = {
     request<{ profile: Profile; frost: number; spent: Record<string, number> }>(
       '/season/offer',
       post({ id, x: Math.round(x), y: Math.round(y) })
+    ),
+
+  /* --- home: furnishing, levels and the igloo market --- */
+
+  home: () => request<HomeState>('/home/state'),
+
+  buyFurniture: (id: string, qty = 1) =>
+    request<{ profile: Profile }>('/home/buy', post({ id, qty })),
+
+  placeFurniture: (id: string, x: number, y: number) =>
+    request<{ igloo: Igloo; profile: Profile }>(
+      '/home/place',
+      post({ id, x: Math.round(x), y: Math.round(y) })
+    ),
+
+  removeFurniture: (index: number) =>
+    request<{ igloo: Igloo; profile: Profile }>('/home/remove', post({ index })),
+
+  listIgloo: (price: number) =>
+    request<{ listing: IglooListing }>('/home/list', post({ price })),
+
+  unlistIgloo: () => request<{ ok: boolean }>('/home/unlist', post()),
+
+  purchaseIgloo: (seller: string) =>
+    request<{ igloo: Igloo; profile: Profile; paid: number; burned: number }>(
+      '/home/purchase',
+      post({ seller })
     ),
 
   buySkin: (skin: string) => request<{ profile: Profile }>('/game/buy', post({ skin })),

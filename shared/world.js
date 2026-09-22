@@ -153,6 +153,107 @@ export function dailyQuests(wallet, day = questDay()) {
   return out;
 }
 
+/* ------------------------------------------------------------------ *
+ * Furniture, igloo levels and the daily yield
+ *
+ * Bought with soft $POG at the stall east of the plaza, placed inside your
+ * own igloo, and worth `value` toward its level. The level pays a small
+ * daily $POG yield — deliberately a slow payback, so furnishing is a SINK
+ * that trickles back rather than a faucet you buy once and farm.
+ *
+ * Nothing in here touches Frost. An igloo that paid the airdrop ledger
+ * would be passive income toward the drop, which is exactly the thing the
+ * qualifying gate exists to prevent.
+ * ------------------------------------------------------------------ */
+
+export const FURNITURE = {
+  rug: { id: 'rug', label: 'Seal-skin rug', blurb: 'Takes the chill off the floor.', price: 8, value: 1, r: 46 },
+  brazier: { id: 'brazier', label: 'Stone brazier', blurb: 'A low fire that never quite goes out.', price: 14, value: 2, r: 26 },
+  bed: { id: 'bed', label: 'Fur bed', blurb: 'Piled high enough to sleep through a storm.', price: 18, value: 2, r: 40 },
+  crate: { id: 'crate', label: 'Driftwood crate', blurb: 'For the haul you have not spent yet.', price: 16, value: 2, r: 24 },
+  shelf: { id: 'shelf', label: 'Ice shelf', blurb: 'Carved straight out of the wall.', price: 22, value: 3, r: 34 },
+  table: { id: 'table', label: 'Driftwood table', blurb: 'Scarred from a hundred meals.', price: 26, value: 3, r: 32 },
+  lamp: { id: 'lamp', label: 'Standing lantern', blurb: 'Warm light, wherever you want it.', price: 30, value: 4, r: 20 },
+  banner: { id: 'banner', label: '$POG banner', blurb: 'For the committed.', price: 45, value: 6, r: 30 },
+  throne: { id: 'throne', label: 'Ice throne', blurb: 'Cold, and entirely the point.', price: 60, value: 8, r: 34 },
+};
+
+/** How many pieces one igloo will hold, so levels need variety not volume. */
+export const FURNITURE_LIMIT = 14;
+
+/**
+ * Levels are derived from the furniture inside, never stored on their own —
+ * a stored level would drift the moment a piece moved.
+ */
+export const IGLOO_LEVELS = [
+  { level: 1, needs: 0, label: 'Shelter', daily: 0 },
+  { level: 2, needs: 6, label: 'Den', daily: 1 },
+  { level: 3, needs: 14, label: 'Lodge', daily: 2 },
+  { level: 4, needs: 26, label: 'Hall', daily: 4 },
+  { level: 5, needs: 42, label: 'Palace', daily: 7 },
+];
+
+/** At most this many days of yield pile up unclaimed, so you come back. */
+export const YIELD_CAP_DAYS = 3;
+
+export function furnitureById(id) {
+  return typeof id === 'string' && Object.hasOwn(FURNITURE, id) ? FURNITURE[id] : null;
+}
+
+/** Total `value` of everything standing in an igloo. */
+export function furnitureValue(pieces = []) {
+  let total = 0;
+  for (const piece of pieces) {
+    const spec = furnitureById(piece?.id);
+    if (spec) total += spec.value;
+  }
+  return total;
+}
+
+/** The level an igloo has earned, and how far it is from the next one. */
+export function iglooLevel(pieces = []) {
+  const value = furnitureValue(pieces);
+  let current = IGLOO_LEVELS[0];
+  for (const tier of IGLOO_LEVELS) if (value >= tier.needs) current = tier;
+  const next = IGLOO_LEVELS.find((t) => t.needs > value) ?? null;
+  return { ...current, value, next };
+}
+
+/**
+ * $POG owed for the time since `since`, capped so an igloo left alone for
+ * a month pays the same as one left alone for three days.
+ */
+export function yieldOwed(pieces, since, now = Date.now()) {
+  const { daily } = iglooLevel(pieces);
+  if (!daily || !since) return 0;
+  const days = Math.min(YIELD_CAP_DAYS, (now - since) / 86_400_000);
+  return Math.max(0, Math.floor(daily * days));
+}
+
+/** Can a piece stand here? Room bounds, clear of the door, clear of others. */
+export function canPlaceFurniture(x, y, spec, others = []) {
+  if (!spec) return { ok: false, reason: 'No such furnishing.' };
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return { ok: false, reason: 'Where?' };
+
+  const { rx, ry, doorWidth } = IGLOO.interior;
+  const margin = spec.r + 12;
+  if ((x / (rx - margin)) ** 2 + (y / (ry - margin)) ** 2 > 1) {
+    return { ok: false, reason: 'That is in the wall.' };
+  }
+  // keep the doorway walkable, or you can furnish yourself in
+  if (Math.abs(x) < doorWidth / 2 + spec.r && y > ry - 70) {
+    return { ok: false, reason: 'Keep the doorway clear.' };
+  }
+  for (const other of others) {
+    const os = furnitureById(other.id);
+    if (!os) continue;
+    if (Math.hypot(x - other.x, y - other.y) < spec.r + os.r) {
+      return { ok: false, reason: 'Something is already there.' };
+    }
+  }
+  return { ok: true, reason: '' };
+}
+
 export const IGLOO = {
   /** the dome is solid: this is its footprint, in flat world units */
   solidRadius: 74,
@@ -434,6 +535,7 @@ const FOOTPRINT = {
   stall: 52,
   campfire: 44,
   cairn: 40,
+  furnishop: 54,
 };
 
 const footprintOf = (p) => (FOOTPRINT[p.type] ?? 24) * p.scale;
@@ -494,6 +596,9 @@ export function getProps() {
     { type: 'campfire', x: sx, y: sy + 120, r: 24, scale: 1, variant: 0 },
     // and the cairn is where a season's work is counted
     { type: 'cairn', x: sx - 250, y: sy + 185, r: 22, scale: 1, variant: 0 },
+    // The furnishing stall sits outside the plaza ring rather than on it:
+    // the plaza is where you work, and this is where you spend.
+    { type: 'furnishop', x: sx + 470, y: sy + 150, r: 34, scale: 1, variant: 0 },
     { type: 'snowman', x: sx - 118, y: sy + 150, r: 16, scale: 1.2, variant: 3 },
     { type: 'snowman', x: sx + 132, y: sy + 152, r: 16, scale: 1.1, variant: 7 },
     { type: 'pine', x: sx - 322, y: sy + 252, r: 16, scale: 1.3, variant: 4 },
@@ -651,7 +756,8 @@ export function getNodes() {
     { id: 'station-craft', type: 'craft', x: WORLD.spawn.x - 205, y: WORLD.spawn.y - 55 },
     { id: 'station-shop', type: 'shop', x: WORLD.spawn.x + 205, y: WORLD.spawn.y - 55 },
     { id: 'station-fire', type: 'fire', x: WORLD.spawn.x, y: WORLD.spawn.y + 120 },
-    { id: 'station-cairn', type: 'cairn', x: WORLD.spawn.x - 250, y: WORLD.spawn.y + 185 }
+    { id: 'station-cairn', type: 'cairn', x: WORLD.spawn.x - 250, y: WORLD.spawn.y + 185 },
+    { id: 'station-furnish', type: 'furnish', x: WORLD.spawn.x + 470, y: WORLD.spawn.y + 150 }
   );
 
   // Every pine is choppable.

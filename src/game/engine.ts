@@ -15,11 +15,14 @@ import {
   resolveIgloos,
   resolveInterior,
   iglooAt,
+  canPlaceFurniture,
+  furnitureById,
   GATHER,
   IGLOO,
   RECIPES,
   canBuildAt,
 } from '../../shared/world.js';
+import { drawFurniture, drawFurnitureGhost } from './furniture';
 import { blitPenguin, type Dir } from './penguin';
 import {
   CHUNK,
@@ -80,6 +83,11 @@ export interface HudState {
   building: boolean;
   buildOk: boolean;
   buildReason: string;
+  /** the furnishing being positioned, if any */
+  placing: string | null;
+  /** whose igloo we are standing in, if any */
+  inside: string | null;
+  ownHome: boolean;
 }
 
 export interface ChatLine {
@@ -114,11 +122,13 @@ interface Options {
   onQuests: (board: QuestBoard) => void;
   /** something may have moved the season ledger — re-read it */
   onSeason: () => void;
+  /** the igloo, its furniture or its level changed — re-read it */
+  onHome: () => void;
 }
 
-export type StationKind = 'craft' | 'shop' | 'fire' | 'cairn';
+export type StationKind = 'craft' | 'shop' | 'fire' | 'cairn' | 'furnish';
 
-const STATION_KINDS: StationKind[] = ['craft', 'shop', 'fire', 'cairn'];
+const STATION_KINDS: StationKind[] = ['craft', 'shop', 'fire', 'cairn', 'furnish'];
 const isStation = (type: string): type is StationKind => STATION_KINDS.includes(type as StationKind);
 
 const STATION_PROMPT: Record<StationKind, string> = {
@@ -126,6 +136,7 @@ const STATION_PROMPT: Record<StationKind, string> = {
   shop: 'Press E to browse the stall',
   fire: 'Press E to cook at the fire',
   cairn: 'Press E to leave an offering',
+  furnish: 'Press E to browse furnishings',
 };
 
 const DIR_KEYS: Record<string, [number, number]> = {
@@ -234,6 +245,11 @@ export class PogGame {
    * normal size so it stays readable in a scaled-down room.
    */
   private roomScale = 1;
+  /** a furnishing being positioned inside the room, ghost following you */
+  private placing: { id: string } | null = null;
+  private placeCheck = { ok: false, reason: '' };
+  /** what is standing in the igloo we are currently inside */
+  private pieces: Array<{ id: string; x: number; y: number }> = [];
 
   constructor(private canvas: HTMLCanvasElement, private opts: Options) {
     this.ctx = canvas.getContext('2d', { alpha: false })!;
@@ -472,7 +488,9 @@ export class PogGame {
     // a doorway you are standing at beats a node you are standing near
     if (this.nearIgloo && !node) {
       const mine = this.nearIgloo.wallet === this.selfId;
-      return `Press E to go inside${mine ? '' : ` ${this.nearIgloo.owner || 'their'} igloo`}`;
+      return mine
+        ? 'Press E to go inside'
+        : `Press E to visit ${this.nearIgloo.owner || 'their'}'s igloo`;
     }
     if (!node) return '';
     if (isStation(node.type)) return STATION_PROMPT[node.type];
@@ -491,6 +509,10 @@ export class PogGame {
 
   /** Work the node the player is standing at. */
   private interact() {
+    if (this.placing) {
+      void this.confirmPlace();
+      return;
+    }
     if (this.interior) {
       if (performance.now() < this.doorLock) return;
       this.leaveIgloo();
@@ -690,6 +712,89 @@ export class PogGame {
     return !!this.building;
   }
 
+  /* ---------------- furnishing ---------------- */
+
+  /**
+   * Start positioning a furnishing. Same shape as raising an igloo: you
+   * carry a ghost around and the floor reads green or red under it, so
+   * there is one thing to learn rather than two.
+   */
+  startPlacing(id: string) {
+    if (!this.interior) {
+      this.pushChat({
+        id: crypto.randomUUID(),
+        text: 'Step inside your igloo first, then place it.',
+        system: true,
+      });
+      return;
+    }
+    if (this.interior.igloo.wallet !== this.selfId) {
+      this.pushChat({ id: crypto.randomUUID(), text: 'You can only furnish your own igloo.', system: true });
+      return;
+    }
+    if (!furnitureById(id)) return;
+    this.placing = { id };
+    this.pushChat({
+      id: crypto.randomUUID(),
+      text: 'Walk to where you want it and press E. Esc cancels.',
+      system: true,
+    });
+  }
+
+  cancelPlacing() {
+    this.placing = null;
+    this.placeCheck = { ok: false, reason: '' };
+  }
+
+  isPlacing() {
+    return !!this.placing;
+  }
+
+  /** E while positioning: ask the server to stand it there. */
+  private async confirmPlace() {
+    if (!this.placing) return;
+    const id = this.placing.id;
+    try {
+      const { igloo } = await api.placeFurniture(id, this.me.x, this.me.y);
+      this.igloos.set(igloo.wallet, igloo);
+      this.pieces = igloo.furniture ?? [];
+      this.placing = null;
+      this.opts.onHome();
+    } catch (err) {
+      this.pushChat({
+        id: crypto.randomUUID(),
+        text: err instanceof Error ? err.message : 'It will not go there.',
+        system: true,
+      });
+    }
+  }
+
+  /** Remove the piece nearest to where you are standing. */
+  async takeNearestPiece(): Promise<string | null> {
+    if (!this.interior || this.interior.igloo.wallet !== this.selfId) {
+      return 'You can only change your own igloo.';
+    }
+    let best = -1;
+    let bestDist = 70;
+    this.pieces.forEach((piece, i) => {
+      const d = Math.hypot(piece.x - this.me.x, piece.y - this.me.y);
+      if (d < bestDist) {
+        bestDist = d;
+        best = i;
+      }
+    });
+    if (best < 0) return 'Stand next to something first.';
+    try {
+      const { igloo } = await api.removeFurniture(best);
+      this.igloos.set(igloo.wallet, igloo);
+      this.pieces = igloo.furniture ?? [];
+      this.opts.onHome();
+      return null;
+    } catch (err) {
+      return err instanceof Error ? err.message : 'Could not move that.';
+    }
+  }
+
   /* ---------------- igloo interiors ---------------- */
 
   isInside() {
@@ -705,6 +810,7 @@ export class PogGame {
     if (this.interior || this.building) return;
     this.doorLock = performance.now() + 400;
     this.interior = { igloo, returnTo: { x: this.me.x, y: this.me.y } };
+    this.pieces = igloo.furniture ?? [];
 
     // just inside the doorway, facing in
     this.me.x = 0;
@@ -730,6 +836,8 @@ export class PogGame {
   leaveIgloo() {
     if (!this.interior) return;
     this.doorLock = performance.now() + 400;
+    this.placing = null;
+    this.pieces = [];
     const { igloo, returnTo } = this.interior;
     this.interior = null;
 
@@ -852,9 +960,10 @@ export class PogGame {
       this.keys.add('KeyE');
       if (this.building) void this.confirmBuild();
       else this.interact();
-    } else if (e.code === 'Escape' && (this.building || this.interior)) {
+    } else if (e.code === 'Escape' && (this.building || this.placing || this.interior)) {
       e.preventDefault();
       if (this.building) this.cancelBuilding();
+      else if (this.placing) this.cancelPlacing();
       else this.leaveIgloo();
     }
   };
@@ -1072,6 +1181,14 @@ export class PogGame {
     }
     if (this.chips.length) this.chips = this.chips.filter((c) => c.life > 0);
     if (this.building) this.buildCheck = canBuildAt(this.me.x, this.me.y, this.otherIgloos());
+    if (this.placing) {
+      this.placeCheck = canPlaceFurniture(
+        this.me.x,
+        this.me.y,
+        furnitureById(this.placing.id),
+        this.pieces
+      );
+    }
 
     // position is published on its own timer by publishPresence()
     this.sinceHud += dt;
@@ -1085,9 +1202,12 @@ export class PogGame {
         inventory: this.inventory,
         prompt: this.building ? '' : this.promptFor(this.nearNode),
         busy: this.busy,
-        building: !!this.building,
-        buildOk: this.buildCheck.ok,
-        buildReason: this.buildCheck.reason,
+        building: !!this.building || !!this.placing,
+        buildOk: this.placing ? this.placeCheck.ok : this.buildCheck.ok,
+        buildReason: this.placing ? this.placeCheck.reason : this.buildCheck.reason,
+        placing: this.placing?.id ?? null,
+        inside: this.interior?.igloo.wallet ?? null,
+        ownHome: this.interior?.igloo.wallet === this.selfId,
         status: presenceConnected() ? 'open' : 'connecting',
         x: Math.round(this.me.x),
         y: Math.round(this.me.y),
@@ -1252,6 +1372,24 @@ export class PogGame {
           ctx.restore();
         },
       });
+    }
+
+    if (this.interior) {
+      const s = ZOOM * this.roomScale;
+      for (const piece of this.pieces) {
+        items.push({
+          y: piece.y,
+          draw: () => drawFurniture(ctx, piece.id, this.sx(piece.x), this.sy(piece.y), s, now),
+        });
+      }
+      if (this.placing) {
+        const id = this.placing.id;
+        const ok = this.placeCheck.ok;
+        items.push({
+          y: this.me.y - 1,
+          draw: () => drawFurnitureGhost(ctx, id, this.sx(this.me.x), this.sy(this.me.y), s, ok, now),
+        });
+      }
     }
 
     this.props.forEach((p, i) => {

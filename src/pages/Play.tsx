@@ -9,6 +9,7 @@ import { ProfileModal } from '../components/ProfileModal';
 import { BackpackPanel } from '../components/BackpackPanel';
 import { QuestPanel } from '../components/QuestPanel';
 import { SeasonPanel } from '../components/SeasonPanel';
+import { HomePanel } from '../components/HomePanel';
 import { Icon } from '../components/Icon';
 import { skinById } from '../../shared/world.js';
 
@@ -25,6 +26,9 @@ const EMPTY_HUD: HudState = {
   building: false,
   buildOk: false,
   buildReason: '',
+  placing: null,
+  inside: null,
+  ownHome: false,
 };
 
 export function Play({ navigate }: { navigate: (r: Route) => void }) {
@@ -45,6 +49,9 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
   const [quests, setQuests] = useState<QuestBoard | null>(null);
   const [showQuests, setShowQuests] = useState(false);
   const [showSeason, setShowSeason] = useState(false);
+  const [showHome, setShowHome] = useState(false);
+  /** bumped when the igloo, its furniture or its level changed */
+  const [homeTick, setHomeTick] = useState(0);
   /** bumped whenever something may have moved the Frost ledger */
   const [seasonTick, setSeasonTick] = useState(0);
   const [editing, setEditing] = useState(false);
@@ -80,6 +87,7 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
       onFatal: setFatal,
       onQuests: setQuests,
       onSeason: () => setSeasonTick((n) => n + 1),
+      onHome: () => setHomeTick((n) => n + 1),
       onStation: (which) => {
         // the cairn has its own panel; the other three are backpack tabs
         if (which === 'cairn') {
@@ -88,7 +96,14 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
           setShowSeason(true);
           return;
         }
-        setBagTab(which === 'fire' ? 'cook' : which);
+        if (which === 'furnish') {
+          setShowBag(false);
+          setBagPinned(false);
+          setShowSeason(false);
+          setShowHome(true);
+          return;
+        }
+        setBagTab(which === 'fire' ? 'cook' : (which as 'craft' | 'shop'));
         setBagPinned(true); // opened from a station, so it stays until closed
         setShowBag(true);
       },
@@ -348,6 +363,20 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
             {!!quests?.claimable && <i className="badge">{quests.claimable}</i>}
           </button>
           <button
+            className={`icon-btn${showHome ? ' active' : ''}`}
+            title="Your igloo — furnishings, level and the market"
+            onClick={() => {
+              setShowHome((v) => !v);
+              setShowSeason(false);
+              setShowQuests(false);
+              setShowBoard(false);
+              setShowBag(false);
+              setBagPinned(false);
+            }}
+          >
+            <Icon name="igloo" size={17} />
+          </button>
+          <button
             className={`icon-btn${showSeason ? ' active' : ''}`}
             title="Season — Frost and the airdrop"
             onClick={() => {
@@ -416,7 +445,19 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
           />
         )}
 
-        {showSeason && !showBag && (
+        {showHome && !showBag && (
+          <HomePanel
+            guest={!!identity?.guest}
+            refresh={homeTick}
+            hud={hud}
+            onPlace={(id) => gameRef.current?.startPlacing(id)}
+            onTakeNearest={() => gameRef.current?.takeNearestPiece() ?? Promise.resolve('Not in the world yet.')}
+            onChanged={() => setHomeTick((n) => n + 1)}
+            onClose={() => setShowHome(false)}
+          />
+        )}
+
+        {showSeason && !showBag && !showHome && (
           <SeasonPanel
             guest={!!identity?.guest}
             inventory={hud.inventory}
@@ -426,7 +467,7 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
           />
         )}
 
-        {showQuests && !showBag && !showSeason && (
+        {showQuests && !showBag && !showSeason && !showHome && (
           <QuestPanel
             board={quests}
             guest={!!identity?.guest}
@@ -435,7 +476,7 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
           />
         )}
 
-        {showBoard && !showBag && !showQuests && !showSeason && (
+        {showBoard && !showBag && !showQuests && !showSeason && !showHome && (
           <div className="panel side-panel">
             <h4>
               <Icon name="trophy" size={16} /> Top holders on ice
@@ -492,14 +533,19 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
           <div className={'hud-prompt build' + (hud.buildOk ? ' ok' : ' bad')}>
             {hud.buildOk ? (
               <>
-                <kbd>E</kbd> Place your igloo here
+                <kbd>E</kbd> {hud.placing ? 'Put it here' : 'Place your igloo here'}
               </>
             ) : (
               <>
                 <Icon name="warning" size={14} /> {hud.buildReason}
               </>
             )}
-            <button className="build-cancel" onClick={() => gameRef.current?.cancelBuilding()}>
+            <button
+              className="build-cancel"
+              onClick={() =>
+                hud.placing ? gameRef.current?.cancelPlacing() : gameRef.current?.cancelBuilding()
+              }
+            >
               Esc to cancel
             </button>
           </div>

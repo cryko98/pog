@@ -57,7 +57,7 @@ export const SCARF_COLORS = [
   '#e2e8f0',
 ];
 
-const K = {
+export const K = {
   nonce: (wallet: string) => `pog:nonce:${wallet}`,
   session: (token: string) => `pog:sess:${token}`,
   profile: (wallet: string) => `pog:wallet:${wallet}`,
@@ -206,6 +206,12 @@ export interface Profile extends FrostFields {
   updatedAt: number;
 }
 
+export interface FurniturePiece {
+  id: string;
+  x: number;
+  y: number;
+}
+
 export interface Igloo {
   wallet: string;
   owner: string;
@@ -213,6 +219,10 @@ export interface Igloo {
   y: number;
   style: string;
   builtAt: number;
+  /** what is standing inside, in room coordinates */
+  furniture?: FurniturePiece[];
+  /** when the daily yield was last settled */
+  lastYield?: number;
 }
 
 /** Older records predate the inventory, so fill in whatever is missing. */
@@ -539,7 +549,7 @@ export async function getProfile(wallet: string): Promise<Profile | null> {
   return p;
 }
 
-const putProfile = async (p: Profile) => {
+export const putProfile = async (p: Profile) => {
   p.updatedAt = Date.now();
   clampStock(p);
   const store = await kv();
@@ -991,6 +1001,8 @@ export async function buildIgloo(
     y: Math.round(py),
     style: IGLOO.styles.includes(style as string) ? (style as string) : IGLOO.styles[0],
     builtAt: Date.now(),
+    furniture: [],
+    lastYield: Date.now(),
   };
 
   profile.items.iglooKit -= 1;

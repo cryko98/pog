@@ -2,6 +2,7 @@
 // no licences to track, and the whole map is a few kilobytes of code.
 
 import { WORLD, fbm, hash2, getLakes } from '../../shared/world.js';
+import { drawFurnishStall } from './furniture';
 
 export const CHUNK = 512;
 
@@ -211,6 +212,7 @@ const PROP_HEIGHT: Record<string, number> = {
   stall: 86,
   campfire: 58,
   cairn: 84,
+  furnishop: 92,
 };
 
 export const propHeight = (p: Prop) => (PROP_HEIGHT[p.type] ?? 40) * p.scale;
@@ -362,7 +364,7 @@ function drawSnowman(ctx: CanvasRenderingContext2D, h: number) {
  * An ice-block lantern: a stack of translucent blocks with a warm flame
  * inside. These ring the spawn plaza where shelters will eventually go.
  */
-function drawLantern(ctx: CanvasRenderingContext2D, h: number, time: number, variant: number) {
+export function drawLantern(ctx: CanvasRenderingContext2D, h: number, time: number, variant: number) {
   const w = h * 0.62;
   const flicker =
     0.85 + Math.sin(time * 0.005 + variant * 1.7) * 0.1 + Math.sin(time * 0.013 + variant * 3.1) * 0.05;
@@ -638,6 +640,9 @@ export function drawProp(
       break;
     case 'cairn':
       drawCairn(ctx, h, time);
+      break;
+    case 'furnishop':
+      drawFurnishStall(ctx, h);
       break;
   }
   ctx.restore();

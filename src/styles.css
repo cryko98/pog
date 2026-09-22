@@ -2035,3 +2035,154 @@ section.band {
     margin-bottom: 104px;
   }
 }
+
+/* ---- the igloo panel ---- */
+
+.side-panel.home {
+  width: 300px;
+}
+
+.hm-level {
+  padding: 11px 13px;
+  margin-bottom: 10px;
+  border-radius: 12px;
+  background: rgba(126, 220, 255, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(126, 220, 255, 0.28);
+}
+
+.hm-level b {
+  display: block;
+  font-size: 0.95rem;
+}
+
+.hm-level small {
+  display: block;
+  font-size: 0.73rem;
+  color: #a9cbd6;
+}
+
+.hm-level .q-bar {
+  margin: 7px 0 5px;
+}
+
+.hm-yield {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  margin-bottom: 4px;
+  border-radius: 12px;
+  background: rgba(245, 165, 36, 0.13);
+  box-shadow: inset 0 0 0 1px rgba(245, 165, 36, 0.3);
+}
+
+.hm-yield b {
+  display: block;
+  font-size: 0.9rem;
+  color: #ffd15c;
+}
+
+.hm-yield small {
+  display: block;
+  font-size: 0.73rem;
+  color: #a9cbd6;
+  line-height: 1.35;
+}
+
+.hm-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.hm-row img {
+  flex: none;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.hm-row .nm {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.84rem;
+}
+
+.hm-row .nm small {
+  display: block;
+  font-size: 0.71rem;
+  color: #a9cbd6;
+  line-height: 1.3;
+}
+
+.hm-row .nm em {
+  font-style: normal;
+  color: #9fe8cb;
+}
+
+.hm-ask {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 5px;
+}
+
+.hm-ask input {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: none;
+  outline: none;
+  background: rgba(9, 41, 48, 0.9);
+  box-shadow: inset 0 0 0 1px var(--hud-line);
+  color: var(--snow);
+  font-size: 0.86rem;
+}
+
+.hm-ask input:focus {
+  box-shadow: inset 0 0 0 2px var(--teal-400);
+}
+
+.hm-listing {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.hm-listing > div {
+  flex: 1;
+  min-width: 0;
+}
+
+.hm-listing b {
+  display: block;
+  font-size: 0.86rem;
+}
+
+.hm-listing small {
+  display: block;
+  font-size: 0.72rem;
+  color: #a9cbd6;
+}
+
+.side-panel.home h5 {
+  margin: 13px 0 4px;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: #a9cbd6;
+}
+
+@media (max-width: 620px) {
+  .side-panel.home {
+    position: absolute;
+    right: 10px;
+    bottom: 130px;
+    width: min(250px, calc(100vw - 20px));
+    max-height: calc(100vh - 260px);
+    overflow-y: auto;
+  }
+}

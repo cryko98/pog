@@ -291,6 +291,9 @@ export interface IglooMsg {
   y: number;
   style: string;
   builtAt: number;
+  /** what is standing inside, in room coordinates */
+  furniture?: Array<{ id: string; x: number; y: number }>;
+  lastYield?: number;
 }
 
 export function announceIgloo(igloo: IglooMsg) {
