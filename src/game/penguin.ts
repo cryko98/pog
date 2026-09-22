@@ -254,7 +254,7 @@ function drawHat(ctx: CanvasRenderingContext2D, hat: string, dir: Dir) {
  * arm: back over the shoulder, then fast down into the node, then recoil.
  * ------------------------------------------------------------------ */
 
-export type ToolKind = 'axe' | 'pick' | 'rod';
+export type ToolKind = 'axe' | 'pick' | 'rod' | 'ball';
 
 export interface ToolPose {
   kind: ToolKind;
@@ -300,6 +300,17 @@ function swingAngle(kind: ToolKind, phase: number): number {
 
 /** Draw the tool head and handle in a frame where +y runs along the arm. */
 function drawToolAlongArm(ctx: CanvasRenderingContext2D, kind: ToolKind, side: number, phase: number) {
+  if (kind === 'ball') {
+    // a snowball in the flipper: nothing to hold but itself
+    ctx.fillStyle = '#ffffff';
+    ctx.strokeStyle = 'rgba(150,190,215,0.9)';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.arc(0, 4, 9.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    return;
+  }
   if (kind === 'rod') {
     // the rod angles up from the grip; a bite bends the tip down
     const bend = phase < 1 ? Math.sin(phase * Math.PI) * 10 : 0;

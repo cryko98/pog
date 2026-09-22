@@ -459,6 +459,18 @@ export class PogGame {
   }
 
   /** Pull inventory, node cooldowns, igloos and today's quests back. */
+  /** Re-read the pack from the server without moving the penguin. */
+  async syncProfile() {
+    if (this.opts.guest) return;
+    try {
+      const { profile, quests } = await api.gameState();
+      this.applyProfile(profile);
+      if (quests) this.opts.onQuests(quests);
+    } catch {
+      /* the next action will refresh it */
+    }
+  }
+
   async refreshState() {
     if (this.opts.guest) return;
     try {

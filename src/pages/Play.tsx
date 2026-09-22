@@ -470,7 +470,17 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
         </div>
 
 
-        {duelId && <DuelScene id={duelId} onLeave={() => setDuelId(null)} />}
+        {duelId && (
+          <DuelScene
+            id={duelId}
+            onLeave={() => {
+              setDuelId(null);
+              // the pot (or the loss) is in the pack now; show it
+              void gameRef.current?.syncProfile();
+              setHomeTick((n) => n + 1);
+            }}
+          />
+        )}
 
         {station && (
           <div

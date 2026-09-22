@@ -138,7 +138,9 @@ Off the plaza, past the lanterns. Two penguins face off across a rink, a stake
 each, winner takes the pot. Real time, side on: move with A/D, jump with W,
 throw a straight ball with J and a lob with K. A straight ball flies at chest
 height and is dodged by jumping; a lob comes down where it was aimed and is
-dodged by stepping out from under it. A hit stuns you for half a second. First
+dodged by stepping out from under it. A hit stuns you for a moment. Throws are
+spaced further apart than a jump's cooldown, so a stream of straight balls can
+always be jumped by a player who reads them — the fight is won by mixing. First
 to five hits, or the most when sixty seconds run out; level, and it is overtime
 until the next hit.
 

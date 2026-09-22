@@ -38,16 +38,29 @@ export const FIGHT = {
   jumpCooldownMs: 950,
   /** how tall a standing penguin is, for the straight ball */
   bodyTop: 74,
-  /** throws */
-  throwCooldownMs: 650,
+  /**
+   * Throws. The cooldown is deliberately LONGER than a jump's cooldown plus
+   * its airtime: a stream of straight balls must always be dodgeable by a
+   * player who reads them, or the first hit decides the match.
+   */
+  throwCooldownMs: 1400,
   maxBalls: 2,
-  straightSpeed: 820,
+  /**
+   * The arm has to come round before the ball leaves. Without this a
+   * penguin standing at the minimum gap could throw faster than anyone
+   * can see, and rushing in would beat everything.
+   */
+  windupMs: 220,
+  straightSpeed: 700,
   straightHeight: 34,
-  lobMs: 1000,
+  /** the fast ball still arcs a little over the middle of its flight */
+  straightArc: 40,
+  lobMs: 1100,
   lobPeak: 300,
   lobRadius: 46,
-  /** what a hit does */
-  stunMs: 450,
+  /** what a hit does: a moment frozen, and a shove backwards */
+  stunMs: 600,
+  knockback: 55,
   /** the match */
   hitsToWin: 5,
   durationMs: 60_000,
@@ -110,14 +123,17 @@ export function simulate(inputs, startAt, until) {
       if (t < f.throwReadyAt || mine >= FIGHT.maxBalls) return;
       f.throwReadyAt = t + FIGHT.throwCooldownMs;
       const o = other(i.side);
+      const release = t + FIGHT.windupMs;
       if (i.kind === 'straight') {
         balls.push({
           owner: i.side,
           kind: 'straight',
           x: f.x,
           y: FIGHT.straightHeight + f.y,
+          fromX: f.x,
+          span: Math.max(120, Math.abs(o.x - f.x)),
           vx: (o.x >= f.x ? 1 : -1) * FIGHT.straightSpeed,
-          launchedAt: t,
+          launchedAt: release,
           done: false,
         });
       } else {
@@ -128,8 +144,8 @@ export function simulate(inputs, startAt, until) {
           y: FIGHT.straightHeight + f.y,
           fromX: f.x,
           targetX: i.targetX,
-          launchedAt: t,
-          landsAt: t + FIGHT.lobMs,
+          launchedAt: release,
+          landsAt: release + FIGHT.lobMs,
           done: false,
         });
       }
@@ -174,20 +190,33 @@ export function simulate(inputs, startAt, until) {
     // balls
     for (const ball of balls) {
       if (ball.done) continue;
+      if (tNext < ball.launchedAt) continue; // still in the hand
       const victim = ball.owner === 'a' ? b : a;
       if (ball.kind === 'straight') {
+        if (!ball.flying) {
+          ball.flying = true;
+          ball.x = side(ball.owner).x;
+          ball.fromX = ball.x;
+        }
         const px = ball.x;
         ball.x += ball.vx * dt;
+        // a shallow arc over the distance to where they stood when it left
+        const p = Math.min(1, Math.abs(ball.x - ball.fromX) / ball.span);
+        ball.y = FIGHT.straightHeight + Math.sin(p * Math.PI) * FIGHT.straightArc;
         // crossed the victim this tick?
         const crossed = (px - victim.x) * (ball.x - victim.x) <= 0;
         if (crossed) {
           ball.done = true;
           // the ball flies at chest height; a body in the air is clear of it
-          if (victim.y < FIGHT.straightHeight + 8 && tNext >= victim.stunUntil) hit(ball.owner, victim, tNext);
+          if (victim.y < ball.y + 8 && tNext >= victim.stunUntil) hit(ball.owner, victim, tNext);
         } else if (ball.x < -40 || ball.x > FIGHT.width + 40) {
           ball.done = true;
         }
       } else {
+        if (!ball.flying) {
+          ball.flying = true;
+          ball.fromX = side(ball.owner).x;
+        }
         const p = Math.min(1, (tNext - ball.launchedAt) / FIGHT.lobMs);
         ball.x = ball.fromX + (ball.targetX - ball.fromX) * p;
         ball.y = FIGHT.straightHeight + Math.sin(p * Math.PI) * FIGHT.lobPeak;
@@ -204,10 +233,18 @@ export function simulate(inputs, startAt, until) {
     side(owner).hits += 1;
     victim.stunUntil = t + FIGHT.stunMs;
     victim.dir = 0;
-    events.push({ t, type: 'hit', side: owner, x: victim.x });
+    // shoved back a step, never past the wall or through the other penguin
+    const away = victim === a ? -1 : 1;
+    const o = victim === a ? b : a;
+    let nx = victim.x + away * FIGHT.knockback;
+    nx = Math.max(30, Math.min(FIGHT.width - 30, nx));
+    if (victim === a && nx > o.x - FIGHT.minGap) nx = o.x - FIGHT.minGap;
+    if (victim === b && nx < o.x + FIGHT.minGap) nx = o.x + FIGHT.minGap;
+    victim.x = nx;
+    events.push({ t, type: 'hit', side: owner, x: victim.x, y: victim.y });
   }
 
-  return { a, b, balls: balls.filter((ball) => !ball.done), events, t: end };
+  return { a, b, balls: balls.filter((ball) => !ball.done && ball.flying), events, t: end };
 }
 
 /**

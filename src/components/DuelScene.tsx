@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { FIGHT, simulate } from '../../shared/fight.js';
-import { blitPenguin } from '../game/penguin';
+import { blitPenguin, drawPenguinWithTool } from '../game/penguin';
 import { publishFightInput, subscribeFight } from '../game/presence';
 import { api, type DuelView, type FightInput } from '../lib/api';
 import { canSendTransactions, signAndSendTransaction } from '../lib/wallet';
@@ -22,7 +22,19 @@ interface Provisional extends Omit<FightInput, 'seq'> {
   heardAt: number;
 }
 
+interface Particle {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  life: number;
+  max: number;
+  r: number;
+  color: string;
+}
+
 const nonce = () => Math.random().toString(36).slice(2, 10);
+const THROW_ANIM_MS = 420;
 
 /**
  * The fight, on screen.
@@ -33,6 +45,8 @@ const nonce = () => Math.random().toString(36).slice(2, 10);
  * you make them (guessing the stamp), the opponent's the moment they
  * arrive over the broker, and both are replaced by the server's stamped
  * copies within a poll. The picture can nudge; the score never lies.
+ *
+ * Everything else here is theatre: arcs, trails, splats, shakes and snow.
  */
 export function DuelScene({ id, onLeave }: Props) {
   const { connected, identity } = useSession();
@@ -50,8 +64,18 @@ export function DuelScene({ id, onLeave }: Props) {
   const lastDir = useRef(0);
   const lastThrowAt = useRef(0);
   const lastJumpAt = useRef(0);
-  const flashes = useRef<Array<{ t: number; x: number; side: 'a' | 'b' }>>([]);
-  const seenHits = useRef(0);
+
+  // theatre state
+  const seenEvents = useRef(new Set<string>());
+  const throwAnim = useRef<Record<'a' | 'b', number>>({ a: -Infinity, b: -Infinity });
+  const wasAirborne = useRef<Record<'a' | 'b', boolean>>({ a: false, b: false });
+  const particles = useRef<Particle[]>([]);
+  const pops = useRef<Array<{ t: number; x: number; y: number; text: string; color: string }>>([]);
+  const shakeUntil = useRef(0);
+  const trails = useRef(new Map<string, Array<{ x: number; y: number }>>());
+  const snow = useRef<Array<{ x: number; y: number; r: number; v: number; d: number }>>([]);
+  const confetti = useRef<Particle[]>([]);
+  const celebrated = useRef(false);
 
   const serverNow = () => Date.now() + skew.current;
 
@@ -80,10 +104,9 @@ export function DuelScene({ id, onLeave }: Props) {
       if (inputs.length) {
         log.current = log.current.concat(inputs);
         lastSeq.current = inputs[inputs.length - 1].seq;
-        const known = new Set(inputs.map((i) => (i as FightInput & { n?: string }).n).filter(Boolean));
+        const known = new Set(inputs.map((i) => i.n).filter(Boolean));
         provisional.current = provisional.current.filter((p) => !known.has(p.n));
       }
-      // anything provisional the log should have carried by now is stale
       const cutoff = Date.now() - 2500;
       provisional.current = provisional.current.filter((p) => p.heardAt > cutoff);
     } catch {
@@ -106,7 +129,7 @@ export function DuelScene({ id, onLeave }: Props) {
   useEffect(() => {
     return subscribeFight(id, (m) => {
       const v = viewRef.current;
-      if (!v || !v.them || m.from !== v.them.wallet) return; // only the opponent
+      if (!v || !v.them || m.from !== v.them.wallet) return;
       const theirs: 'a' | 'b' = v.side === 'a' ? 'b' : 'a';
       provisional.current.push({
         n: m.n || 'mq' + m.ts + m.type,
@@ -123,6 +146,12 @@ export function DuelScene({ id, onLeave }: Props) {
   }, [id]);
 
   /* ---------------- what the player does ---------------- */
+
+  const merged = () => {
+    const out: Array<FightInput | Provisional> = [...log.current];
+    for (const p of provisional.current) out.push(p);
+    return out;
+  };
 
   const send = useCallback(
     (input: Wire) => {
@@ -144,12 +173,13 @@ export function DuelScene({ id, onLeave }: Props) {
       api
         .duelInput(id, { ...input, n })
         .then(({ t, seq }) => {
-          entry.t = t; // the stamp that counts
+          entry.t = t;
           entry.seq = seq;
         })
         .catch((err: Error) => {
           provisional.current = provisional.current.filter((p) => p !== entry);
-          if (!/Slow down|Not yet/.test(err.message)) setError(err.message);
+          // a key pressed a beat early or a beat late is not news
+          if (!/Slow down|Not yet|not on|is over/.test(err.message)) setError(err.message);
         });
     },
     [id]
@@ -174,21 +204,15 @@ export function DuelScene({ id, onLeave }: Props) {
       lastThrowAt.current = Date.now();
       if (kind === 'straight') send({ type: 'throw', kind });
       else {
-        // aim where they are now; leading them is the skill
         const v = viewRef.current;
         const world = simulate(merged(), v?.startAt ?? 0, serverNow());
         const them = v?.side === 'a' ? world.b : world.a;
-        send({ type: 'throw', kind: 'lob', targetX: Math.round(them.x) });
+        // lead a moving target a touch, which is where the skill is
+        send({ type: 'throw', kind: 'lob', targetX: Math.round(Math.max(30, Math.min(FIGHT.width - 30, them.x + them.dir * 90))) });
       }
     },
     [send]
   );
-
-  const merged = () => {
-    const out: Array<FightInput | Provisional> = [...log.current];
-    for (const p of provisional.current) out.push(p);
-    return out;
-  };
 
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
@@ -243,9 +267,21 @@ export function DuelScene({ id, onLeave }: Props) {
     if (!el) return;
     const ctx = el.getContext('2d')!;
     let raf = 0;
+    let last = performance.now();
+
+    const burst = (x: number, y: number, n: number, speed: number, color = '#ffffff') => {
+      for (let i = 0; i < n; i++) {
+        const a = Math.random() * Math.PI * 2;
+        const v = speed * (0.4 + Math.random() * 0.8);
+        particles.current.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - speed * 0.4, life: 0, max: 0.5 + Math.random() * 0.4, r: 2 + Math.random() * 4, color });
+      }
+    };
 
     const draw = () => {
       raf = requestAnimationFrame(draw);
+      const pnow = performance.now();
+      const dt = Math.min(0.05, (pnow - last) / 1000);
+      last = pnow;
       const v = viewRef.current;
       const w = el.clientWidth;
       const h = el.clientHeight;
@@ -255,144 +291,298 @@ export function DuelScene({ id, onLeave }: Props) {
       }
       ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
 
-      // sky, far snow, the rink floor
-      const sky = ctx.createLinearGradient(0, 0, 0, h);
-      sky.addColorStop(0, '#dff1fb');
-      sky.addColorStop(0.7, '#eef7fc');
-      sky.addColorStop(0.71, '#f6fbff');
-      sky.addColorStop(1, '#d9eaf5');
-      ctx.fillStyle = sky;
-      ctx.fillRect(0, 0, w, h);
+      // a shake after a hit
+      if (pnow < shakeUntil.current) {
+        const k = (shakeUntil.current - pnow) / 260;
+        ctx.translate((Math.random() - 0.5) * 12 * k, (Math.random() - 0.5) * 8 * k);
+      }
+
       const ground = h * 0.74;
-      ctx.fillStyle = '#e7f2fa';
+      const margin = 60;
+      const sx = (x: number) => margin + (x / FIGHT.width) * (w - margin * 2);
+      const scale = Math.min(1.25, Math.max(0.75, w / 1100));
+      const pengH = 84 * scale;
+      const unit = (w - margin * 2) / FIGHT.width;
+      const yUnit = Math.min(unit * 1.6, 1.1);
+
+      // sky, hills, pines
+      const sky = ctx.createLinearGradient(0, 0, 0, ground);
+      sky.addColorStop(0, '#cfe7f7');
+      sky.addColorStop(1, '#eef7fc');
+      ctx.fillStyle = sky;
+      ctx.fillRect(0, 0, w, ground);
+      for (const [cx, rw, rh, col] of [
+        [w * 0.18, w * 0.5, h * 0.22, '#dcecf6'],
+        [w * 0.8, w * 0.55, h * 0.26, '#d6e8f4'],
+        [w * 0.5, w * 0.4, h * 0.15, '#e4f0f8'],
+      ] as Array<[number, number, number, string]>) {
+        ctx.fillStyle = col;
+        ctx.beginPath();
+        ctx.ellipse(cx, ground, rw, rh, 0, Math.PI, Math.PI * 2);
+        ctx.fill();
+      }
+      for (let i = 0; i < 9; i++) {
+        const px = (((i * 137) % 100) / 100) * w;
+        const ph = (28 + ((i * 53) % 40)) * scale;
+        ctx.fillStyle = i % 2 ? '#8fb7a1' : '#7ba892';
+        ctx.beginPath();
+        ctx.moveTo(px, ground - ph - 6);
+        ctx.lineTo(px - ph * 0.42, ground - 2);
+        ctx.lineTo(px + ph * 0.42, ground - 2);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.moveTo(px, ground - ph - 6);
+        ctx.lineTo(px - ph * 0.2, ground - ph * 0.55);
+        ctx.lineTo(px + ph * 0.2, ground - ph * 0.55);
+        ctx.closePath();
+        ctx.fill();
+      }
+      // the rink
+      ctx.fillStyle = '#e9f3fa';
       ctx.fillRect(0, ground, w, h - ground);
-      ctx.strokeStyle = 'rgba(120,170,205,0.5)';
+      ctx.strokeStyle = 'rgba(120,170,205,0.55)';
       ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.moveTo(0, ground);
       ctx.lineTo(w, ground);
       ctx.stroke();
-      // snow banks at the ends
+      ctx.setLineDash([8, 10]);
+      ctx.strokeStyle = 'rgba(120,170,205,0.35)';
+      ctx.beginPath();
+      ctx.moveTo(w / 2, ground + 6);
+      ctx.lineTo(w / 2, h - 10);
+      ctx.stroke();
+      ctx.setLineDash([]);
       ctx.fillStyle = '#ffffff';
       for (const bx of [0, w]) {
         ctx.beginPath();
-        ctx.ellipse(bx, ground + 6, 70, 34, 0, 0, Math.PI * 2);
+        ctx.ellipse(bx, ground + 10, 90, 40, 0, 0, Math.PI * 2);
         ctx.fill();
       }
+      for (const px of [margin * 0.55, w - margin * 0.55]) {
+        for (const [dx, dy, r] of [
+          [-8, 0, 7],
+          [8, 0, 7],
+          [0, 2, 7.5],
+          [0, -8, 6.5],
+        ]) {
+          ctx.beginPath();
+          ctx.arc(px + dx, ground - 6 + dy, r, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
 
-      const margin = 60;
-      const sx = (x: number) => margin + (x / FIGHT.width) * (w - margin * 2);
-      const scale = Math.min(1.25, Math.max(0.75, w / 1100));
-      const pengH = 84 * scale;
-      const unit = ((w - margin * 2) / FIGHT.width) * 1.0; // world units -> px, horizontally
-      const yUnit = Math.min(unit * 1.6, 1.1); // vertical exaggeration so a jump reads
+      // snow, always
+      if (snow.current.length < 70) {
+        snow.current.push({ x: Math.random() * w, y: -10, r: 1 + Math.random() * 2.2, v: 18 + Math.random() * 30, d: (Math.random() - 0.5) * 20 });
+      }
+      ctx.fillStyle = 'rgba(255,255,255,0.85)';
+      for (const f of snow.current) {
+        f.y += f.v * dt;
+        f.x += f.d * dt + Math.sin(f.y / 40) * 0.3;
+        ctx.beginPath();
+        ctx.arc(f.x, f.y, f.r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      snow.current = snow.current.filter((f) => f.y < h + 10);
 
       if (v && v.state === 'live' && v.startAt) {
         const now = serverNow();
         const world = simulate(merged(), v.startAt, Math.max(v.startAt, now));
 
-        // new hits flash where they landed
-        const hitEvents = world.events.filter((e) => e.type === 'hit');
-        if (hitEvents.length > seenHits.current) {
-          for (const e of hitEvents.slice(seenHits.current)) flashes.current.push({ t: performance.now(), x: e.x, side: e.side });
-          seenHits.current = hitEvents.length;
-        } else if (hitEvents.length < seenHits.current) {
-          seenHits.current = hitEvents.length; // a provisional hit the server did not stamp
+        // events that just happened become theatre
+        for (const e of world.events) {
+          const key = `${e.type}:${e.side}:${Math.round(e.t / 40)}`;
+          if (seenEvents.current.has(key) || now - e.t > 900) continue;
+          seenEvents.current.add(key);
+          if (e.type === 'throw') throwAnim.current[e.side as 'a' | 'b'] = pnow;
+          if (e.type === 'hit') {
+            const hx = sx(e.x);
+            const hy = ground - (e.y ?? 0) * yUnit - pengH * 0.5;
+            burst(hx, hy, 26, 260 * scale);
+            burst(hx, hy, 10, 120 * scale, '#bfe3f7');
+            shakeUntil.current = pnow + 260;
+            pops.current.push({ t: pnow, x: hx, y: hy - pengH * 0.4, text: 'HIT!', color: e.side === v.side ? '#ff5c17' : '#38bdf8' });
+          }
         }
 
-        for (const [f, dir, color] of [
-          [world.a, 'right', v.side === 'a' ? identity?.color ?? v.me.color : v.them?.color ?? '#38bdf8'],
-          [world.b, 'left', v.side === 'b' ? identity?.color ?? v.me.color : v.them?.color ?? '#38bdf8'],
-        ] as Array<[typeof world.a, 'left' | 'right', string]>) {
+        const fighters: Array<[typeof world.a, 'a' | 'b', 'left' | 'right', string]> = [
+          [world.a, 'a', 'right', v.side === 'a' ? (identity?.color ?? v.me.color) : (v.them?.color ?? '#38bdf8')],
+          [world.b, 'b', 'left', v.side === 'b' ? (identity?.color ?? v.me.color) : (v.them?.color ?? '#38bdf8')],
+        ];
+        for (const [f, sideKey, dir, color] of fighters) {
           const x = sx(f.x);
           const y = ground - f.y * yUnit;
+          // landing puff
+          if (wasAirborne.current[sideKey] && !f.airborne) burst(x, ground - 4, 8, 90 * scale, '#f4faff');
+          wasAirborne.current[sideKey] = f.airborne;
+
           ctx.fillStyle = 'rgba(56,92,120,0.25)';
           ctx.beginPath();
           ctx.ellipse(x, ground + 2, 24 * scale * (1 - Math.min(0.5, f.y / 400)), 8 * scale, 0, 0, Math.PI * 2);
           ctx.fill();
+
           const stunned = now < f.stunUntil;
-          if (stunned) ctx.globalAlpha = 0.55 + 0.45 * Math.abs(Math.sin(now / 45));
-          blitPenguin(ctx, color, dir, Math.floor(now / 90), f.dir !== 0 && !f.airborne, x, y, pengH);
+          // squash and stretch: long on the way up, flat on the way down
+          const stretch = f.airborne ? 1 + Math.max(-0.12, Math.min(0.14, f.vy / 4000)) : 1;
+          ctx.save();
+          ctx.translate(x, y);
+          ctx.scale(1 / Math.sqrt(stretch), stretch);
+          if (stunned) ctx.globalAlpha = 0.6 + 0.4 * Math.abs(Math.sin(now / 45));
+          const since = pnow - throwAnim.current[sideKey];
+          if (since < THROW_ANIM_MS) {
+            drawPenguinWithTool(ctx, color, dir, 0, false, 0, 0, pengH, null, { kind: 'ball', phase: since / THROW_ANIM_MS, side: dir === 'right' ? 1 : -1 });
+          } else {
+            blitPenguin(ctx, color, dir, Math.floor(now / 90), f.dir !== 0 && !f.airborne, 0, 0, pengH);
+          }
+          ctx.restore();
           ctx.globalAlpha = 1;
           if (stunned) {
-            ctx.fillStyle = '#ffffff';
+            ctx.fillStyle = '#ffd44d';
             for (let i = 0; i < 3; i++) {
-              const a = now / 300 + (i * Math.PI * 2) / 3;
+              const a = now / 260 + (i * Math.PI * 2) / 3;
+              const px = x + Math.cos(a) * 28 * scale;
+              const py = y - pengH - 6 + Math.sin(a) * 7;
               ctx.beginPath();
-              ctx.arc(x + Math.cos(a) * 26 * scale, y - pengH - 8 + Math.sin(a) * 6, 3.5 * scale, 0, Math.PI * 2);
+              for (let k = 0; k < 5; k++) {
+                const ang = (k * 4 * Math.PI) / 5 - Math.PI / 2;
+                ctx.lineTo(px + Math.cos(ang) * 5 * scale, py + Math.sin(ang) * 5 * scale);
+              }
+              ctx.closePath();
               ctx.fill();
             }
           }
         }
 
+        // balls: a trail behind, a shadow below, spin on the ball
+        const liveKeys = new Set<string>();
         for (const ball of world.balls) {
+          const key = `${ball.owner}:${ball.launchedAt}`;
+          liveKeys.add(key);
           const x = sx(ball.x);
           const y = ground - ball.y * yUnit;
+          const trail = trails.current.get(key) ?? [];
+          trail.push({ x, y });
+          if (trail.length > 9) trail.shift();
+          trails.current.set(key, trail);
+          trail.forEach((p, i) => {
+            ctx.globalAlpha = (i / trail.length) * 0.35;
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, (4 + (i / trail.length) * 5) * scale, 0, Math.PI * 2);
+            ctx.fill();
+          });
+          ctx.globalAlpha = 1;
           ctx.fillStyle = 'rgba(56,92,120,0.18)';
           ctx.beginPath();
-          ctx.ellipse(x, ground + 2, 9 * scale, 4 * scale, 0, 0, Math.PI * 2);
+          ctx.ellipse(x, ground + 2, 10 * scale * (1 - Math.min(0.6, ball.y / 500)), 4 * scale, 0, 0, Math.PI * 2);
           ctx.fill();
           ctx.fillStyle = '#ffffff';
           ctx.strokeStyle = 'rgba(150,190,215,0.9)';
-          ctx.lineWidth = 1.2;
+          ctx.lineWidth = 1.4;
           ctx.beginPath();
-          ctx.arc(x, y, 9 * scale, 0, Math.PI * 2);
+          ctx.arc(x, y, 10 * scale, 0, Math.PI * 2);
           ctx.fill();
           ctx.stroke();
-        }
-
-        // where a lob would land, so the aim reads
-        // (drawn for balls in the air, as a faint ring on the ground)
-        for (const ball of world.balls) {
-          if (ball.kind !== 'lob' || ball.targetX === undefined) continue;
-          ctx.strokeStyle = 'rgba(255,92,23,0.45)';
-          ctx.lineWidth = 2;
+          // a spinning highlight
+          const spin = ball.x / 22;
+          ctx.fillStyle = 'rgba(190,225,245,0.7)';
           ctx.beginPath();
-          ctx.ellipse(sx(ball.targetX), ground + 2, FIGHT.lobRadius * unit, 6 * scale, 0, 0, Math.PI * 2);
-          ctx.stroke();
+          ctx.arc(x + Math.cos(spin) * 4 * scale, y + Math.sin(spin) * 4 * scale, 3.2 * scale, 0, Math.PI * 2);
+          ctx.fill();
+          if (ball.kind === 'lob' && ball.targetX !== undefined) {
+            const p = Math.min(1, (now - ball.launchedAt) / FIGHT.lobMs);
+            ctx.strokeStyle = `rgba(255,92,23,${0.25 + p * 0.5})`;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.ellipse(sx(ball.targetX), ground + 2, FIGHT.lobRadius * unit, 6 * scale, 0, 0, Math.PI * 2);
+            ctx.stroke();
+          }
         }
+        for (const k of trails.current.keys()) if (!liveKeys.has(k)) trails.current.delete(k);
 
         // countdown
         if (now < v.startAt) {
-          const n = Math.ceil((v.startAt - now) / 1000);
+          const left = (v.startAt - now) / 1000;
+          const n = Math.ceil(left);
+          const frac = left - Math.floor(left);
           ctx.fillStyle = '#0f2f38';
-          ctx.font = `800 ${Math.round(72 * scale)}px "Baloo 2", system-ui, sans-serif`;
+          ctx.font = `800 ${Math.round((60 + frac * 40) * scale)}px "Baloo 2", system-ui, sans-serif`;
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
-          ctx.fillText(String(n), w / 2, h * 0.38);
+          ctx.globalAlpha = 0.5 + frac * 0.5;
+          ctx.fillText(String(n), w / 2, h * 0.36);
+          ctx.globalAlpha = 1;
         } else if (now - v.startAt < 900) {
+          const k = (now - v.startAt) / 900;
           ctx.fillStyle = '#ff5c17';
-          ctx.font = `800 ${Math.round(64 * scale)}px "Baloo 2", system-ui, sans-serif`;
+          ctx.font = `800 ${Math.round((64 + k * 30) * scale)}px "Baloo 2", system-ui, sans-serif`;
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
-          ctx.globalAlpha = 1 - (now - v.startAt) / 900;
-          ctx.fillText('FIGHT!', w / 2, h * 0.38);
+          ctx.globalAlpha = 1 - k;
+          ctx.fillText('FIGHT!', w / 2, h * 0.36);
           ctx.globalAlpha = 1;
         }
       }
 
-      // splats
-      const pnow = performance.now();
-      flashes.current = flashes.current.filter((f) => pnow - f.t < 500);
-      for (const f of flashes.current) {
-        const k = (pnow - f.t) / 500;
-        const x = sx(f.x);
-        const y = ground - 40 * yUnit;
-        ctx.globalAlpha = 1 - k;
-        ctx.fillStyle = '#ffffff';
-        for (let i = 0; i < 8; i++) {
-          const a = (i / 8) * Math.PI * 2;
-          ctx.beginPath();
-          ctx.arc(x + Math.cos(a) * (12 + k * 34) * scale, y + Math.sin(a) * (8 + k * 24) * scale, (5 - k * 3) * scale, 0, Math.PI * 2);
-          ctx.fill();
-        }
-        ctx.fillStyle = '#ff5c17';
-        ctx.font = `800 ${Math.round(26 * scale)}px "Baloo 2", system-ui, sans-serif`;
+      // particles: snow bursts and puffs
+      for (const p of particles.current) {
+        p.life += dt;
+        p.vy += 900 * dt;
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+        ctx.globalAlpha = Math.max(0, 1 - p.life / p.max);
+        ctx.fillStyle = p.color;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.r * scale, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+      particles.current = particles.current.filter((p) => p.life < p.max);
+
+      // pops
+      pops.current = pops.current.filter((p) => pnow - p.t < 700);
+      for (const p of pops.current) {
+        const k = (pnow - p.t) / 700;
+        const grow = k < 0.2 ? k / 0.2 : 1;
+        ctx.globalAlpha = 1 - Math.max(0, k - 0.5) * 2;
+        ctx.fillStyle = p.color;
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 4;
+        ctx.font = `800 ${Math.round(34 * scale * (0.6 + grow * 0.6))}px "Baloo 2", system-ui, sans-serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText('HIT!', x, y - (36 + k * 24) * scale);
-        ctx.globalAlpha = 1;
+        ctx.strokeText(p.text, p.x, p.y - k * 30 * scale);
+        ctx.fillText(p.text, p.x, p.y - k * 30 * scale);
       }
+      ctx.globalAlpha = 1;
+
+      // confetti for a winner
+      if (v?.state === 'done' && v.won && !celebrated.current) {
+        celebrated.current = true;
+        for (let i = 0; i < 120; i++) {
+          confetti.current.push({
+            x: Math.random() * w,
+            y: -20 - Math.random() * h * 0.5,
+            vx: (Math.random() - 0.5) * 60,
+            vy: 60 + Math.random() * 120,
+            life: 0,
+            max: 6,
+            r: 3 + Math.random() * 4,
+            color: ['#ff5c17', '#38bdf8', '#ffd44d', '#4ade80', '#c084fc'][i % 5],
+          });
+        }
+      }
+      for (const p of confetti.current) {
+        p.life += dt;
+        p.x += p.vx * dt + Math.sin(p.life * 6 + p.r) * 0.8;
+        p.y += p.vy * dt;
+        ctx.fillStyle = p.color;
+        ctx.fillRect(p.x, p.y, p.r * 1.6, p.r);
+      }
+      confetti.current = confetti.current.filter((p) => p.y < h + 20);
     };
     draw();
     return () => cancelAnimationFrame(raf);
@@ -431,7 +621,6 @@ export function DuelScene({ id, onLeave }: Props) {
   const clockLeft = view?.startAt ? Math.max(0, view.startAt + FIGHT.durationMs - serverNow()) : 0;
   const overtime = view?.startAt ? serverNow() > view.startAt + FIGHT.durationMs : false;
 
-  // the live score, from the same picture the rink draws
   let myHits = view?.myHits ?? 0;
   let theirHits = view?.theirHits ?? 0;
   if (live && view?.startAt) {
@@ -439,11 +628,26 @@ export function DuelScene({ id, onLeave }: Props) {
     myHits = view.side === 'a' ? world.a.hits : world.b.hits;
     theirHits = view.side === 'a' ? world.b.hits : world.a.hits;
   }
+  const leftHits = view?.side === 'a' ? myHits : theirHits;
+  const rightHits = view?.side === 'b' ? myHits : theirHits;
 
   const hold = (key: 'left' | 'right', on: boolean) => {
     held.current[key] = on;
     move();
   };
+
+  const marks = (n: number, color: string) => (
+    <span className="duel-marks">
+      {Array.from({ length: FIGHT.hitsToWin }, (_, i) => (
+        <i key={i} className={i < n ? 'on' : ''} style={i < n ? { background: color, color } : undefined} />
+      ))}
+    </span>
+  );
+
+  const leftName = view?.side === 'a' ? view?.me.name : (view?.them?.name ?? '…');
+  const rightName = view?.side === 'b' ? view?.me.name : (view?.them?.name ?? '…');
+  const leftColor = view?.side === 'a' ? (identity?.color ?? '#ff6b2c') : (view?.them?.color ?? '#38bdf8');
+  const rightColor = view?.side === 'b' ? (identity?.color ?? '#ff6b2c') : (view?.them?.color ?? '#38bdf8');
 
   return (
     <div className="duel">
@@ -451,10 +655,9 @@ export function DuelScene({ id, onLeave }: Props) {
 
       <div className="duel-top">
         <div className="duel-side">
-          <b style={{ color: view?.side === 'a' ? identity?.color : view?.them?.color }}>
-            {view?.side === 'a' ? view?.me.name : view?.them?.name ?? '…'}
-          </b>
-          <span>{view?.side === 'a' ? myHits : theirHits}</span>
+          <b style={{ color: leftColor }}>{leftName}</b>
+          {marks(leftHits, leftColor)}
+          <span>{leftHits}</span>
         </div>
         <div className="duel-mid">
           {live && (
@@ -468,34 +671,22 @@ export function DuelScene({ id, onLeave }: Props) {
           )}
           {view?.state === 'funding' && <small>Paying the stakes</small>}
           {over && <small>{view?.reason}</small>}
+          {view && <small className="duel-pot">Pot: {describeStake(view.stake)} × 2</small>}
         </div>
         <div className="duel-side me">
-          <b style={{ color: view?.side === 'b' ? identity?.color : view?.them?.color }}>
-            {view?.side === 'b' ? view?.me.name : view?.them?.name ?? '…'}
-          </b>
-          <span>{view?.side === 'b' ? myHits : theirHits}</span>
+          <span>{rightHits}</span>
+          {marks(rightHits, rightColor)}
+          <b style={{ color: rightColor }}>{rightName}</b>
         </div>
       </div>
-
-      {view && <div className="duel-stake">Pot: {describeStake(view.stake)} × 2</div>}
 
       {live && (
         <div className="duel-controls">
           <div className="duel-group">
-            <button
-              className="duel-btn big"
-              onPointerDown={() => hold('left', true)}
-              onPointerUp={() => hold('left', false)}
-              onPointerLeave={() => hold('left', false)}
-            >
+            <button className="duel-btn big" onPointerDown={() => hold('left', true)} onPointerUp={() => hold('left', false)} onPointerLeave={() => hold('left', false)}>
               ◀
             </button>
-            <button
-              className="duel-btn big"
-              onPointerDown={() => hold('right', true)}
-              onPointerUp={() => hold('right', false)}
-              onPointerLeave={() => hold('right', false)}
-            >
+            <button className="duel-btn big" onPointerDown={() => hold('right', true)} onPointerUp={() => hold('right', false)} onPointerLeave={() => hold('right', false)}>
               ▶
             </button>
             <button className="duel-btn big" onPointerDown={jump}>
@@ -508,7 +699,7 @@ export function DuelScene({ id, onLeave }: Props) {
               Lob
             </button>
           </div>
-          <small className="duel-keys">A D move · W jump · J straight · K lob — jump the straight ones, step out from under the lobs</small>
+          <small className="duel-keys">A D move · W jump · J fast ball · K lob — jump the fast ones, step out from under the lobs</small>
         </div>
       )}
 
@@ -516,8 +707,8 @@ export function DuelScene({ id, onLeave }: Props) {
         <div className="duel-card">
           <b>Real $POG stakes</b>
           <p>
-            Each side pays {describeStake(view.stake)} into the arena pool on chain. The match starts
-            when both are final; if one side does not pay in time, whatever was paid goes back.
+            Each side pays {describeStake(view.stake)} into the arena pool on chain. The match starts when both are
+            final; if one side does not pay in time, whatever was paid goes back.
           </p>
           <p>
             You: {view.me.funded ? 'paid' : 'not yet'} · {view.them?.name}: {view.them?.funded ? 'paid' : 'not yet'}

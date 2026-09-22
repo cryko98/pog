@@ -126,7 +126,7 @@ export interface PresenceState {
   /** the penguin's own level, so the tag reads right for everyone */
   level?: number;
   /** what is in hand right now, and how long ago the last swing started */
-  tool?: 'axe' | 'pick' | 'rod';
+  tool?: 'axe' | 'pick' | 'rod' | 'ball';
   swing?: number;
   /** the node being worked, so a rod's line can reach the right water */
   node?: string;
