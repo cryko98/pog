@@ -348,38 +348,43 @@ function drawToolAlongArm(ctx: CanvasRenderingContext2D, kind: ToolKind, side: n
   ctx.strokeStyle = STEEL_DARK;
   ctx.lineWidth = 1.6;
   ctx.fillStyle = STEEL;
+  // In this frame +x (times side) points back toward the penguin, and the
+  // swing comes DOWN from there — so the edge faces -side: the way the head
+  // is moving, and downward at the moment it lands.
+  const edge = -side;
   if (kind === 'axe') {
-    // a wedge with the edge facing the node
+    // a wedge, edge outward and down
     ctx.beginPath();
-    ctx.moveTo(-3, 21);
-    ctx.lineTo(side * 15, 18);
-    ctx.lineTo(side * 17, 33);
-    ctx.lineTo(-3, 31);
+    ctx.moveTo(3, 21);
+    ctx.lineTo(edge * 15, 18);
+    ctx.lineTo(edge * 17, 33);
+    ctx.lineTo(3, 31);
     ctx.closePath();
     ctx.fill();
     ctx.stroke();
     ctx.fillStyle = '#eef3f7';
     ctx.beginPath();
-    ctx.moveTo(side * 13, 19.5);
-    ctx.lineTo(side * 16, 19);
-    ctx.lineTo(side * 17, 32);
-    ctx.lineTo(side * 14, 31);
+    ctx.moveTo(edge * 13, 19.5);
+    ctx.lineTo(edge * 16, 19);
+    ctx.lineTo(edge * 17, 32);
+    ctx.lineTo(edge * 14, 31);
     ctx.closePath();
     ctx.fill();
   } else {
-    // a pick: two points curving down from a collar on the handle
+    // a pick: the head sits on the end of the handle and its two points
+    // curve back toward the grip, like a claw
     ctx.beginPath();
-    ctx.moveTo(-17, 30);
-    ctx.quadraticCurveTo(-8, 21, 0, 22);
-    ctx.quadraticCurveTo(8, 21, 17, 30);
-    ctx.lineTo(16, 32);
-    ctx.quadraticCurveTo(8, 25.5, 0, 26.5);
-    ctx.quadraticCurveTo(-8, 25.5, -16, 32);
+    ctx.moveTo(-17, 21);
+    ctx.quadraticCurveTo(-8, 31, 0, 30);
+    ctx.quadraticCurveTo(8, 31, 17, 21);
+    ctx.lineTo(16, 19);
+    ctx.quadraticCurveTo(8, 26, 0, 25.5);
+    ctx.quadraticCurveTo(-8, 26, -16, 19);
     ctx.closePath();
     ctx.fill();
     ctx.stroke();
     ctx.fillStyle = STEEL_DARK;
-    ctx.fillRect(-3, 20, 6, 8);
+    ctx.fillRect(-3, 24, 6, 8);
   }
 }
 
