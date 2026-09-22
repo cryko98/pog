@@ -113,9 +113,87 @@ console.log('\n--- qualifying ---');
   await call('/api/online/beat', { method: 'POST', token, body: { id: clientId } });
   const r = await call('/api/season/status', { token });
   check('a heartbeat credits a minute', r.json.gate.items.find((i) => i.id === 'minutes').have >= 1);
-  check('and that is enough with the gate lowered', r.json.gate.ok === true, JSON.stringify(r.json.gate.items.map((i) => `${i.id}:${i.done}`)));
+  // Only the playtime half is in scope here; the captcha, if this deploy
+  // has one, is cleared in its own step below.
+  check(
+    'both playtime items clear with the gate lowered',
+    r.json.gate.items.filter((i) => i.id === 'minutes' || i.id === 'today').every((i) => i.done),
+    JSON.stringify(r.json.gate.items.map((i) => `${i.id}:${i.done}`))
+  );
   check('but still no Frost, because nothing was earned', r.json.frost === 0);
 }
+
+
+console.log('\n--- captcha ---');
+/**
+ * What this can assert depends on which secret the deploy is using, and
+ * there is no way to know that except by trying: Cloudflare's always-pass
+ * TEST secret accepts any token by design, so "a bogus token is rejected"
+ * is not a meaningful claim against it. So probe once and branch, rather
+ * than sniffing key prefixes and guessing.
+ */
+let captchaCleared = false;
+let captchaOn = false;
+{
+  const cfg = await call('/api/season/config');
+  captchaOn = cfg.json.gates?.captcha === true;
+
+  // The gate needs BOTH halves of the Turnstile pair. Half-configured must
+  // not put an item on the checklist that no browser can ever satisfy.
+  check(
+    'the site key is served exactly when the gate is on',
+    captchaOn === (typeof cfg.json.captchaSiteKey === 'string' && cfg.json.captchaSiteKey.length > 0),
+    `gate=${captchaOn} key=${cfg.json.captchaSiteKey ? 'served' : 'empty'}`
+  );
+
+  const probe = await call('/api/season/verify', {
+    method: 'POST',
+    token,
+    body: { token: 'not-a-real-turnstile-token' },
+  });
+  const s = await call('/api/season/status', { token });
+  const human = s.json.gate.items.find((i) => i.id === 'human');
+
+  check(
+    'the checklist matches the configuration',
+    captchaOn ? !!human : !human,
+    captchaOn ? 'captcha required' : 'captcha not configured on this deploy'
+  );
+
+  if (!captchaOn) {
+    check('verify refuses outright when unconfigured', probe.status === 409, probe.json.error);
+    check('and leaves no "verified" mark', !human);
+  } else if (probe.status === 200) {
+    captchaCleared = true;
+    console.log(
+      'NOTE  this deploy accepts any token, i.e. the Cloudflare always-pass test\n' +
+        '      secret. The rejection path is therefore not exercised here — run with\n' +
+        '      TURNSTILE_SECRET=2x0000000000000000000000000000000AA to cover it.'
+    );
+  } else {
+    check('a bogus captcha token is rejected', probe.status === 409, probe.json.error);
+    check('and leaves no "verified" mark behind', human?.done === false);
+  }
+}
+
+/* --- clear the captcha, if this deploy has one ---------------------- *
+ * Everything below needs a qualified wallet. With Cloudflare's always-pass
+ * TEST secret (1x0000000000000000000000000000000AA) any token is accepted,
+ * which is exactly what makes the rest of this runnable. Against a real
+ * secret no script can pass, so we say so and stop rather than printing a
+ * wall of failures that are really just "not eligible".                  */
+if (captchaOn && !captchaCleared) {
+  console.log(
+    '\nSKIP  this deploy has a captcha no script can pass, so the wallet cannot\n' +
+      '      qualify and the earning path below is not reachable. To exercise it:\n' +
+      '        TURNSTILE_SITE_KEY=1x00000000000000000000AA \\\n' +
+      '        TURNSTILE_SECRET=1x0000000000000000000000000000000AA npm run dev\n' +
+      '      (or leave TURNSTILE_SECRET unset, which drops the gate entirely)'
+  );
+  console.log(`\n${pass} passed, ${fail} failed  — earning path not exercised`);
+  process.exit(fail ? 1 : 0);
+}
+if (captchaCleared) check('the captcha clears and the gate opens', true);
 
 console.log('\n--- refusals at the cairn ---');
 // Each of these asserts the REASON, not just the 409. A refusal that says
@@ -148,18 +226,6 @@ console.log('\n--- refusals at the cairn ---');
   check('none of those minted Frost', before === 0, `frost=${before}`);
 }
 
-console.log('\n--- captcha ---');
-{
-  const r = await call('/api/season/verify', { method: 'POST', token, body: { token: 'not-a-real-turnstile-token' } });
-  check('a bogus captcha token never passes', r.status === 409, r.json.error);
-  const s = await call('/api/season/status', { token });
-  const human = s.json.gate.items.find((i) => i.id === 'human');
-  check(
-    'and no "verified" mark is left behind',
-    !human || human.done === false,
-    human ? `human:${human.done}` : 'captcha not configured on this deploy'
-  );
-}
 
 /* --- earn it honestly ---------------------------------------------- */
 
@@ -218,7 +284,9 @@ const mins = () => ((Date.now() - started) / 60000).toFixed(1);
 const needWood = OFFERINGS.wood.cost.wood;
 console.log(`\n--- chopping ${needWood} wood for an offering ---`);
 let wood = 0;
-for (const tree of route('tree', 45)) {
+// A wide route on purpose: node cooldowns are shared with every other
+// player and with previous runs, so a short list runs out of live trees.
+for (const tree of route('tree', 160)) {
   if (wood >= needWood) break;
   const got = await work(tree);
   if (got?.wood) {

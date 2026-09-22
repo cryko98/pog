@@ -191,7 +191,10 @@ export function eligibility(g: GateInput): { ok: boolean; items: GateItem[] } {
   if (g.humanRequired) {
     items.push({ id: 'human', label: 'Pass the captcha once', done: g.humanVerified });
   }
-  if (g.chainLive) {
+  // `hold: 0` is the middle-ground config: the mint is live, so holding
+  // still multiplies what you earn, but it is not required to qualify.
+  // Listing "Hold 0 $POG" as a checklist item would be noise.
+  if (g.chainLive && GATE.hold > 0) {
     items.push({
       id: 'hold',
       label: `Hold ${GATE.holdLabel}`,

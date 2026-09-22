@@ -27,7 +27,7 @@ import {
   seasonState,
 } from '../../shared/season.js';
 import { chainLive } from '../../src/server/chain.js';
-import { humanGateOn, verifyHuman } from '../../src/server/human.js';
+import { humanGateOn, humanSiteKey, verifyHuman } from '../../src/server/human.js';
 import { frostLeaderboard, offerAtCairn, seasonFor, walletForToken } from '../../src/server/game.js';
 
 /** Best-effort client IP, passed to Turnstile as a weak extra signal. */
@@ -56,6 +56,8 @@ export default async function handler(req: any, res: any) {
         iglooBonus: IGLOO_BONUS,
         /** which optional gates this deploy actually enforces */
         gates: { chain: chainLive(), captcha: humanGateOn() },
+        /** public by design; empty unless the captcha is fully configured */
+        captchaSiteKey: humanSiteKey(),
       });
     }
 

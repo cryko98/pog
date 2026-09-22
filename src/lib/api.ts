@@ -243,7 +243,10 @@ export const api = {
       budgetLabel: string;
       offerings: Offering[];
       gates: { chain: boolean; captcha: boolean };
+      captchaSiteKey: string;
     }>('/season/config'),
+
+  verifyHuman: (token: string) => request<{ ok: boolean }>('/season/verify', post({ token })),
 
   season: () => request<SeasonStatus>('/season/status'),
 

@@ -17,10 +17,24 @@ import { kv } from './kv.js';
 import { SEASON } from '../../shared/season.js';
 
 const SECRET = (process.env.TURNSTILE_SECRET || '').trim();
+/**
+ * The public half of the pair. Served to the client from `/season/config`
+ * rather than baked in at build time, so the captcha has exactly one place
+ * to be configured.
+ *
+ * The gate needs BOTH halves. With only the secret set, the requirement
+ * would appear on the checklist while the browser had no key to render a
+ * challenge with — every player locked out of Frost by a config change
+ * that looked complete.
+ */
+const SITE_KEY = (process.env.TURNSTILE_SITE_KEY || '').trim();
 const VERIFY_URL = 'https://challenges.cloudflare.com/turnstile/v0/siteverify';
 
 /** Is the captcha part of the checklist at all? */
-export const humanGateOn = () => SECRET.length > 0;
+export const humanGateOn = () => SECRET.length > 0 && SITE_KEY.length > 0;
+
+/** The site key the browser needs, or '' when the captcha is off. */
+export const humanSiteKey = () => (humanGateOn() ? SITE_KEY : '');
 
 const key = (wallet: string) => `pog:human:s${SEASON.id}:${wallet}`;
 /** A season is weeks, not months; a generous TTL still expires eventually. */
@@ -41,7 +55,9 @@ export async function verifyHuman(
   token: unknown,
   ip?: string
 ): Promise<{ ok: boolean; error?: string }> {
-  if (!humanGateOn()) return { ok: false, error: 'The captcha is not configured on this deploy.' };
+  if (!humanGateOn()) {
+    return { ok: false, error: 'The captcha is not configured on this deploy.' };
+  }
   if (typeof token !== 'string' || token.length < 8 || token.length > 4096) {
     return { ok: false, error: 'Missing captcha response.' };
   }

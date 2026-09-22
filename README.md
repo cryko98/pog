@@ -139,10 +139,31 @@ the balance over one JSON-RPC call, cached for five minutes. It fails
 failing open would hand every sybil the thing the gate exists to prevent. It
 can never block play, only accrual.
 
-The same is true of the captcha: with `TURNSTILE_SECRET` unset the requirement
-is *dropped from the checklist* rather than marked as passed. Those are not the
-same thing — a "verified" mark nobody earned would still be there after the
-secret is finally configured.
+The same is true of the captcha, which needs **both** halves of the Turnstile
+pair — `TURNSTILE_SECRET` and `TURNSTILE_SITE_KEY`. With either missing the
+requirement is *dropped from the checklist* rather than marked as passed. Those
+are not the same thing, twice over: a "verified" mark nobody earned would still
+be there after the secret was finally configured, and a secret set without a
+site key would put an item on the checklist that no browser could satisfy,
+locking every player out of Frost with a config change that looked complete.
+
+The site key is served from `/api/season/config` rather than baked in at build
+time, so there is exactly one place to configure it and no way to half-enable it.
+
+### Turning the token on
+
+`POG_MINT` is the switch. Setting it enables the holder multiplier **and** the
+minimum-hold gate, and `GATE.hold` in `shared/season.js` decides how hard that
+gate bites:
+
+| `GATE.hold` | What happens |
+|---|---|
+| `25_000` (default) | Only holders earn Frost at all. Strongest sybil defence; narrowest audience. |
+| `0` | Anyone can earn; holding still multiplies (+15/30/50%). The checklist drops the item entirely rather than showing "Hold 0". |
+| — (`POG_MINT` unset) | The chain is not consulted at all. |
+
+Worth re-reading each season: 25,000 is 0.0025% of supply, so its dollar cost
+moves with the price — about $25 at a $1M FDV, $250 at $10M.
 
 ### Closing a season
 
@@ -151,6 +172,28 @@ node --env-file=.vercel/.env.prod tools/audit.mjs          # what does not look 
 node --env-file=.vercel/.env.prod tools/snapshot.mjs       # the payout list + merkle root
 node --env-file=.vercel/.env.prod tools/snapshot.mjs --exclude excluded.txt
 ```
+
+### Paying it out
+
+```bash
+node tools/send.mjs                    # DRY RUN — reports, sends nothing
+node tools/send.mjs --send --limit 25  # a small first batch
+node tools/send.mjs --send             # the rest
+```
+
+This moves real money, so it is built to be boring about it. Dry run is the
+default. It reads the treasury key only from the path in `TREASURY_KEYPAIR` —
+never a prompt, an argument or a config file. It preflights the token balance,
+the SOL for fees and the rent for any accounts that need creating, and refuses
+to start if any is short. `--send` asks you to type the season name.
+
+Every confirmed signature is appended to `<snapshot>.sent.json` **before the
+next batch starts**, and a re-run skips everyone already in it — so a crash, a
+timeout or a Ctrl-C costs nothing and nobody is paid twice. Do not delete that
+file.
+
+Most recipients already have a $POG token account, because qualifying for Frost
+required holding $POG. The dry run lists any that do not, with the rent.
 
 `snapshot.mjs` writes a CSV, a JSON with every input so the maths can be
 re-checked, and one merkle proof per wallet. It verifies every proof against
@@ -189,6 +232,7 @@ node tools/loopcheck.mjs     # the honest loop: chop, craft, fish, build
 node tools/questcheck.mjs    # rod -> fish -> cookout -> quests -> streak
 node tools/seasonmath.mjs    # caps, tiers, shares and the merkle tree (no server)
 node tools/seasoncheck.mjs   # the season against a real API
+node tools/send.mjs          # dry run: what a payout would do, sending nothing
 
 # seasoncheck needs the hour-long playtime gate lowered, which no test can sit through:
 POG_GATE_MINUTES=1 POG_GATE_MINUTES_TODAY=1 npm run dev
@@ -272,6 +316,7 @@ src/
   server/season.ts      the Frost ledger — one write path, no request reaches it
   server/chain.ts       on-chain $POG balance, cached, fails closed
   server/human.ts       Turnstile, one pass per wallet per season
+  components/TurnstileGate.tsx   the captcha widget, rendered only when fully configured
   pages/                Landing.tsx, Play.tsx
 server.ts               local dev bridge (Vite + the api/ handlers)
 ```
@@ -315,7 +360,8 @@ an extensionless specifier throws on load and every route answers
 | `VITE_POG_CONTRACT` | build | contract address shown on the landing page |
 | `POG_MINT` | server | the SPL mint. **Unset until launch** — while it is, the holder gate and holder multiplier are left out of the checklist entirely |
 | `SOLANA_RPC_URL` | server | defaults to the public mainnet RPC, which is rate-limited. Point it at Helius or QuickNode before launch |
-| `TURNSTILE_SECRET` | server | Cloudflare Turnstile. Unset means the captcha is not part of the checklist |
+| `TURNSTILE_SECRET` + `TURNSTILE_SITE_KEY` | server | Cloudflare Turnstile. **Both or neither** — either one missing drops the captcha from the checklist. The site key is public and is served to the browser from `/api/season/config` |
+| `TREASURY_KEYPAIR` | local only | Path to the Solana CLI keypair that pays the airdrop. Read by `tools/send.mjs` and nothing else. **Never set this on Vercel** |
 | `POG_GATE_MINUTES` / `POG_GATE_MINUTES_TODAY` | server | **test seam only.** Lowers the playtime gate so `seasoncheck` can run. Never set in production |
 | `VITE_MQTT_URL` | build | swap the public broker for a dedicated one |
 

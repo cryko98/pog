@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { OFFERINGS } from '../../shared/season.js';
 import type { Inventory } from '../game/engine';
 import { api, type FrostEntry, type SeasonStatus } from '../lib/api';
 import { Icon, type IconName } from './Icon';
+import { TurnstileGate } from './TurnstileGate';
 
 interface Props {
   guest: boolean;
@@ -39,6 +40,12 @@ export function SeasonPanel({ guest, inventory, refresh, onOffer, onClose }: Pro
   const [tab, setTab] = useState<'you' | 'board'>('you');
   const [busy, setBusy] = useState('');
   const [note, setNote] = useState('');
+  /** empty unless the deploy has both halves of the Turnstile pair set */
+  const [siteKey, setSiteKey] = useState('');
+
+  const reload = useCallback(() => {
+    api.season().then(setStatus).catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (guest) return;
@@ -48,6 +55,10 @@ export function SeasonPanel({ guest, inventory, refresh, onOffer, onClose }: Pro
       api.frostBoard().then((b) => alive && setBoard(b.entries)).catch(() => {});
     };
     pull();
+    api
+      .seasonConfig()
+      .then((c) => alive && setSiteKey(c.captchaSiteKey || ''))
+      .catch(() => {});
     const timer = setInterval(pull, 15_000);
     return () => {
       alive = false;
@@ -134,6 +145,11 @@ export function SeasonPanel({ guest, inventory, refresh, onOffer, onClose }: Pro
                       )}
                     </div>
                   ))}
+
+                  {/* The one item a player can clear on the spot */}
+                  {status.gate.items.some((g) => g.id === 'human' && !g.done) && (
+                    <TurnstileGate siteKey={siteKey} onPassed={reload} />
+                  )}
                 </div>
               )}
 

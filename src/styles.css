@@ -1906,3 +1906,28 @@ section.band {
   letter-spacing: 0.07em;
   color: #a9cbd6;
 }
+
+.sn-captcha {
+  margin-top: 9px;
+  padding-top: 9px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.sn-captcha small {
+  display: block;
+  margin-top: 5px;
+  font-size: 0.73rem;
+  color: #a9cbd6;
+}
+
+.sn-captcha-error {
+  color: #ff9e7a !important;
+}
+
+.sn-captcha-done {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.79rem;
+  color: #9fe8cb;
+}
