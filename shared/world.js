@@ -111,6 +111,9 @@ export function playerLevel(skills = {}) {
   return total - (Object.keys(SKILLS).length - 1);
 }
 
+/** The highest number that formula can produce — every skill maxed. */
+export const MAX_PLAYER_LEVEL = Object.keys(SKILLS).length * SKILL_XP.length - (Object.keys(SKILLS).length - 1);
+
 /**
  * Per-minute ceilings on COMPLETED gathers — the individual swings that
  * lead up to one are bounded separately, by SWINGS_PER_MIN.
@@ -302,6 +305,29 @@ export function yieldOwed(pieces, since, now = Date.now()) {
   if (!daily || !since) return 0;
   const days = Math.min(YIELD_CAP_DAYS, (now - since) / 86_400_000);
   return Math.max(0, Math.floor(daily * days));
+}
+
+/**
+ * Settle the yield: what to pay, and where the clock moves to.
+ *
+ * The clock only moves by the whole days actually paid for, so a player who
+ * checks in twice a day is not forfeiting half a day each time. Past the
+ * cap it jumps to now — the excess is forfeited by design, that is what the
+ * cap is for. And when the level is about to change (`reset`), it always
+ * jumps to now: the time accrued at the old rate is paid at the old rate,
+ * and the new rate starts from zero. Without that, a Shelter that sat empty
+ * for three days paid three days of Palace the moment it was furnished.
+ */
+export function settleYieldAt(pieces, since, now = Date.now(), reset = false) {
+  const { daily } = iglooLevel(pieces);
+  const from = since || now;
+  const elapsedDays = (now - from) / 86_400_000;
+  const paid = daily ? Math.max(0, Math.floor(daily * Math.min(YIELD_CAP_DAYS, elapsedDays))) : 0;
+  const next =
+    reset || !daily || elapsedDays >= YIELD_CAP_DAYS
+      ? now
+      : from + Math.floor((paid / daily) * 86_400_000);
+  return { paid, next };
 }
 
 /** Can a piece stand here? Room bounds, clear of the door, clear of others. */

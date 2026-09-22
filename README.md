@@ -88,6 +88,47 @@ per minute no matter how many players work them.
 Guests can walk, slide and chat, but nothing they do is recorded: $POG is
 credited to a wallet address, and a guest has none.
 
+## Igloos, furniture and the market
+
+Furnishings are bought at the stall on the plaza for $POG, carried in the
+backpack, and placed anywhere inside your own igloo. Each piece is worth
+*value*; the igloo's level is derived from the total and never stored, so
+tuning the table never leaves a stale number behind. Higher levels pay a
+small daily $POG yield — soft $POG, never Frost — settled when you play,
+capped at three days so it is a reason to come back rather than a reason to
+leave the tab open.
+
+The **igloo market** sells the whole thing at once: the plot, the level and
+everything inside. Two kinds of listing:
+
+| | **In-game $POG** | **Real $POG** (once `POG_MINT` is set) |
+|---|---|---|
+| Settles | in the API, from balance to balance | on chain, wallet to wallet |
+| The house cut | 8%, burned | 8%, **burned on chain by the buyer** in the same transaction |
+| Who can trade | both sides must have qualified for the season | same |
+| Who holds the money | nobody — it moves at once | nobody — the server has no keys and escrows nothing |
+
+The on-chain sale is built so that the server never has to be trusted with
+a token and the client never has to be trusted about a payment:
+
+1. The buyer **reserves** the listing for ten minutes. While it is reserved
+   the seller cannot unlist, move, or take anything out — the buyer is paying
+   for the igloo they looked at — and nobody else can reserve it.
+2. The server **builds** the payment as an unsigned transaction: transfer the
+   take-home to the seller, burn the cut, and a memo naming *this* listing.
+   The buyer's wallet shows exactly that before asking for approval.
+3. The buyer signs and sends it. Their wallet returns the signature.
+4. The server **reads the transaction back from the chain** at finalized
+   commitment and checks it against the sale (`shared/sale.js`): it succeeded,
+   the buyer signed it, the memo names this listing, the seller's balance of
+   the mint rose by the take-home, the cut was burned by the buyer, and the
+   signature has never settled a sale before. Only then does the igloo move.
+
+Nothing about the transaction is taken from the request but its signature.
+`salecheck.mjs` runs the verifier against an honest payment and sixteen
+dishonest variations of it, which is the only way it can be tested before
+the token exists.
+
 ## The season, and the airdrop
 
 Two currencies, because they have two different jobs.
@@ -223,6 +264,11 @@ it can do is refuse anything a real player could not have done.
 | The respawn jump is only ever to *your own* igloo, once a minute | Using a built igloo as a teleport between resource nodes |
 | Frost has no endpoint that writes it, and a profile write cannot set it | Injecting an airdrop balance |
 | A wallet accrues nothing until it has paid the qualifying cost | Spinning up wallets to farm the drop |
+| **Every write to a wallet runs under that wallet's lock** (`server/lock.ts`) | Firing two requests at once so the second write undoes the first: placing a furnishing while a stale write puts it back in the pack, removing one piece twice, buying an igloo while another request restores the $POG |
+| A coin claim must carry a position | Sweeping every coin on the map from nowhere |
+| The jump to the plaza (a rejoin) is allowed once a minute, like the jump home | Using "I am at the plaza" as a free teleport to the cairn |
+| Igloo yield is settled per whole day paid, and the clock restarts on a level change | Furnishing an empty Shelter and being paid three days of Palace for the time it stood empty |
+| Names are claimed with an atomic `hsetnx` | Two wallets racing for one name both winning it |
 
 Scripts keep this honest:
 
@@ -231,6 +277,7 @@ node tools/cheatcheck.mjs    # 40 attacks, every line must read PASS
 node tools/loopcheck.mjs     # the honest loop: chop, craft, fish, build
 node tools/questcheck.mjs    # rod -> fish -> cookout -> quests -> streak
 node tools/seasonmath.mjs    # caps, tiers, shares and the merkle tree (no server)
+node tools/salecheck.mjs     # the on-chain sale verifier against fixtures, and the yield clock (no server)
 node tools/seasoncheck.mjs   # the season against a real API
 node tools/send.mjs          # dry run: what a payout would do, sending nothing
 
@@ -397,7 +444,7 @@ change.
 - **Phase 2 — Waddle** ✅ wood, ice and fishing, the workbench and stall, player-built igloos, hats
 - **Phase 3 — Deep winter** ✅ daily quests and streaks, the plaza cookout, respawning at your igloo, phone controls
 - **Phase 4 — The season** ✅ Frost, the qualifying gate, holder tiers, the cairn, snapshot and audit tooling
-- **Phase 5 — Blizzard** — igloo furniture and interiors, an igloo marketplace, a snowball PvP arena, guilds
+- **Phase 5 — Blizzard** — ✅ igloo furniture, interiors and levels, skills, the igloo market (soft and on-chain) · still to come: a snowball PvP arena, guilds
 - **Phase 6 — Glacier** — the claim contract, NFT skins, tournaments
 
 A note on the PvP arena: presence is peer-to-peer and unauthenticated, so

@@ -7,6 +7,7 @@
 import nacl from 'tweetnacl';
 import bs58 from 'bs58';
 import { kv } from './kv.js';
+import { withWallet } from './lock.js';
 import { holdingOf } from './chain.js';
 import { humanGateOn, isVerified } from './human.js';
 import {
@@ -83,6 +84,12 @@ export const K = {
   questClaim: (wallet: string, day: string, id: string) => `pog:qc:${wallet}:${day}:${id}`,
   /** throttles the free jump home, so it cannot shortcut a farming route */
   homeJump: (wallet: string) => `pog:home:${wallet}`,
+  /** and the jump back to the plaza, which is otherwise the same shortcut */
+  spawnJump: (wallet: string) => `pog:spawn:${wallet}`,
+  /** igloo listings, keyed by the seller's wallet */
+  market: 'pog:market',
+  /** a buyer holding an on-chain listing while they pay for it */
+  reserve: (seller: string, listedAt: number) => `pog:resv:${seller}:${listedAt}`,
 };
 
 const NONCE_TTL = 5 * 60;
@@ -123,6 +130,13 @@ const HOLD_BASE = 120;
 const HOLD_PER_MINUTE = 90;
 /** At most one free jump to your own igloo per this many seconds. */
 const HOME_JUMP_COOLDOWN_S = 60;
+/**
+ * Likewise the jump back to the plaza. Rejoining puts you there, and that
+ * has to be allowed — but "I am at the plaza now" with no cooldown was a
+ * free teleport to the cairn and the coins around it from anywhere on the
+ * map. Nobody reloads the page more than once a minute by accident.
+ */
+const SPAWN_JUMP_COOLDOWN_S = 60;
 
 interface Track {
   x: number;
@@ -165,13 +179,15 @@ async function trackMovement(
     if (now - last.t < minGapMs) return 'Slow down.';
 
     // Rejoining puts you back on the spawn plaza — or, once you have raised
-    // one, at your own igloo door. Those jumps are legitimate. Everything
-    // else has to be walkable.
-    const respawned = Math.hypot(x - WORLD.spawn.x, y - WORLD.spawn.y) <= WORLD.spawnRadius;
-    if (!respawned) {
-      const seconds = (now - last.t) / 1000;
-      const reach = PLAYER.maxSpeed * PLAYER.iceSpeedBoost * seconds + POSITION_SLACK;
-      if (Math.hypot(x - last.x, y - last.y) > reach && !(await jumpedHome(wallet, x, y))) {
+    // one, at your own igloo door. Those jumps are legitimate, once a
+    // minute. Everything else has to be walkable.
+    const seconds = (now - last.t) / 1000;
+    const reach = PLAYER.maxSpeed * PLAYER.iceSpeedBoost * seconds + POSITION_SLACK;
+    if (Math.hypot(x - last.x, y - last.y) > reach) {
+      const onPlaza = Math.hypot(x - WORLD.spawn.x, y - WORLD.spawn.y) <= WORLD.spawnRadius;
+      const respawned =
+        onPlaza && (await store.setnx(K.spawnJump(wallet), now, SPAWN_JUMP_COOLDOWN_S));
+      if (!respawned && !(await jumpedHome(wallet, x, y))) {
         return 'You cannot be in two places at once.';
       }
     }
@@ -232,6 +248,27 @@ export interface Igloo {
   lastYield?: number;
 }
 
+/**
+ * Only things the server itself hands out, only whole non-negative counts.
+ * A negative count could only come from a lost update, and a stray key from
+ * nowhere legitimate; neither should survive a read.
+ */
+function sanitizeItems(raw: unknown): Record<string, number> {
+  const out: Record<string, number> = {};
+  if (!raw || typeof raw !== 'object') return out;
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (!(Object.hasOwn(ITEM_IDS, key) || key.startsWith('f_'))) continue;
+    const n = Math.floor(Number(value) || 0);
+    if (n > 0) out[key] = Math.min(10_000, n);
+  }
+  return out;
+}
+
+/** The crafted things a profile can hold — what the recipes give out. */
+const ITEM_IDS: Record<string, true> = Object.fromEntries(
+  Object.values(RECIPES).flatMap((r) => Object.keys(r.gives).filter((g) => !RESOURCE_KEYS.includes(g)).map((g) => [g, true]))
+);
+
 /** Only the three known skills, only whole non-negative counts. */
 function sanitizeSkills(raw: unknown): Record<string, number> {
   const out: Record<string, number> = { tree: 0, ice: 0, hole: 0 };
@@ -254,7 +291,7 @@ function normalize(p: Partial<Profile> & { wallet: string }): Profile {
     wood: Math.max(0, Math.floor(Number(p.wood) || 0)),
     ice: Math.max(0, Math.floor(Number(p.ice) || 0)),
     fish: Math.max(0, Math.floor(Number(p.fish) || 0)),
-    items: p.items && typeof p.items === 'object' ? p.items : {},
+    items: sanitizeItems(p.items),
     skins: Array.isArray(p.skins) ? p.skins : ['default'],
     skin: typeof p.skin === 'string' ? p.skin : 'default',
     playMinutes: Math.max(0, Math.floor(Number(p.playMinutes) || 0)),
@@ -381,7 +418,10 @@ export async function seasonFor(wallet: string) {
  * scripting, so it is worth making a script walk to the plaza and stand
  * there like everyone else.
  */
-export async function offerAtCairn(
+export const offerAtCairn = (wallet: string, offeringId: unknown, x: unknown, y: unknown) =>
+  withWallet(wallet, () => offerAtCairnNow(wallet, offeringId, x, y));
+
+async function offerAtCairnNow(
   wallet: string,
   offeringId: unknown,
   x: unknown,
@@ -444,7 +484,10 @@ export async function offerAtCairn(
  * airdrop gate, so the fields that decide who gets paid are unreachable
  * from this path — the allow-list below is the whole of it.
  */
-export async function devGrant(
+export const devGrant = (wallet: string, gift: Record<string, unknown>) =>
+  withWallet(wallet, () => devGrantNow(wallet, gift));
+
+async function devGrantNow(
   wallet: string,
   gift: Record<string, unknown>
 ): Promise<{ profile?: Profile; granted?: Record<string, number>; error?: string }> {
@@ -582,17 +625,28 @@ export async function nameOwner(name: string): Promise<string | null> {
   return (await store.hget<string>(K.names, name.toLowerCase())) ?? null;
 }
 
-export async function saveProfile(
+export const saveProfile = (wallet: string, name: string, color: string) =>
+  withWallet(wallet, () => saveProfileNow(wallet, name, color));
+
+async function saveProfileNow(
   wallet: string,
   name: string,
   color: string
 ): Promise<{ profile?: Profile; error?: string }> {
   const store = await kv();
-
-  const owner = await nameOwner(name);
-  if (owner && owner !== wallet) return { error: 'That name is already taken.' };
+  const lower = name.toLowerCase();
 
   const existing = await store.get<Partial<Profile>>(K.profile(wallet));
+  const keeping = existing?.name?.toLowerCase() === lower;
+
+  // Claim the name atomically. Check-then-set here let two wallets racing
+  // for the same name both win it, and the board then showed one name for
+  // two penguins.
+  if (!keeping && !(await store.hsetnx(K.names, lower, wallet))) {
+    const owner = await store.hget<string>(K.names, lower);
+    if (owner !== wallet) return { error: 'That name is already taken.' };
+  }
+
   const profile = normalize({
     ...(existing ?? {}),
     wallet,
@@ -601,11 +655,10 @@ export async function saveProfile(
   });
 
   // release the previous name so it becomes available again
-  if (existing?.name && existing.name.toLowerCase() !== name.toLowerCase()) {
+  if (existing?.name && !keeping) {
     await store.hdel(K.names, existing.name.toLowerCase());
   }
 
-  await store.hset(K.names, name.toLowerCase(), wallet);
   await store.set(K.profile(wallet), profile, { ex: PROFILE_TTL });
   await store.zadd(K.leaderboard, profile.pog, wallet);
   return { profile };
@@ -624,7 +677,10 @@ export async function takenCoins(): Promise<number[]> {
   return ids.map((id) => Number(id)).filter((n) => Number.isFinite(n));
 }
 
-export async function claimCoin(
+export const claimCoin = (wallet: string, coinId: number, x?: unknown, y?: unknown) =>
+  withWallet(wallet, () => claimCoinNow(wallet, coinId, x, y));
+
+async function claimCoinNow(
   wallet: string,
   coinId: number,
   x?: unknown,
@@ -635,18 +691,19 @@ export async function claimCoin(
     return { error: 'No such coin.' };
   }
 
-  // the claimed position has to be next to the coin, and reachable from
-  // wherever this wallet last acted
+  // The claimed position has to be next to the coin, and reachable from
+  // wherever this wallet last acted. A claim with no position at all used
+  // to skip both checks — every coin on the map, from anywhere, at the
+  // per-minute cap. There is no honest reason to omit it.
   const coin = coins[coinId];
   const px = Number(x);
   const py = Number(y);
-  if (Number.isFinite(px) && Number.isFinite(py)) {
-    if (Math.hypot(px - coin.x, py - coin.y) > COIN.pickupRadius * 2) {
-      return { error: 'Too far from that coin.' };
-    }
-    const moveError = await trackMovement(wallet, px, py);
-    if (moveError) return { error: moveError };
+  if (!Number.isFinite(px) || !Number.isFinite(py)) return { error: 'Where are you?' };
+  if (Math.hypot(px - coin.x, py - coin.y) > COIN.pickupRadius * 2) {
+    return { error: 'Too far from that coin.' };
   }
+  const moveError = await trackMovement(wallet, px, py);
+  if (moveError) return { error: moveError };
 
   const store = await kv();
 
@@ -691,7 +748,10 @@ export interface GatherResult {
   error?: string;
 }
 
-export async function gather(
+export const gather = (wallet: string, nodeId: unknown, x: unknown, y: unknown) =>
+  withWallet(wallet, () => gatherNow(wallet, nodeId, x, y));
+
+async function gatherNow(
   wallet: string,
   nodeId: unknown,
   x: unknown,
@@ -792,7 +852,10 @@ export async function depletedNodes(): Promise<string[]> {
  * Crafting
  * ------------------------------------------------------------------ */
 
-export async function craft(wallet: string, recipeId: unknown): Promise<{ profile?: Profile; error?: string }> {
+export const craft = (wallet: string, recipeId: unknown) =>
+  withWallet(wallet, () => craftNow(wallet, recipeId));
+
+async function craftNow(wallet: string, recipeId: unknown): Promise<{ profile?: Profile; error?: string }> {
   // Object.hasOwn, not a bare lookup: RECIPES['__proto__'] is truthy and
   // would sail past a !recipe check straight into a crash.
   const recipe =
@@ -940,7 +1003,10 @@ export async function questBoard(wallet: string): Promise<QuestBoard> {
   };
 }
 
-export async function claimQuest(
+export const claimQuest = (wallet: string, questId: unknown) =>
+  withWallet(wallet, () => claimQuestNow(wallet, questId));
+
+async function claimQuestNow(
   wallet: string,
   questId: unknown
 ): Promise<{ profile?: Profile; reward?: number; bonus?: number; streak?: number; frost?: number; error?: string }> {
@@ -993,7 +1059,10 @@ export async function listIgloos(): Promise<Igloo[]> {
   return Object.values(all || {}).filter((i) => i && Number.isFinite(i.x));
 }
 
-export async function buildIgloo(
+export const buildIgloo = (wallet: string, x: unknown, y: unknown, style: unknown) =>
+  withWallet(wallet, () => buildIglooNow(wallet, x, y, style));
+
+async function buildIglooNow(
   wallet: string,
   x: unknown,
   y: unknown,
@@ -1008,10 +1077,19 @@ export async function buildIgloo(
   if (!(profile.items.iglooKit > 0)) return { error: 'Craft an igloo kit first.' };
 
   // Same rule set the client previews with, so the ghost never lies.
+  const store = await kv();
   const existing = await listIgloos();
   const others = existing.filter((i) => i.wallet !== wallet);
   const spot = canBuildAt(px, py, others);
   if (!spot.ok) return { error: spot.reason };
+
+  // Raising a second one moves you, furniture and all — it used to
+  // silently replace the igloo and everything standing in it. Not while it
+  // is for sale, though: a buyer is paying for the plot they looked at.
+  const mine = existing.find((i) => i.wallet === wallet) ?? null;
+  if (mine && (await store.hget(K.market, wallet)) != null) {
+    return { error: 'Take it off the market before moving it.' };
+  }
 
   const moveError = await trackMovement(wallet, px, py);
   if (moveError) return { error: moveError };
@@ -1022,13 +1100,12 @@ export async function buildIgloo(
     x: Math.round(px),
     y: Math.round(py),
     style: IGLOO.styles.includes(style as string) ? (style as string) : IGLOO.styles[0],
-    builtAt: Date.now(),
-    furniture: [],
-    lastYield: Date.now(),
+    builtAt: mine?.builtAt ?? Date.now(),
+    furniture: mine?.furniture ?? [],
+    lastYield: mine?.lastYield ?? Date.now(),
   };
 
   profile.items.iglooKit -= 1;
-  const store = await kv();
   await store.hset(K.igloos, wallet, igloo);
 
   // One Frost award per season for raising a shelter — after the hset, so
@@ -1046,7 +1123,9 @@ export async function buildIgloo(
  * Skin shop — the only $POG sink
  * ------------------------------------------------------------------ */
 
-export async function buySkin(wallet: string, skinId: unknown): Promise<{ profile?: Profile; error?: string }> {
+export const buySkin = (wallet: string, skinId: unknown) => withWallet(wallet, () => buySkinNow(wallet, skinId));
+
+async function buySkinNow(wallet: string, skinId: unknown): Promise<{ profile?: Profile; error?: string }> {
   const skin = SKINS.find((s: { id: string }) => s.id === skinId);
   if (!skin) return { error: 'No such skin.' };
 
@@ -1061,7 +1140,10 @@ export async function buySkin(wallet: string, skinId: unknown): Promise<{ profil
   return { profile: await putProfile(profile) };
 }
 
-export async function equipSkin(wallet: string, skinId: unknown): Promise<{ profile?: Profile; error?: string }> {
+export const equipSkin = (wallet: string, skinId: unknown) =>
+  withWallet(wallet, () => equipSkinNow(wallet, skinId));
+
+async function equipSkinNow(wallet: string, skinId: unknown): Promise<{ profile?: Profile; error?: string }> {
   const profile = await getProfile(wallet);
   if (!profile) return { error: 'Pick a username first.' };
   const skin = skinById(skinId);
@@ -1102,10 +1184,18 @@ export async function leaderboard(limit = 25): Promise<LeaderboardEntry[]> {
  * number is higher.
  * ------------------------------------------------------------------ */
 
-export async function heartbeat(clientId: string, wallet?: string | null): Promise<number> {
+/** Distinct penguins one address may keep on the counter per minute. */
+const BEATS_PER_IP_MIN = 40;
+
+export async function heartbeat(clientId: string, wallet?: string | null, ip = ''): Promise<number> {
   const store = await kv();
   const now = Date.now();
-  await store.zadd(K.online, now, clientId.slice(0, 64));
+
+  // A signed-in player counts as their wallet, whatever id they send; a
+  // guest counts as their id, but only so many guests per address.
+  const member = wallet ? 'w:' + wallet : 'g:' + clientId.slice(0, 64);
+  const beats = ip ? await store.incrWithTtl(`pog:beatip:${ip}`, 60) : 0;
+  if (wallet || beats <= BEATS_PER_IP_MIN) await store.zadd(K.online, now, member);
   await store.zremRangeByScore(K.online, 0, now - ONLINE_WINDOW);
 
   // Credit playtime at most once per real minute, gated by a key with a
@@ -1113,8 +1203,12 @@ export async function heartbeat(clientId: string, wallet?: string | null): Promi
   if (wallet) {
     const fresh = await store.setnx(K.playTick(wallet), now, 55);
     if (fresh) {
-      const profile = await getProfile(wallet);
-      if (profile) {
+      // Under the wallet lock like every other profile write: a heartbeat
+      // lands every half minute, and one that read the profile just before
+      // a gather wrote it would put the old pack back.
+      await withWallet(wallet, async () => {
+        const profile = await getProfile(wallet);
+        if (!profile) return;
         rollover(profile);
         profile.playMinutes = Math.min(100_000, (profile.playMinutes || 0) + 1);
         profile.playToday = Math.min(1440, profile.playToday + 1);
@@ -1128,7 +1222,7 @@ export async function heartbeat(clientId: string, wallet?: string | null): Promi
           banked = await grantFrost(profile, FROST.perPlayBlock);
         }
         await saveWithFrost(profile, banked);
-      }
+      });
     }
   }
 

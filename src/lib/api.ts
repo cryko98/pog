@@ -119,10 +119,14 @@ export interface Furnishing {
   r: number;
 }
 
+export type ListingCurrency = 'soft' | 'pog';
+
 export interface IglooListing {
   wallet: string;
   seller: string;
   price: number;
+  /** in-game $POG, or the real token paid on chain */
+  currency: ListingCurrency;
   level: number;
   levelLabel: string;
   pieces: number;
@@ -136,12 +140,46 @@ export interface HomeState {
   pieces: FurniturePiece[];
   limit: number;
   listed: boolean;
+  /** a buyer is mid-payment on your on-chain listing */
+  reserved: boolean;
   pending: number;
   collected: number;
   catalogue: Furnishing[];
   market: IglooListing[];
   fee: number;
+  /** the on-chain market: open once the token is live */
+  chain: { live: boolean; fee: number; min: number; max: number };
   profile: Profile | null;
+}
+
+export interface SaleReservation {
+  buyer: string;
+  seller: string;
+  listedAt: number;
+  price: number;
+  expiresAt: number;
+}
+
+export interface SaleInvoice {
+  /** base64, unsigned — the wallet shows what it does before signing */
+  transaction: string;
+  price: number;
+  takeHome: number;
+  burn: number;
+  decimals: number;
+  memo: string;
+  expiresAt: number;
+  lastValidBlockHeight: number;
+}
+
+export interface SaleRecord {
+  seller: string;
+  buyer: string;
+  price: number;
+  burn: number;
+  signature: string;
+  listedAt: number;
+  at: number;
 }
 
 export interface LeaderboardEntry {
@@ -316,8 +354,8 @@ export const api = {
   removeFurniture: (index: number) =>
     request<{ igloo: Igloo; profile: Profile }>('/home/remove', post({ index })),
 
-  listIgloo: (price: number) =>
-    request<{ listing: IglooListing }>('/home/list', post({ price })),
+  listIgloo: (price: number, currency: ListingCurrency = 'soft') =>
+    request<{ listing: IglooListing }>('/home/list', post({ price, currency })),
 
   unlistIgloo: () => request<{ ok: boolean }>('/home/unlist', post()),
 
@@ -326,6 +364,18 @@ export const api = {
       '/home/purchase',
       post({ seller })
     ),
+
+  /* --- the on-chain market: reserve, sign the payment, settle --- */
+
+  reserveSale: (seller: string) =>
+    request<{ reservation: SaleReservation }>('/home/reserve', post({ seller })),
+
+  saleInvoice: (seller: string) => request<{ invoice: SaleInvoice }>('/home/invoice', post({ seller })),
+
+  settleSale: (seller: string, signature: string) =>
+    request<{ igloo?: Igloo; pending?: boolean }>('/home/settle', post({ seller, signature })),
+
+  recentSales: () => request<{ sales: SaleRecord[] }>('/home/sales'),
 
   buySkin: (skin: string) => request<{ profile: Profile }>('/game/buy', post({ skin })),
 

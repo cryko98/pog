@@ -25,10 +25,17 @@ import { actionOf, body, bearer, json } from '../_shared.js';
 import { devGrant, walletForToken } from '../../src/server/game.js';
 
 const DEV_KEY = (process.env.POG_DEV_KEY || '').trim();
-const IS_PRODUCTION = process.env.VERCEL_ENV === 'production';
+/**
+ * Any Vercel deployment at all — not just production. The Redis database
+ * is shared across Production, Preview and Development on this project,
+ * so a grant on a preview URL would mint straight into the live economy.
+ * Testing shortcuts belong on localhost, which is where the igloo gets
+ * tested anyway.
+ */
+const IS_DEPLOYED = !!process.env.VERCEL || process.env.VERCEL_ENV === 'production';
 
 export default async function handler(req: any, res: any) {
-  if (IS_PRODUCTION) return json(res, 404, { error: 'Not found.' });
+  if (IS_DEPLOYED) return json(res, 404, { error: 'Not found.' });
   if (!DEV_KEY) {
     return json(res, 404, { error: 'Dev routes are off. Set POG_DEV_KEY to enable them locally.' });
   }

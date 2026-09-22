@@ -9,37 +9,50 @@
  * It never writes Frost, a streak, or playtime. An igloo that paid the
  * airdrop ledger would be passive income toward the drop — buy ten on ten
  * wallets and farm the season without playing — which is the exact thing
- * the qualifying gate exists to stop. Everything here is soft $POG.
+ * the qualifying gate exists to stop. The yield here is soft $POG.
  *
  * A market is also the natural laundering route for a sybil farm: many
  * shallow wallets selling to one deep one. So both sides of a sale must
  * have passed the Frost gate, and the house takes a cut that is burned
  * rather than paid to anyone, which puts a real price on a wash trade.
+ *
+ * Listings come in two currencies. `soft` settles here, in in-game $POG.
+ * `pog` settles on chain, in the real token, through `sale.ts` — this file
+ * only refuses to touch such a listing while a buyer holds it.
+ *
+ * Every write runs under the owner's wallet lock (see `lock.ts`), because
+ * every one of them is read-modify-write and two at once lose an update.
  */
 
 import { kv } from './kv.js';
+import { withWallet, withWallets } from './lock.js';
+import { chainLive } from './chain.js';
 import {
   FURNITURE,
   FURNITURE_LIMIT,
   canPlaceFurniture,
   furnitureById,
   iglooLevel,
+  settleYieldAt,
   yieldOwed,
 } from '../../shared/world.js';
+import { SALE_FEE, SALE_MAX, SALE_MIN } from '../../shared/sale.js';
 import { K, getProfile, putProfile, type Igloo, type Profile } from './game.js';
+import { isReserved, reservationOf } from './sale.js';
 
-/** Listings live in one hash, keyed by the seller's wallet. */
-const MARKET = 'pog:market';
-
-/** Taken out of every sale and burned — the cost of a wash trade. */
+/** Taken out of every soft sale and burned — the cost of a wash trade. */
 export const MARKET_FEE = 0.08;
 export const PRICE_MIN = 5;
 export const PRICE_MAX = 500_000;
+
+export type Currency = 'soft' | 'pog';
 
 export interface Listing {
   wallet: string;
   seller: string;
   price: number;
+  /** in-game $POG, or the real token on chain */
+  currency: Currency;
   /** a snapshot for the shop window; the live igloo is what transfers */
   level: number;
   levelLabel: string;
@@ -60,47 +73,48 @@ const saveIgloo = async (igloo: Igloo) => (await kv()).hset(K.igloos, igloo.wall
 
 /**
  * Settle whatever an igloo has earned since it was last read, and credit
- * it. Called whenever the owner loads their game state, so from the
- * player's side it simply arrives — but it is computed from elapsed time
- * and capped, so leaving the game open does not earn any faster than
- * leaving it shut.
+ * it. Assumes the caller holds the wallet lock. `reset` is for a level
+ * change: pay what the old level earned, then start the new one from now.
  */
-export async function settleYield(
+async function settleNow(
   wallet: string,
-  profile?: Profile | null
+  profile?: Profile | null,
+  reset = false
 ): Promise<{ paid: number; profile?: Profile }> {
   const igloo = await iglooOf(wallet);
   if (!igloo) return { paid: 0 };
 
   const now = Date.now();
-  const owed = yieldOwed(igloo.furniture ?? [], igloo.lastYield ?? igloo.builtAt, now);
-  if (owed <= 0) {
-    // still move the clock on, or a level-1 igloo banks time it cannot use
-    if (!igloo.lastYield) {
-      igloo.lastYield = now;
-      await saveIgloo(igloo);
-    }
-    return { paid: 0 };
+  const since = igloo.lastYield ?? igloo.builtAt;
+  const { paid, next } = settleYieldAt(igloo.furniture ?? [], since, now, reset);
+
+  if (next !== since) {
+    igloo.lastYield = next;
+    await saveIgloo(igloo);
   }
+  if (paid <= 0) return { paid: 0 };
 
   const p = profile ?? (await getProfile(wallet));
   if (!p) return { paid: 0 };
 
-  igloo.lastYield = now;
-  await saveIgloo(igloo);
-
-  p.pog += owed;
+  p.pog += paid;
   const saved = await putProfile(p);
   await (await kv()).zadd(K.leaderboard, saved.pog, wallet);
-  return { paid: owed, profile: saved };
+  return { paid, profile: saved };
 }
+
+/** The request-boundary version: takes the lock itself. */
+export const settleYield = (wallet: string) => withWallet(wallet, () => settleNow(wallet));
 
 /* ------------------------------------------------------------------ *
  * Buying and placing
  * ------------------------------------------------------------------ */
 
 /** Buy a furnishing. It lands in the backpack until you place it. */
-export async function buyFurniture(
+export const buyFurniture = (wallet: string, id: unknown, qty: unknown) =>
+  withWallet(wallet, () => buyFurnitureNow(wallet, id, qty));
+
+async function buyFurnitureNow(
   wallet: string,
   id: unknown,
   qty: unknown
@@ -124,8 +138,17 @@ export async function buyFurniture(
   return { profile: saved };
 }
 
+/** Nothing inside an igloo may change while it is for sale or reserved. */
+async function frozen(wallet: string): Promise<string | null> {
+  if (await isListed(wallet)) return 'Take it off the market first.';
+  return null;
+}
+
 /** Stand a piece from the backpack somewhere in your own igloo. */
-export async function placeFurniture(
+export const placeFurniture = (wallet: string, id: unknown, x: unknown, y: unknown) =>
+  withWallet(wallet, () => placeFurnitureNow(wallet, id, x, y));
+
+async function placeFurnitureNow(
   wallet: string,
   id: unknown,
   x: unknown,
@@ -136,7 +159,8 @@ export async function placeFurniture(
 
   const igloo = await iglooOf(wallet);
   if (!igloo) return { error: 'Raise an igloo first.' };
-  if (await isListed(wallet)) return { error: 'Take it off the market first.' };
+  const locked = await frozen(wallet);
+  if (locked) return { error: locked };
 
   const profile = await getProfile(wallet);
   if (!profile) return { error: 'Pick a username first.' };
@@ -152,25 +176,32 @@ export async function placeFurniture(
   const spot = canPlaceFurniture(px, py, spec, pieces);
   if (!spot.ok) return { error: spot.reason };
 
-  // settle before the level changes, or the last stretch pays at the new rate
-  await settleYield(wallet, profile);
+  // Pay out at the old level and restart the clock, or the stretch that
+  // just passed is paid at the new rate.
+  const settled = await settleNow(wallet, profile, true);
+  const current = settled.profile ?? profile;
 
-  igloo.furniture = [...pieces, { id: spec.id, x: px, y: py }];
-  await saveIgloo(igloo);
+  const fresh = (await iglooOf(wallet))!;
+  fresh.furniture = [...(fresh.furniture ?? []), { id: spec.id, x: px, y: py }];
+  await saveIgloo(fresh);
 
-  const fresh = (await getProfile(wallet))!;
-  fresh.items[key] -= 1;
-  return { igloo, profile: await putProfile(fresh) };
+  current.items[key] -= 1;
+  if (current.items[key] <= 0) delete current.items[key];
+  return { igloo: fresh, profile: await putProfile(current) };
 }
 
 /** Take a piece back out. It returns to the backpack, not to $POG. */
-export async function removeFurniture(
+export const removeFurniture = (wallet: string, index: unknown) =>
+  withWallet(wallet, () => removeFurnitureNow(wallet, index));
+
+async function removeFurnitureNow(
   wallet: string,
   index: unknown
 ): Promise<{ igloo?: Igloo; profile?: Profile; error?: string }> {
   const igloo = await iglooOf(wallet);
   if (!igloo) return { error: 'You have no igloo.' };
-  if (await isListed(wallet)) return { error: 'Take it off the market first.' };
+  const locked = await frozen(wallet);
+  if (locked) return { error: locked };
 
   const pieces = igloo.furniture ?? [];
   const i = Math.floor(Number(index));
@@ -179,16 +210,19 @@ export async function removeFurniture(
   const profile = await getProfile(wallet);
   if (!profile) return { error: 'Pick a username first.' };
 
-  await settleYield(wallet, profile);
+  const settled = await settleNow(wallet, profile, true);
+  const current = settled.profile ?? profile;
 
-  const [taken] = pieces.splice(i, 1);
-  igloo.furniture = pieces;
-  await saveIgloo(igloo);
+  const fresh = (await iglooOf(wallet))!;
+  const live = fresh.furniture ?? [];
+  if (i >= live.length) return { error: 'Nothing there.' };
+  const [taken] = live.splice(i, 1);
+  fresh.furniture = live;
+  await saveIgloo(fresh);
 
-  const fresh = (await getProfile(wallet))!;
   const key = 'f_' + taken.id;
-  fresh.items[key] = (fresh.items[key] || 0) + 1;
-  return { igloo, profile: await putProfile(fresh) };
+  current.items[key] = (current.items[key] || 0) + 1;
+  return { igloo: fresh, profile: await putProfile(current) };
 }
 
 /* ------------------------------------------------------------------ *
@@ -196,21 +230,33 @@ export async function removeFurniture(
  * ------------------------------------------------------------------ */
 
 export const isListed = async (wallet: string) =>
-  (await (await kv()).hget<Listing>(MARKET, wallet)) != null;
+  (await (await kv()).hget<Listing>(K.market, wallet)) != null;
 
 export async function listings(): Promise<Listing[]> {
-  const all = (await (await kv()).hgetall<Listing>(MARKET)) || {};
+  const all = (await (await kv()).hgetall<Listing>(K.market)) || {};
   return Object.values(all)
     .filter((l) => l && Number.isFinite(l.price))
-    .sort((a, b) => a.price - b.price);
+    .map((l) => ({ ...l, currency: l.currency === 'pog' ? 'pog' : 'soft' }) as Listing)
+    .sort((a, b) => (a.currency === b.currency ? a.price - b.price : a.currency === 'soft' ? -1 : 1));
 }
 
-export async function listIgloo(
+export const listIgloo = (wallet: string, price: unknown, currency: unknown) =>
+  withWallet(wallet, () => listIglooNow(wallet, price, currency));
+
+async function listIglooNow(
   wallet: string,
-  price: unknown
+  price: unknown,
+  currency: unknown
 ): Promise<{ listing?: Listing; error?: string }> {
+  const kind: Currency = currency === 'pog' ? 'pog' : 'soft';
   const asking = Math.floor(Number(price));
-  if (!Number.isFinite(asking) || asking < PRICE_MIN || asking > PRICE_MAX) {
+
+  if (kind === 'pog') {
+    if (!chainLive()) return { error: 'Real $POG sales open once the token is live.' };
+    if (!Number.isFinite(asking) || asking < SALE_MIN || asking > SALE_MAX) {
+      return { error: `Ask between ${SALE_MIN} and ${SALE_MAX.toLocaleString('en-US')} $POG.` };
+    }
+  } else if (!Number.isFinite(asking) || asking < PRICE_MIN || asking > PRICE_MAX) {
     return { error: `Ask between ${PRICE_MIN} and ${PRICE_MAX.toLocaleString('en-US')} $POG.` };
   }
 
@@ -219,13 +265,14 @@ export async function listIgloo(
   if (await isListed(wallet)) return { error: 'It is already up for sale.' };
 
   // settle first: the seller keeps what it earned under their ownership
-  await settleYield(wallet);
+  await settleNow(wallet);
 
   const level = iglooLevel(igloo.furniture ?? []);
   const listing: Listing = {
     wallet,
     seller: igloo.owner,
     price: asking,
+    currency: kind,
     level: level.level,
     levelLabel: level.label,
     pieces: (igloo.furniture ?? []).length,
@@ -234,19 +281,27 @@ export async function listIgloo(
     y: igloo.y,
     listedAt: Date.now(),
   };
-  await (await kv()).hset(MARKET, wallet, listing);
+  await (await kv()).hset(K.market, wallet, listing);
   return { listing };
 }
 
-export async function unlistIgloo(wallet: string): Promise<{ ok?: boolean; error?: string }> {
-  if (!(await isListed(wallet))) return { error: 'It is not listed.' };
-  await (await kv()).hdel(MARKET, wallet);
+export const unlistIgloo = (wallet: string) => withWallet(wallet, () => unlistIglooNow(wallet));
+
+async function unlistIglooNow(wallet: string): Promise<{ ok?: boolean; error?: string }> {
+  const store = await kv();
+  const listing = await store.hget<Listing>(K.market, wallet);
+  if (!listing) return { error: 'It is not listed.' };
+  // A buyer who has reserved it is paying for it right now.
+  if (await reservationOf(wallet, listing.listedAt)) {
+    return { error: 'A buyer is paying for it. Try again in a few minutes.' };
+  }
+  await store.hdel(K.market, wallet);
   return { ok: true };
 }
 
 /**
- * Buy somebody's igloo: the plot, its level, and everything standing in
- * it. The seller is paid less the house cut, which is burned.
+ * Buy somebody's igloo for soft $POG: the plot, its level, and everything
+ * standing in it. The seller is paid less the house cut, which is burned.
  *
  * The caller must already have checked that BOTH wallets have qualified
  * for the season — that check needs the chain and the captcha, which
@@ -259,60 +314,55 @@ export async function buyIgloo(
   if (typeof sellerWallet !== 'string' || !sellerWallet) return { error: 'No such listing.' };
   if (sellerWallet === buyer) return { error: 'It is already yours.' };
 
-  const store = await kv();
-  const listing = await store.hget<Listing>(MARKET, sellerWallet);
-  if (!listing) return { error: 'That one has gone.' };
+  // Both locks, so neither side's balance can be touched by a stray
+  // request between the check and the write.
+  return withWallets([buyer, sellerWallet], async () => {
+    const store = await kv();
+    const listing = await store.hget<Listing>(K.market, sellerWallet);
+    if (!listing) return { error: 'That one has gone.' };
+    if (listing.currency === 'pog') return { error: 'That one is paid for on chain.' };
 
-  const [buyerProfile, sellerProfile, igloo] = await Promise.all([
-    getProfile(buyer),
-    getProfile(sellerWallet),
-    iglooOf(sellerWallet),
-  ]);
-  if (!buyerProfile) return { error: 'Pick a username first.' };
-  if (!igloo) {
-    await store.hdel(MARKET, sellerWallet);
-    return { error: 'That one has gone.' };
-  }
-  if (await iglooOf(buyer)) {
-    return { error: 'You already have an igloo. Sell or abandon it first.' };
-  }
-  if (buyerProfile.pog < listing.price) return { error: `That costs ${listing.price} $POG.` };
+    const [buyerProfile, igloo] = await Promise.all([getProfile(buyer), iglooOf(sellerWallet)]);
+    if (!buyerProfile) return { error: 'Pick a username first.' };
+    if (!igloo) {
+      await store.hdel(K.market, sellerWallet);
+      return { error: 'That one has gone.' };
+    }
+    if (await iglooOf(buyer)) {
+      return { error: 'You already have an igloo. Sell it first.' };
+    }
+    if (buyerProfile.pog < listing.price) return { error: `That costs ${listing.price} $POG.` };
 
-  // Claim the listing first, atomically. Two buyers racing: one gets it,
-  // the other is told it has gone, and nobody pays for nothing.
-  if (!(await store.setnx(`pog:sold:${sellerWallet}:${listing.listedAt}`, buyer, 3600))) {
-    return { error: 'Somebody just bought it.' };
-  }
+    // whatever it earned up to this moment belongs to the seller
+    await settleNow(sellerWallet);
 
-  // whatever it earned up to this moment belongs to the seller
-  await settleYield(sellerWallet, sellerProfile);
+    const burned = Math.max(1, Math.round(listing.price * MARKET_FEE));
+    const takeHome = listing.price - burned;
 
-  const burned = Math.max(1, Math.round(listing.price * MARKET_FEE));
-  const takeHome = listing.price - burned;
+    buyerProfile.pog -= listing.price;
+    const savedBuyer = await putProfile(buyerProfile);
 
-  buyerProfile.pog -= listing.price;
-  const savedBuyer = await putProfile(buyerProfile);
+    const seller = await getProfile(sellerWallet);
+    if (seller) {
+      seller.pog += takeHome;
+      const savedSeller = await putProfile(seller);
+      await store.zadd(K.leaderboard, savedSeller.pog, sellerWallet);
+    }
 
-  const seller = await getProfile(sellerWallet);
-  if (seller) {
-    seller.pog += takeHome;
-    const savedSeller = await putProfile(seller);
-    await store.zadd(K.leaderboard, savedSeller.pog, sellerWallet);
-  }
+    // the igloo itself moves, furniture, level and plot together
+    const moved: Igloo = {
+      ...igloo,
+      wallet: buyer,
+      owner: savedBuyer.name,
+      lastYield: Date.now(),
+    };
+    await store.hdel(K.igloos, sellerWallet);
+    await store.hset(K.igloos, buyer, moved);
+    await store.hdel(K.market, sellerWallet);
+    await store.zadd(K.leaderboard, savedBuyer.pog, buyer);
 
-  // the igloo itself moves, furniture, level and plot together
-  const moved: Igloo = {
-    ...igloo,
-    wallet: buyer,
-    owner: savedBuyer.name,
-    lastYield: Date.now(),
-  };
-  await store.hdel(K.igloos, sellerWallet);
-  await store.hset(K.igloos, buyer, moved);
-  await store.hdel(MARKET, sellerWallet);
-  await store.zadd(K.leaderboard, savedBuyer.pog, buyer);
-
-  return { igloo: moved, profile: savedBuyer, paid: takeHome, burned };
+    return { igloo: moved, profile: savedBuyer, paid: takeHome, burned };
+  });
 }
 
 /* ------------------------------------------------------------------ *
@@ -320,7 +370,12 @@ export async function buyIgloo(
  * ------------------------------------------------------------------ */
 
 export async function homeState(wallet: string) {
-  const [igloo, market, all] = await Promise.all([iglooOf(wallet), listings(), igloos()]);
+  const [igloo, market, all, reserved] = await Promise.all([
+    iglooOf(wallet),
+    listings(),
+    igloos(),
+    isReserved(wallet),
+  ]);
   const pieces = igloo?.furniture ?? [];
   const level = iglooLevel(pieces);
 
@@ -330,10 +385,14 @@ export async function homeState(wallet: string) {
     pieces,
     limit: FURNITURE_LIMIT,
     listed: market.some((l) => l.wallet === wallet),
+    /** a buyer is mid-payment on your listing */
+    reserved,
     pending: igloo ? yieldOwed(pieces, igloo.lastYield ?? igloo.builtAt) : 0,
     catalogue: Object.values(FURNITURE),
     market,
     fee: MARKET_FEE,
+    /** the on-chain market: whether it is open, and its own cut */
+    chain: { live: chainLive(), fee: SALE_FEE, min: SALE_MIN, max: SALE_MAX },
     /** every igloo in the world, so visitors see what is inside one */
     world: Object.values(all || {}).filter((i) => i && Number.isFinite(i.x)),
   };

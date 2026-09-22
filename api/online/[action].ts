@@ -24,7 +24,12 @@ export default async function handler(req: any, res: any) {
       // a signed-in player also accrues playtime, which is what their
       // carrying capacity is tied to
       const wallet = await walletForToken(bearer(req));
-      return json(res, 200, { count: await heartbeat(id, wallet) });
+      // Anyone can invent ids, so one address can only add so many
+      // penguins a minute. Honest clients beat twice a minute; a shared
+      // office NAT still fits under this.
+      const raw = String(req.headers?.['x-forwarded-for'] || '');
+      const ip = raw.split(',')[0]?.trim() || String(req.socket?.remoteAddress || 'local');
+      return json(res, 200, { count: await heartbeat(id, wallet, ip) });
     }
 
     if (action === 'count') {

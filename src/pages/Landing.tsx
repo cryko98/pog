@@ -124,11 +124,16 @@ const ROADMAP = [
   },
   {
     phase: 'Phase 5 — Blizzard',
-    items: ['Igloo furniture & interiors', 'Igloo marketplace', 'Snowball PvP arena', 'Guilds'],
+    done: true,
+    items: [
+      'Igloo furniture, interiors & levels',
+      'Skills: fish, chop and cut better',
+      'The igloo market — in-game or real $POG',
+    ],
   },
   {
     phase: 'Phase 6 — Glacier',
-    items: ['The claim contract', 'NFT penguin skins', 'Seasonal tournaments', 'Community-built zones'],
+    items: ['Snowball PvP arena', 'Guilds', 'The claim contract', 'NFT penguin skins'],
   },
 ];
 

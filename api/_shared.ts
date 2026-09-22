@@ -10,7 +10,12 @@
 export function actionOf(req: any, moduleName: string): string {
   const parts = String(req.url || '').split('?')[0].split('/').filter(Boolean);
   const i = parts.indexOf(moduleName);
-  const fromPath = i >= 0 && parts[i + 1] ? decodeURIComponent(parts[i + 1]) : '';
+  let fromPath = '';
+  try {
+    fromPath = i >= 0 && parts[i + 1] ? decodeURIComponent(parts[i + 1]) : '';
+  } catch {
+    fromPath = ''; // a malformed %-escape is a 404, not a crash
+  }
   return fromPath || (typeof req.query?.action === 'string' ? req.query.action : '');
 }
 

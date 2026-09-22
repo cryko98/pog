@@ -100,3 +100,89 @@ export async function heldBalance(wallet: string): Promise<number> {
 export async function holdingOf(wallet: string): Promise<{ live: boolean; balance: number }> {
   return { live: chainLive(), balance: await heldBalance(wallet) };
 }
+
+/* ------------------------------------------------------------------ *
+ * The market's side of the chain
+ *
+ * Same discipline as above: one JSON-RPC call each, a short timeout, and
+ * a null on any failure that the caller turns into "try again" rather
+ * than into a decision.
+ * ------------------------------------------------------------------ */
+
+/** `null` when the call itself failed; otherwise the result, which may itself be null. */
+async function rpc<T>(method: string, params: unknown[], timeoutMs = RPC_TIMEOUT_MS): Promise<{ result: T } | null> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(RPC, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      signal: controller.signal,
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
+    });
+    if (!res.ok) return null;
+    const json = (await res.json()) as { result?: T; error?: unknown };
+    if (json.error || !('result' in json)) return null;
+    return { result: json.result as T };
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+interface MintInfo {
+  decimals: number;
+  /** which token program owns the mint — the burn has to go to the same one */
+  program: string;
+}
+
+/**
+ * The mint's decimals and owning program. A property of the token, not of
+ * any wallet, so it is cached for a long time.
+ */
+export async function mintInfo(): Promise<MintInfo | null> {
+  if (!chainLive()) return null;
+  const store = await kv();
+  const cached = await store.get<MintInfo>('pog:mint:' + POG_MINT);
+  if (cached && Number.isInteger(cached.decimals)) return cached;
+
+  const acct = await rpc<{ value?: { owner?: string; data?: { parsed?: { info?: { decimals?: number } } } } }>(
+    'getAccountInfo',
+    [POG_MINT, { encoding: 'jsonParsed' }]
+  );
+  const decimals = acct?.result?.value?.data?.parsed?.info?.decimals;
+  const program = acct?.result?.value?.owner;
+  if (!Number.isInteger(decimals) || typeof program !== 'string') return null;
+
+  const info = { decimals: decimals as number, program };
+  await store.set('pog:mint:' + POG_MINT, info, { ex: 24 * 3600 });
+  return info;
+}
+
+/** A recent blockhash for building a transaction the buyer will sign. */
+export async function latestBlockhash(): Promise<{ blockhash: string; lastValidBlockHeight: number } | null> {
+  const r = await rpc<{ value?: { blockhash?: string; lastValidBlockHeight?: number } }>('getLatestBlockhash', [
+    { commitment: 'finalized' },
+  ]);
+  const v = r?.result?.value;
+  return v?.blockhash && Number.isFinite(v.lastValidBlockHeight)
+    ? { blockhash: v.blockhash, lastValidBlockHeight: v.lastValidBlockHeight as number }
+    : null;
+}
+
+/**
+ * One transaction, parsed, at FINALIZED commitment. Returns `undefined`
+ * when the chain does not know it yet (or not finally), `null` on an RPC
+ * failure, and the parsed transaction otherwise. The three are different
+ * answers: "wait", "try again", and "here it is".
+ */
+export async function finalizedTransaction(signature: string): Promise<unknown | null | undefined> {
+  const r = await rpc<unknown>(
+    'getTransaction',
+    [signature, { encoding: 'jsonParsed', commitment: 'finalized', maxSupportedTransactionVersion: 0 }],
+    6000
+  );
+  if (r === null) return null;
+  return r.result == null ? undefined : r.result;
+}

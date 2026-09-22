@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { furnitureThumb } from '../game/furniture';
 import type { HudState } from '../game/engine';
-import { api, type HomeState } from '../lib/api';
+import { api, type HomeState, type IglooListing, type ListingCurrency } from '../lib/api';
+import { canSendTransactions, shortAddress, signAndSendTransaction } from '../lib/wallet';
+import { useSession } from '../state/session';
 import { Icon } from './Icon';
 
 interface Props {
@@ -21,23 +23,46 @@ export type Tab = 'home' | 'shop' | 'market';
 
 const big = (n: number) => n.toLocaleString('en-US');
 
+/** Where an on-chain purchase is, step by step, so the panel can say so. */
+type Checkout =
+  | { step: 'idle' }
+  | { step: 'reserving'; seller: string }
+  | { step: 'signing'; seller: string; price: number; burn: number }
+  | { step: 'settling'; seller: string; signature: string }
+  | { step: 'done'; seller: string }
+  | { step: 'failed'; seller: string; reason: string };
+
 /**
  * The igloo panel: what yours is worth, what you can buy for it, and the
  * market where furnished ones change hands.
  *
- * Everything here is soft $POG. The Frost ledger is next door and this
- * cannot touch it — an igloo that paid toward the airdrop would be passive
- * income toward the drop, which is the thing the gate exists to stop.
+ * Two kinds of listing. Soft ones settle here in in-game $POG. On-chain
+ * ones settle in the real token, and the panel's whole job for those is
+ * to walk the buyer through reserve -> sign -> settle without ever
+ * touching a key: the server builds the payment, the wallet signs it, the
+ * chain records it, and the server reads it back. The Frost ledger is
+ * next door and none of this can touch it.
  */
-export function HomePanel({ guest, refresh, hud, onPlace, onTakeNearest, onChanged, onClose, initialTab = "home" }: Props) {
+export function HomePanel({ guest, refresh, hud, onPlace, onTakeNearest, onChanged, onClose, initialTab = 'home' }: Props) {
+  const { connected } = useSession();
   const [state, setState] = useState<HomeState | null>(null);
   const [tab, setTab] = useState<Tab>(initialTab);
   const [busy, setBusy] = useState('');
   const [note, setNote] = useState('');
   const [asking, setAsking] = useState('250');
+  const [currency, setCurrency] = useState<ListingCurrency>('soft');
+  const [checkout, setCheckout] = useState<Checkout>({ step: 'idle' });
+  const alive = useRef(true);
+
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
 
   const reload = useCallback(() => {
-    api.home().then(setState).catch(() => {});
+    api.home().then((s) => alive.current && setState(s)).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -69,7 +94,50 @@ export function HomePanel({ guest, refresh, hud, onPlace, onTakeNearest, onChang
     setBusy('');
   };
 
-  const owned = (id: string) => (hud.inventory.items['f_' + id] || 0);
+  const owned = (id: string) => hud.inventory.items['f_' + id] || 0;
+
+  /**
+   * The on-chain purchase. Each step can fail on its own and says why;
+   * nothing is retried silently, because the one thing that must never
+   * happen is paying twice.
+   */
+  const buyOnChain = async (l: IglooListing) => {
+    if (!connected) {
+      setNote('Reconnect your wallet to pay on chain.');
+      return;
+    }
+    if (!canSendTransactions(connected)) {
+      setNote('This wallet can sign messages but not send transactions.');
+      return;
+    }
+    setNote('');
+    try {
+      setCheckout({ step: 'reserving', seller: l.wallet });
+      await api.reserveSale(l.wallet);
+      const { invoice } = await api.saleInvoice(l.wallet);
+
+      setCheckout({ step: 'signing', seller: l.wallet, price: invoice.price, burn: invoice.burn });
+      const signature = await signAndSendTransaction(connected, invoice.transaction);
+
+      setCheckout({ step: 'settling', seller: l.wallet, signature });
+      // Finality takes a dozen seconds or so. Ask until the chain has it.
+      for (let attempt = 0; attempt < 40; attempt++) {
+        const r = await api.settleSale(l.wallet, signature);
+        if (!r.pending) break;
+        await new Promise((res) => setTimeout(res, 3000));
+      }
+      setCheckout({ step: 'done', seller: l.wallet });
+      reload();
+      onChanged();
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : 'That did not work.';
+      setCheckout({ step: 'failed', seller: l.wallet, reason });
+    }
+  };
+
+  const chainOpen = !!state?.chain?.live;
+  const fee = currency === 'pog' ? state?.chain?.fee ?? 0.08 : state?.fee ?? 0.08;
+  const askNumber = Number(asking || 0);
 
   return (
     <div className="panel side-panel home">
@@ -166,7 +234,7 @@ export function HomePanel({ guest, refresh, hud, onPlace, onTakeNearest, onChang
                           </span>
                           <button
                             className="btn btn-primary btn-sm"
-                            disabled={hud.inside !== state.igloo?.wallet || !!hud.placing}
+                            disabled={hud.inside !== state.igloo?.wallet || !!hud.placing || state.listed}
                             onClick={() => onPlace(f.id)}
                           >
                             Place
@@ -179,11 +247,17 @@ export function HomePanel({ guest, refresh, hud, onPlace, onTakeNearest, onChang
                     <button
                       className="btn btn-ghost btn-sm bp-wide"
                       style={{ marginTop: 10 }}
-                      disabled={busy === 'take'}
-                      onClick={() => run('take', async () => {
-                        const error = await onTakeNearest();
-                        if (error) throw new Error(error);
-                      }, 'Back in the backpack.')}
+                      disabled={busy === 'take' || state.listed}
+                      onClick={() =>
+                        run(
+                          'take',
+                          async () => {
+                            const error = await onTakeNearest();
+                            if (error) throw new Error(error);
+                          },
+                          'Back in the backpack.'
+                        )
+                      }
                     >
                       Take back the nearest piece
                     </button>
@@ -193,11 +267,13 @@ export function HomePanel({ guest, refresh, hud, onPlace, onTakeNearest, onChang
                   {state.listed ? (
                     <>
                       <p className="bp-note">
-                        It is on the market. Buyers get the plot, the level and everything inside.
+                        {state.reserved
+                          ? 'A buyer is paying for it right now. It is locked until they finish or the ten minutes run out.'
+                          : 'It is on the market. Buyers get the plot, the level and everything inside.'}
                       </p>
                       <button
                         className="btn btn-ghost btn-sm bp-wide"
-                        disabled={busy === 'unlist'}
+                        disabled={busy === 'unlist' || state.reserved}
                         onClick={() => run('unlist', () => api.unlistIgloo(), 'Taken off the market.')}
                       >
                         Take it off the market
@@ -205,6 +281,22 @@ export function HomePanel({ guest, refresh, hud, onPlace, onTakeNearest, onChang
                     </>
                   ) : (
                     <>
+                      {chainOpen && (
+                        <div className="hm-cur" role="radiogroup" aria-label="Sell for">
+                          <button
+                            className={`hm-cur-btn${currency === 'soft' ? ' active' : ''}`}
+                            onClick={() => setCurrency('soft')}
+                          >
+                            <Icon name="coin" size={12} /> In-game $POG
+                          </button>
+                          <button
+                            className={`hm-cur-btn${currency === 'pog' ? ' active' : ''}`}
+                            onClick={() => setCurrency('pog')}
+                          >
+                            ◎ Real $POG
+                          </button>
+                        </div>
+                      )}
                       <div className="hm-ask">
                         <input
                           value={asking}
@@ -215,15 +307,23 @@ export function HomePanel({ guest, refresh, hud, onPlace, onTakeNearest, onChang
                         <button
                           className="btn btn-primary btn-sm"
                           disabled={busy === 'list' || !asking}
-                          onClick={() => run('list', () => api.listIgloo(Number(asking)), 'Listed.')}
+                          onClick={() => run('list', () => api.listIgloo(askNumber, currency), 'Listed.')}
                         >
                           List
                         </button>
                       </div>
                       <small className="bp-note">
-                        {Math.round(state.fee * 100)}% of the sale is burned. You keep{' '}
-                        {big(Math.max(0, Math.round(Number(asking || 0) * (1 - state.fee))))} $POG.
+                        {Math.round(fee * 100)}% of the sale is burned
+                        {currency === 'pog' ? ' on chain by the buyer' : ''}. You keep{' '}
+                        {big(Math.max(0, Math.round(askNumber * (1 - fee))))}{' '}
+                        {currency === 'pog' ? 'real' : ''} $POG.
                       </small>
+                      {currency === 'pog' && (
+                        <small className="bp-note">
+                          Paid straight to your wallet, not to the game. Nothing is escrowed: the buyer
+                          pays you on chain and the igloo moves once the payment is final.
+                        </small>
+                      )}
                     </>
                   )}
                 </>
@@ -266,30 +366,52 @@ export function HomePanel({ guest, refresh, hud, onPlace, onTakeNearest, onChang
                 have qualified for the season.
               </p>
               {state.market.length === 0 && <p className="bp-note">Nothing for sale right now.</p>}
-              {state.market.map((l) => (
-                <div className="hm-listing" key={l.wallet}>
-                  <div>
-                    <b>
-                      Level {l.level} · {l.levelLabel}
-                    </b>
-                    <small>
-                      {l.seller}'s · {l.pieces} furnishing{l.pieces === 1 ? '' : 's'}
-                    </small>
+              {state.market.map((l) => {
+                const onChain = l.currency === 'pog';
+                const mine = checkout.step !== 'idle' && checkout.seller === l.wallet ? checkout : null;
+                const inFlight = mine && (mine.step === 'reserving' || mine.step === 'signing' || mine.step === 'settling');
+                return (
+                  <div className="hm-listing" key={l.wallet}>
+                    <div>
+                      <b>
+                        Level {l.level} · {l.levelLabel}
+                        {onChain && <span className="hm-tag">on chain</span>}
+                      </b>
+                      <small>
+                        {l.seller}'s · {l.pieces} furnishing{l.pieces === 1 ? '' : 's'}
+                        {onChain ? ` · to ${shortAddress(l.wallet)}` : ''}
+                      </small>
+                      {mine && (
+                        <small className={`hm-step${mine.step === 'failed' ? ' bad' : ''}`}>
+                          {mine.step === 'reserving' && 'Holding it for you…'}
+                          {mine.step === 'signing' &&
+                            `Approve in your wallet: ${big(mine.price - mine.burn)} to the seller, ${big(mine.burn)} burned.`}
+                          {mine.step === 'settling' && 'Sent. Waiting for the chain to finalise it…'}
+                          {mine.step === 'done' && 'Yours. Welcome home.'}
+                          {mine.step === 'failed' && mine.reason}
+                        </small>
+                      )}
+                    </div>
+                    <button
+                      className="btn btn-primary btn-sm"
+                      disabled={
+                        !!inFlight ||
+                        busy === l.wallet ||
+                        !!state.igloo ||
+                        (!onChain && hud.inventory.pog < l.price)
+                      }
+                      title={state.igloo ? 'Sell your own first' : undefined}
+                      onClick={() =>
+                        onChain
+                          ? buyOnChain(l)
+                          : run(l.wallet, () => api.purchaseIgloo(l.wallet), 'Bought. Welcome home.')
+                      }
+                    >
+                      {onChain ? '◎' : <Icon name="coin" size={13} />} {big(l.price)}
+                    </button>
                   </div>
-                  <button
-                    className="btn btn-primary btn-sm"
-                    disabled={
-                      busy === l.wallet || !!state.igloo || hud.inventory.pog < l.price
-                    }
-                    title={state.igloo ? 'Sell your own first' : undefined}
-                    onClick={() =>
-                      run(l.wallet, () => api.purchaseIgloo(l.wallet), 'Bought. Welcome home.')
-                    }
-                  >
-                    <Icon name="coin" size={13} /> {big(l.price)}
-                  </button>
-                </div>
-              ))}
+                );
+              })}
             </>
           )}
         </>

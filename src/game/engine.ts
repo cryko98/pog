@@ -18,6 +18,7 @@ import {
   iglooAt,
   iglooLevel,
   playerLevel,
+  MAX_PLAYER_LEVEL,
   STATION_SIGNS,
   canPlaceFurniture,
   furnitureById,
@@ -1303,7 +1304,11 @@ export class PogGame {
   /** The level of the igloo this wallet owns, or 0 if they have none. */
   private levelOf(id: string): number {
     if (id === this.selfId) return playerLevel(this.skills);
-    return this.remotes.get(id)?.level ?? 0;
+    // Presence is peer-to-peer, so a remote level is whatever that client
+    // said. It is only a name tag, but keep it inside the range the skill
+    // curve can actually produce — "L9999" is not a flex, it is a lie.
+    const claimed = Math.floor(Number(this.remotes.get(id)?.level) || 0);
+    return Math.max(0, Math.min(MAX_PLAYER_LEVEL, claimed));
   }
 
   private drawNameTag(x: number, y: number, name: string, color: string, isSelf: boolean, guest: boolean, level = 0) {

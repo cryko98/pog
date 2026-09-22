@@ -11,7 +11,7 @@
 
 import nacl from 'tweetnacl';
 import bs58 from 'bs58';
-import { WORLD, getNodes, getCoins } from '../shared/world.js';
+import { WORLD, canBuildAt, getNodes, getCoins } from '../shared/world.js';
 
 const BASE = process.env.BASE || 'http://localhost:5173';
 const BYPASS = process.env.BYPASS;
@@ -363,6 +363,143 @@ console.log('\n--- playtime cap ---');
   const p = json.profile;
   check('a brand-new wallet starts empty', (p.pog || 0) === 0 && (p.skins || []).length <= 1);
   check('playtime cannot be self-reported', (p.playMinutes || 0) <= 2, `playMinutes=${p.playMinutes}`);
+}
+
+console.log('\n--- coins need a position ---');
+{
+  // A claim with no position used to skip both the range and the movement
+  // checks — every coin on the map from anywhere, at the per-minute cap.
+  const coin = getCoins()[1];
+  const r = await call('/api/world/claim', { method: 'POST', token: me.token, body: { id: coin.id } });
+  check('claiming a coin with no position is rejected', r.status === 409 && /where/i.test(r.json.error), r.json.error);
+}
+
+console.log('\n--- the plaza is not a teleporter ---');
+{
+  // Rejoining puts you on the plaza, so "I am at the plaza" has to be
+  // allowed — once a minute. It must not be a free way back out again.
+  const w = await signIn('Warp' + Math.floor(Math.random() * 9000 + 1000));
+  const spawn = WORLD.spawn;
+  const dist = (n) => Math.hypot(n.x - spawn.x, n.y - spawn.y);
+  const far = trees.reduce((a, b) => (dist(b) > dist(a) ? b : a));
+  const plazaCoin = getCoins().reduce((a, b) => (dist(b) < dist(a) ? b : a));
+  // the nearest coin sits just outside the plaza ring, so stand on the ring
+  // within pickup range of it — a real rejoin acts from the plaza too
+  const towards = Math.max(0, dist(plazaCoin) - WORLD.spawnRadius + 8);
+  const at = {
+    x: plazaCoin.x + ((spawn.x - plazaCoin.x) / dist(plazaCoin)) * towards,
+    y: plazaCoin.y + ((spawn.y - plazaCoin.y) / dist(plazaCoin)) * towards,
+  };
+  check('the far tree really is far from the plaza', dist(far) > 1500, `${Math.round(dist(far))}`);
+  check('there is a coin reachable from the plaza ring', dist(at) <= WORLD.spawnRadius && Math.hypot(at.x - plazaCoin.x, at.y - plazaCoin.y) <= 100, `${Math.round(dist(at))}`);
+
+  let r = await call('/api/game/gather', { method: 'POST', token: w.token, body: { node: far.id, x: far.x, y: far.y } });
+  check('a fresh wallet can start at a far tree', r.status === 200, r.json.error);
+  await sleep(1100);
+  r = await call('/api/world/claim', {
+    method: 'POST',
+    token: w.token,
+    body: { id: plazaCoin.id, x: at.x, y: at.y },
+  });
+  check(
+    'one jump to the plaza (a rejoin) is allowed',
+    r.status === 200 || (r.status === 409 && !/two places/.test(r.json.error)),
+    r.json.error || 'ok'
+  );
+  await sleep(1100);
+  r = await call('/api/game/gather', { method: 'POST', token: w.token, body: { node: far.id, x: far.x, y: far.y } });
+  check('but it is not a way back to the far tree', r.status === 409 && /two places/.test(r.json.error), r.json.error);
+}
+
+console.log('\n--- the market before the token exists ---');
+{
+  // Reasons are asserted, not just statuses: the season gate also answers
+  // 409 here, and a test that passed on "play 60 minutes" would say nothing
+  // about the market.
+  const r = await call('/api/home/list', { method: 'POST', token: me.token, body: { price: 100, currency: 'pog' } });
+  check('listing for real $POG is refused until the mint is configured', r.status === 409 && /token is live/.test(r.json.error), r.json.error);
+  const r2 = await call('/api/home/reserve', { method: 'POST', token: me.token, body: { seller: me.wallet } });
+  check('reserving an on-chain listing is refused too', r2.status === 409 && /not live/.test(r2.json.error), r2.json.error);
+  const r3 = await call('/api/home/settle', {
+    method: 'POST',
+    token: me.token,
+    body: { seller: me.wallet, signature: '5'.repeat(88) },
+  });
+  check('and so is presenting a payment', r3.status === 409 && /not live/.test(r3.json.error), r3.json.error);
+}
+
+console.log('\n--- names are claimed atomically ---');
+{
+  const name = 'Twin' + Math.floor(Math.random() * 900000 + 100000);
+  const a = await signIn('A' + name.slice(4));
+  const b = await signIn('B' + name.slice(4));
+  const rs = await Promise.all(
+    [a, b].map((s) => call('/api/profile/set', { method: 'POST', token: s.token, body: { name, color: '#38bdf8' } }))
+  );
+  const won = rs.filter((r) => r.status === 200).length;
+  check('two wallets racing for one name: exactly one gets it', won === 1, rs.map((r) => r.status).join(','));
+}
+
+console.log('\n--- concurrency (needs POG_DEV_KEY=localtest on the server) ---');
+{
+  const DEV = process.env.DEV_KEY || 'localtest';
+  const grant = (token, gift) =>
+    call('/api/dev/grant', { method: 'POST', token, body: { ...gift, devKey: DEV } });
+
+  const probe = await grant(me.token, {});
+  if (probe.status === 404 || probe.status === 401) {
+    console.log('skip  dev grants are off here, so the double-spend attacks cannot be staged');
+  } else {
+    // Double-spend by racing: five fish, four cookouts at once. Before the
+    // wallet lock every one of them read "5 fish" and every one paid out.
+    const c = await signIn('Race' + Math.floor(Math.random() * 9000 + 1000));
+    await grant(c.token, { fish: 5 });
+    const cooks = await Promise.all([0, 1, 2, 3].map(() => call('/api/game/craft', { method: 'POST', token: c.token, body: { recipe: 'cookout' } })));
+    const cooked = cooks.filter((r) => r.status === 200).length;
+    const { json: after } = await call('/api/game/state', { token: c.token });
+    check('four racing cookouts on five fish: exactly one succeeds', cooked === 1, cooks.map((r) => r.status).join(','));
+    check('...and the pack shows 0 fish, 1 $POG', after.profile.fish === 0 && after.profile.pog === 1, `fish=${after.profile.fish} pog=${after.profile.pog}`);
+
+    // Now the furniture dupe: one rug, placed twice at once; then removed
+    // twice at once. Each has to net out to exactly one rug.
+    await grant(c.token, { pog: 100, items: { iglooKit: 1 } });
+    const { json: w } = await call('/api/game/igloos');
+    const taken = w.igloos || [];
+    let spot = null;
+    for (let tries = 0; tries < 400 && !spot; tries++) {
+      const x = WORLD.spawn.x + (Math.random() - 0.5) * 3000;
+      const y = WORLD.spawn.y + (Math.random() - 0.5) * 3000;
+      if (canBuildAt(x, y, taken).ok) spot = { x: Math.round(x), y: Math.round(y) };
+    }
+    check('found clear snow to test on', !!spot);
+    if (spot) {
+      await sleep(1100);
+      const built = await call('/api/game/build', { method: 'POST', token: c.token, body: { ...spot, style: 'classic' } });
+      check('the test igloo went up', built.status === 200, built.json.error);
+      await call('/api/home/buy', { method: 'POST', token: c.token, body: { id: 'rug', qty: 1 } });
+
+      const places = await Promise.all([0, 1].map(() => call('/api/home/place', { method: 'POST', token: c.token, body: { id: 'rug', x: 0, y: -40 } })));
+      const placed = places.filter((r) => r.status === 200).length;
+      check('one rug placed twice at once: exactly one lands', placed === 1, places.map((r) => r.status + ':' + (r.json.error || 'ok')).join(' | '));
+
+      const removes = await Promise.all([0, 1].map(() => call('/api/home/remove', { method: 'POST', token: c.token, body: { index: 0 } })));
+      const removed = removes.filter((r) => r.status === 200).length;
+      const { json: home } = await call('/api/home/state', { token: c.token });
+      check('removed twice at once: exactly one comes back', removed === 1, removes.map((r) => r.status).join(','));
+      check(
+        '...and the world holds exactly one rug afterwards',
+        (home.profile?.items?.f_rug || 0) + (home.pieces || []).length === 1,
+        `pack=${home.profile?.items?.f_rug || 0} placed=${(home.pieces || []).length}`
+      );
+
+      // A second kit no longer replaces the igloo and everything in it.
+      await call('/api/home/place', { method: 'POST', token: c.token, body: { id: 'rug', x: 0, y: -40 } });
+      await grant(c.token, { items: { iglooKit: 1 } });
+      await sleep(1100);
+      const again = await call('/api/game/build', { method: 'POST', token: c.token, body: { x: spot.x + 5, y: spot.y + 5, style: 'classic' } });
+      check('raising a second kit moves the igloo instead of replacing it', again.status === 200 && (again.json.igloo?.furniture || []).length === 1, again.json.error || `furniture=${(again.json.igloo?.furniture || []).length}`);
+    }
+  }
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

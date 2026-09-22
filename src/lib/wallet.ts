@@ -28,7 +28,9 @@ const CONNECT = 'standard:connect';
 const DISCONNECT = 'standard:disconnect';
 const EVENTS = 'standard:events';
 const SIGN_MESSAGE = 'solana:signMessage';
+const SIGN_AND_SEND = 'solana:signAndSendTransaction';
 const SOLANA_CHAIN = 'solana:';
+const MAINNET = 'solana:mainnet';
 
 /** Wallets we can actually drive: Solana chain + connect + signMessage. */
 function usable(wallet: StandardWallet): boolean {
@@ -87,6 +89,31 @@ export async function signMessage(connected: ConnectedWallet, message: string): 
   if (!feature) throw new Error('This wallet cannot sign messages.');
   const encoded = new TextEncoder().encode(message);
   const [output] = await feature.signMessage({ account: connected.account, message: encoded });
+  if (!output?.signature) throw new Error('No signature was returned.');
+  return bs58.encode(output.signature);
+}
+
+/** Can this wallet send a transaction, not just sign a message? */
+export const canSendTransactions = (connected: ConnectedWallet | null): boolean =>
+  !!connected?.wallet?.features?.[SIGN_AND_SEND];
+
+/**
+ * Sign and send a transaction the server built, and return the signature
+ * as base58 — what the server needs to find it on chain.
+ *
+ * The bytes come from the API already serialised; the wallet decodes and
+ * shows them before asking for approval. Nothing is assembled here, so
+ * there is nothing here that could quietly change what gets signed.
+ */
+export async function signAndSendTransaction(connected: ConnectedWallet, base64: string): Promise<string> {
+  const feature = connected.wallet.features[SIGN_AND_SEND];
+  if (!feature) throw new Error('This wallet cannot send transactions.');
+  const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+  const [output] = await feature.signAndSendTransaction({
+    account: connected.account,
+    chain: MAINNET,
+    transaction: bytes,
+  });
   if (!output?.signature) throw new Error('No signature was returned.');
   return bs58.encode(output.signature);
 }

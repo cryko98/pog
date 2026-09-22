@@ -14,6 +14,7 @@
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
+import { BusyError } from '../../src/server/lock.js';
 import { actionOf, bearer, body, json } from '../_shared.js';
 import {
   FROST,
@@ -89,6 +90,7 @@ export default async function handler(req: any, res: any) {
 
     return json(res, 404, { error: 'Unknown season action.' });
   } catch (err: any) {
+    if (err instanceof BusyError) return json(res, 429, { error: err.message });
     return json(res, 500, { error: String(err?.message || err) });
   }
 }

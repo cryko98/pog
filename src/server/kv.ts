@@ -40,7 +40,18 @@ export interface Kv {
   hget<T = any>(key: string, field: string): Promise<T | null>;
   hgetall<T = any>(key: string): Promise<Record<string, T> | null>;
   hset(key: string, field: string, value: any): Promise<void>;
+  /** true when the field did not exist and was created */
+  hsetnx(key: string, field: string, value: any): Promise<boolean>;
   hdel(key: string, field: string): Promise<void>;
+  /** append to a capped log, newest last */
+  rpushCapped(key: string, value: any, max: number): Promise<void>;
+  lrange<T = any>(key: string, start: number, stop: number): Promise<T[]>;
+  /**
+   * Take an exclusive lock, or return null if somebody holds it. The lock
+   * expires on its own so a crashed function cannot wedge a wallet, and the
+   * release checks the token so a slow holder cannot free the next one's.
+   */
+  lock(key: string, ttlMs: number): Promise<(() => Promise<void>) | null>;
   zadd(key: string, score: number, member: string): Promise<void>;
   /** true when the member was newly added (not already present) */
   zaddnx(key: string, score: number, member: string): Promise<boolean>;
@@ -83,8 +94,28 @@ async function redisKv(): Promise<Kv> {
     hset: async (key, field, value) => {
       await r.hset(key, { [field]: value });
     },
+    hsetnx: async (key, field, value) => Number(await r.hsetnx(key, field, value)) === 1,
     hdel: async (key, field) => {
       await r.hdel(key, field);
+    },
+    rpushCapped: async (key, value, max) => {
+      await r.rpush(key, value);
+      await r.ltrim(key, -max, -1);
+    },
+    lrange: (key, start, stop) => r.lrange(key, start, stop) as any,
+    lock: async (key, ttlMs) => {
+      const token = Math.random().toString(36).slice(2) + Date.now().toString(36);
+      const got = await r.set(key, token, { nx: true, px: ttlMs });
+      if (got === null) return null;
+      return async () => {
+        // compare-and-delete in one round trip, so an expired lock that
+        // somebody else re-took is never released out from under them
+        await r.eval(
+          "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) end return 0",
+          [key],
+          [token]
+        );
+      };
     },
     zadd: async (key, score, member) => {
       await r.zadd(key, { score, member });
@@ -124,10 +155,22 @@ const mem = new Map<string, Entry>();
 const zsets = new Map<string, Map<string, number>>();
 const hashes = new Map<string, Map<string, any>>();
 
+const lists = new Map<string, any[]>();
+
 const alive = (e: Entry | undefined): e is Entry => !!e && (e.exp === 0 || e.exp > Date.now());
+
+/**
+ * Every in-memory call yields to the event loop for a moment. Without this
+ * a whole request runs to completion inside one macrotask and two
+ * "concurrent" requests never interleave — which would hide exactly the
+ * races the wallet lock exists to prevent, and make `cheatcheck` pass
+ * locally for code that loses updates against real Redis.
+ */
+const tick = () => new Promise<void>((r) => setTimeout(r, 1));
 
 const memoryKv: Kv = {
   async get(key) {
+    await tick();
     const e = mem.get(key);
     if (!alive(e)) {
       mem.delete(key);
@@ -139,9 +182,11 @@ const memoryKv: Kv = {
     return Promise.all(keys.map((k) => memoryKv.get(k)));
   },
   async set(key, value, opts) {
+    await tick();
     mem.set(key, { value, exp: opts?.ex ? Date.now() + opts.ex * 1000 : 0 });
   },
   async setnx(key, value, ttl) {
+    await tick();
     if (alive(mem.get(key))) return false;
     mem.set(key, { value, exp: Date.now() + ttl * 1000 });
     return true;
@@ -169,11 +214,41 @@ const memoryKv: Kv = {
     return h ? Object.fromEntries(h) : null;
   },
   async hset(key, field, value) {
+    await tick();
     if (!hashes.has(key)) hashes.set(key, new Map());
     hashes.get(key)!.set(field, value);
   },
+  async hsetnx(key, field, value) {
+    await tick();
+    if (!hashes.has(key)) hashes.set(key, new Map());
+    const h = hashes.get(key)!;
+    if (h.has(field)) return false;
+    h.set(field, value);
+    return true;
+  },
   async hdel(key, field) {
     hashes.get(key)?.delete(field);
+  },
+  async rpushCapped(key, value, max) {
+    if (!lists.has(key)) lists.set(key, []);
+    const l = lists.get(key)!;
+    l.push(value);
+    if (l.length > max) l.splice(0, l.length - max);
+  },
+  async lrange(key, start, stop) {
+    const l = lists.get(key) ?? [];
+    const end = stop < 0 ? l.length + stop + 1 : stop + 1;
+    return l.slice(start < 0 ? l.length + start : start, end);
+  },
+  async lock(key, ttlMs) {
+    await tick();
+    if (alive(mem.get(key))) return null;
+    const token = Math.random().toString(36).slice(2);
+    mem.set(key, { value: token, exp: Date.now() + ttlMs });
+    return async () => {
+      const e = mem.get(key);
+      if (e && e.value === token) mem.delete(key);
+    };
   },
   async zadd(key, score, member) {
     if (!zsets.has(key)) zsets.set(key, new Map());

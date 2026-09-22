@@ -2167,6 +2167,59 @@ section.band {
   color: #a9cbd6;
 }
 
+.hm-tag {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: rgba(56, 189, 248, 0.18);
+  box-shadow: inset 0 0 0 1px rgba(56, 189, 248, 0.5);
+  color: #bfe9ff;
+  font-size: 0.64rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  vertical-align: middle;
+}
+
+.hm-step {
+  margin-top: 3px;
+  color: #bfe9ff !important;
+}
+
+.hm-step.bad {
+  color: #fca5a5 !important;
+}
+
+.hm-cur {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.hm-cur-btn {
+  flex: 1;
+  padding: 6px 8px;
+  border-radius: 999px;
+  border: none;
+  background: rgba(9, 41, 48, 0.9);
+  box-shadow: inset 0 0 0 1px var(--hud-line);
+  color: #a9cbd6;
+  font: inherit;
+  font-size: 0.76rem;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+}
+
+.hm-cur-btn.active {
+  background: rgba(56, 189, 248, 0.2);
+  box-shadow: inset 0 0 0 1px var(--teal-400);
+  color: var(--snow);
+}
+
 .side-panel.home h5 {
   margin: 13px 0 4px;
   font-size: 0.78rem;

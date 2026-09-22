@@ -1,15 +1,23 @@
 /**
  * Furnishing, igloo levels, the daily $POG yield, and the igloo market.
  *
- *   GET  state                      -> igloo, level, catalogue, market
- *   POST buy     { id, qty }        -> a furnishing into the backpack
- *   POST place   { id, x, y }       -> stand one in your igloo
- *   POST remove  { index }          -> take one back out
- *   POST list    { price }          -> put the igloo up for sale
- *   POST unlist                     -> take it back off
- *   POST purchase { seller }        -> buy somebody else's
+ *   GET  state                        -> igloo, level, catalogue, market
+ *   POST buy      { id, qty }         -> a furnishing into the backpack
+ *   POST place    { id, x, y }        -> stand one in your igloo
+ *   POST remove   { index }           -> take one back out
+ *   POST list     { price, currency } -> put the igloo up for sale
+ *   POST unlist                       -> take it back off
+ *   POST purchase { seller }          -> buy somebody else's, in soft $POG
  *
- * Everything is soft $POG. Nothing here writes Frost.
+ * The on-chain market, live once POG_MINT is set:
+ *
+ *   POST reserve  { seller }              -> hold a real-token listing for ten minutes
+ *   POST invoice  { seller }              -> the unsigned payment to sign
+ *   POST settle   { seller, signature }   -> verify the payment on chain, hand over the igloo
+ *   GET  sales                            -> the last on-chain sales
+ *
+ * Soft sales move soft $POG. Real sales move only the igloo. Nothing here
+ * writes Frost.
  */
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -17,6 +25,8 @@
 import { actionOf, bearer, body, json } from '../_shared.js';
 import { getProfile, walletForToken } from '../../src/server/game.js';
 import { qualified } from '../../src/server/season-gate.js';
+import { chainLive } from '../../src/server/chain.js';
+import { BusyError } from '../../src/server/lock.js';
 import {
   buyFurniture,
   buyIgloo,
@@ -27,11 +37,16 @@ import {
   settleYield,
   unlistIgloo,
 } from '../../src/server/home.js';
+import { recentSales, reserveSale, saleInvoice, settleSale } from '../../src/server/sale.js';
 
 export default async function handler(req: any, res: any) {
   const action = actionOf(req, 'home');
 
   try {
+    if (action === 'sales') {
+      return json(res, 200, { sales: await recentSales(20) });
+    }
+
     const wallet = await walletForToken(bearer(req) || body(req).token);
     if (!wallet) return json(res, 401, { error: 'No valid session.' });
 
@@ -64,13 +79,17 @@ export default async function handler(req: any, res: any) {
     }
 
     if (action === 'list') {
+      const { price, currency } = body(req);
+      if (currency === 'pog' && !chainLive()) {
+        return json(res, 409, { error: 'Real $POG sales open once the token is live.' });
+      }
       // A market is the obvious laundering route for a sybil farm, so the
       // seller has to be a wallet that qualified for the season the hard
       // way — an hour of playtime, the captcha, the on-chain minimum.
       const gate = await qualified(wallet);
       if (!gate.ok) return json(res, 409, { error: `Not eligible to trade — ${gate.missing}.` });
 
-      const result = await listIgloo(wallet, body(req).price);
+      const result = await listIgloo(wallet, price, currency);
       if (result.error) return json(res, 409, { error: result.error });
       return json(res, 200, result);
     }
@@ -90,8 +109,33 @@ export default async function handler(req: any, res: any) {
       return json(res, 200, result);
     }
 
+    // --- the on-chain market ---------------------------------------
+    if (action === 'reserve') {
+      if (!chainLive()) return json(res, 409, { error: 'The token is not live yet.' });
+      const gate = await qualified(wallet);
+      if (!gate.ok) return json(res, 409, { error: `Not eligible to trade — ${gate.missing}.` });
+
+      const result = await reserveSale(wallet, body(req).seller);
+      if (result.error) return json(res, 409, { error: result.error });
+      return json(res, 200, result);
+    }
+
+    if (action === 'invoice') {
+      const result = await saleInvoice(wallet, body(req).seller);
+      if (result.error) return json(res, 409, { error: result.error });
+      return json(res, 200, result);
+    }
+
+    if (action === 'settle') {
+      const { seller, signature } = body(req);
+      const result = await settleSale(wallet, seller, signature);
+      if (result.error) return json(res, 409, { error: result.error });
+      return json(res, 200, result);
+    }
+
     return json(res, 404, { error: 'Unknown home action.' });
   } catch (err: any) {
+    if (err instanceof BusyError) return json(res, 429, { error: err.message });
     return json(res, 500, { error: String(err?.message || err) });
   }
 }
