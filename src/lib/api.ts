@@ -187,25 +187,13 @@ export interface SaleRecord {
 
 /* --- the snowball arena --- */
 
-export interface DuelChoice {
-  throwLane: string;
-  throwHeight: string;
-  dodgeLane: string;
-  jump: boolean;
-}
-
 export type DuelStake = { kind: 'soft'; items: Record<string, number> } | { kind: 'pog'; amount: number };
 
 export interface DuelSide {
   wallet: string;
   name: string;
   color: string;
-  hits: number;
-  strikes: number;
-  committed: boolean;
-  revealed: boolean;
   funded: boolean;
-  choice?: DuelChoice;
 }
 
 export interface DuelPayout {
@@ -216,25 +204,35 @@ export interface DuelPayout {
   signature?: string;
 }
 
+/** One thing a player did, stamped by the server. */
+export interface FightInput {
+  seq: number;
+  t: number;
+  side: 'a' | 'b';
+  type: 'move' | 'jump' | 'throw';
+  dir?: number;
+  kind?: 'straight' | 'lob';
+  targetX?: number;
+  n?: string;
+}
+
 export interface DuelView {
   id: string;
   state: 'open' | 'funding' | 'live' | 'done' | 'cancelled';
   stake: DuelStake;
   createdAt: number;
-  volley: number;
-  phase: 'commit' | 'reveal';
-  phaseEndsAt: number;
+  startAt?: number;
   fundingEndsAt?: number;
   serverNow: number;
-  iAmHost: boolean;
+  side: 'a' | 'b';
   me: DuelSide;
   them?: DuelSide;
-  history: Array<{ mine: DuelChoice | null; theirs: DuelChoice | null; myHits: number; theirHits: number }>;
+  myHits: number;
+  theirHits: number;
   winner?: string | null;
   won?: boolean;
   reason?: string;
   payouts?: DuelPayout[];
-  rules: { volleys: number; maxVolleys: number; strikes: number; commitMs: number; revealMs: number };
 }
 
 export interface OpenChallenge {
@@ -457,10 +455,11 @@ export const api = {
   acceptChallenge: (id: string, x: number, y: number) =>
     request<{ id: string }>('/arena/accept', post({ id, x: Math.round(x), y: Math.round(y) })),
 
-  duelCommit: (id: string, hash: string) => request<{ match: DuelView }>('/arena/commit', post({ id, hash })),
+  duelInput: (id: string, input: ({ type: 'move'; dir: number } | { type: 'jump' } | { type: 'throw'; kind: 'straight' } | { type: 'throw'; kind: 'lob'; targetX: number }) & { n?: string }) =>
+    request<{ seq: number; t: number }>('/arena/input', post({ id, ...input })),
 
-  duelReveal: (id: string, choice: DuelChoice, nonce: string) =>
-    request<{ match: DuelView }>('/arena/reveal', post({ id, choice, nonce })),
+  duelInputs: (id: string, since: number) =>
+    request<{ inputs: FightInput[]; serverNow: number }>(`/arena/inputs?id=${id}&since=${since}`),
 
   duelInvoice: (id: string) => request<{ transaction: string; memo: string; amount: number }>('/arena/invoice', post({ id })),
 

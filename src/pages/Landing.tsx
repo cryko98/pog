@@ -34,7 +34,7 @@ const FEATURES = [
   {
     icon: 'snowflake' as IconName,
     title: 'The snowball arena',
-    body: 'Off the plaza, past the lanterns: two penguins, a stake each, winner takes the pot. Ten volleys — throw at a lane, high or low, and pick where to stand and whether to jump, both sealed before either is shown. Stake wood, ice, fish or $POG, or the real token into the arena pool once it is live. The server scores every hit from the sealed choices, so nobody can claim one.',
+    body: 'Off the plaza, past the lanterns: two penguins face off across a rink, a stake each, winner takes the pot. Real time — throw straight balls and lobs, jump the straight ones, step out from under the lobs, first to five hits. Stake wood, ice, fish or $POG, or the real token into the arena pool once it is live. Every move is stamped by the server as it arrives and the fight is replayed from that log, so nobody can claim a hit or dodge after the fact.',
   },
   {
     icon: 'quest' as IconName,

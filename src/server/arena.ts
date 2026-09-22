@@ -2,11 +2,16 @@
  * The snowball arena, server side: challenges, stakes in escrow, and the
  * match itself resolved from sealed choices.
  *
- * The rules and the reasoning are in `shared/duel.js`. This file is the
- * state machine around them. There are no timers in a serverless API, so
- * every deadline is applied lazily: whoever reads or touches a match next
- * moves it forward first (`advance`). A player who stops answering is not
- * waited for — their side sits the volley out, and three of those forfeit.
+ * The fight is real time and side-on (`shared/fight.js`); this file is the
+ * frame around it. A client sends what the player DID — move, jump, throw
+ * — and the server stamps each input with its own clock on arrival. The
+ * match is then a pure function of that log: the server replays it to
+ * score, and the clients replay it to draw. Nothing about position or
+ * hits is ever taken from a request.
+ *
+ * There are no timers in a serverless API, so every deadline is applied
+ * lazily: whoever reads or touches a match next moves it forward first
+ * (`advance`).
  *
  * Every transition runs under the match's lock, and every stake movement
  * under the wallet's, so two requests cannot both take the same challenge
@@ -28,22 +33,20 @@ import { canPayAutomatically, payFromPool, poolAddress, poolReady } from './pool
 import { K, getProfile, holdCap, putProfile, trackMovement, type Profile } from './game.js';
 import { GATHER, getNode } from '../../shared/world.js';
 import { MEMO_PROGRAM, toBaseUnits } from '../../shared/sale.js';
-import {
-  DUEL,
-  commitHash,
-  decided,
-  duelMemo,
-  normalizeStake,
-  resolveVolley,
-  validChoice,
-  verifyDepositTx,
-} from '../../shared/duel.js';
+import { DUEL, duelMemo, normalizeStake, verifyDepositTx } from '../../shared/duel.js';
+import { FIGHT, hardEnd, outcome, simulate, validInput } from '../../shared/fight.js';
 
-export interface Choice {
-  throwLane: string;
-  throwHeight: string;
-  dodgeLane: string;
-  jump: boolean;
+/** One thing a player did, stamped by the server. */
+export interface FightInput {
+  seq: number;
+  t: number;
+  side: 'a' | 'b';
+  type: 'move' | 'jump' | 'throw';
+  dir?: number;
+  kind?: 'straight' | 'lob';
+  targetX?: number;
+  /** the client's own tag, so it can match the stamped copy to its guess */
+  n?: string;
 }
 
 export type Stake = { kind: 'soft'; items: Record<string, number> } | { kind: 'pog'; amount: number };
@@ -52,11 +55,6 @@ interface Side {
   wallet: string;
   name: string;
   color: string;
-  hits: number;
-  strikes: number;
-  /** this volley */
-  commit?: string;
-  choice?: Choice;
   /** real-token stakes only */
   funded?: boolean;
   depositSig?: string;
@@ -78,11 +76,11 @@ export interface Match {
   state: 'open' | 'funding' | 'live' | 'done' | 'cancelled';
   host: Side;
   challenger?: Side;
-  /** live: which volley, which half of it, and when that half ends */
-  volley: number;
-  phase: 'commit' | 'reveal';
-  phaseEndsAt: number;
-  history: Array<{ host: Choice | null; challenger: Choice | null; hostHits: number; challengerHits: number }>;
+  /** live: when the clock started (after the countdown) */
+  startAt?: number;
+  /** the score as last replayed */
+  hostHits?: number;
+  challengerHits?: number;
   fundingEndsAt?: number;
   /** done: the winner's wallet, or null for a draw */
   winner?: string | null;
@@ -97,6 +95,10 @@ const KEY = {
   of: (wallet: string) => `pog:duel:of:${wallet}`,
   payouts: 'pog:payouts',
   used: (sig: string) => `pog:txused:${sig}`,
+  /** the input log, one list per match */
+  inputs: (id: string) => `pog:fight:${id}`,
+  /** how many inputs a side sent this second */
+  rate: (id: string, side: string, sec: number) => `pog:fightrate:${id}:${side}:${sec}`,
 };
 
 const MATCH_TTL = 3 * 24 * 3600;
@@ -231,11 +233,7 @@ export async function createChallenge(
       createdAt: Date.now(),
       stake,
       state: 'open',
-      host: { wallet, name: profile.name, color: profile.color, hits: 0, strikes: 0 },
-      volley: 0,
-      phase: 'commit',
-      phaseEndsAt: 0,
-      history: [],
+      host: { wallet, name: profile.name, color: profile.color },
     };
     await save(m);
     await store.zadd(KEY.open, m.createdAt, m.id);
@@ -344,7 +342,7 @@ export async function acceptChallenge(
       }
 
       const store = await kv();
-      m.challenger = { wallet, name: profile.name, color: profile.color, hits: 0, strikes: 0 };
+      m.challenger = { wallet, name: profile.name, color: profile.color };
       await store.zremRangeByScore(KEY.open, m.createdAt, m.createdAt);
       await store.set(KEY.of(wallet), m.id, { ex: MATCH_TTL });
 
@@ -352,7 +350,7 @@ export async function acceptChallenge(
         m.state = 'funding';
         m.fundingEndsAt = Date.now() + DUEL.fundMs;
       } else {
-        startVolley(m, 0);
+        startFight(m);
       }
       await save(m);
       return { match: m };
@@ -364,15 +362,14 @@ export async function acceptChallenge(
  * The match
  * ------------------------------------------------------------------ */
 
-function startVolley(m: Match, n: number) {
+/** The countdown starts now; the clock, after it. */
+function startFight(m: Match) {
   m.state = 'live';
-  m.volley = n;
-  m.phase = 'commit';
-  m.phaseEndsAt = Date.now() + DUEL.commitMs;
-  for (const side of [m.host, m.challenger!]) {
-    delete side.commit;
-    delete side.choice;
-  }
+  m.startAt = Date.now() + FIGHT.countdownMs;
+}
+
+async function inputLog(id: string): Promise<FightInput[]> {
+  return (await kv()).lrange<FightInput>(KEY.inputs(id), 0, -1);
 }
 
 /**
@@ -381,7 +378,6 @@ function startVolley(m: Match, n: number) {
  */
 async function advance(m: Match): Promise<boolean> {
   const now = Date.now();
-  let changed = false;
 
   if (m.state === 'open' && now - m.createdAt > DUEL.openMs) {
     await cancel(m, 'Nobody took it.');
@@ -390,7 +386,7 @@ async function advance(m: Match): Promise<boolean> {
 
   if (m.state === 'funding') {
     if (m.host.funded && m.challenger?.funded) {
-      startVolley(m, 0);
+      startFight(m);
       return true;
     }
     if (m.fundingEndsAt && now > m.fundingEndsAt) {
@@ -400,52 +396,20 @@ async function advance(m: Match): Promise<boolean> {
     return false;
   }
 
-  while (m.state === 'live') {
-    const a = m.host;
-    const b = m.challenger!;
-    if (m.phase === 'commit') {
-      const both = !!a.commit && !!b.commit;
-      if (!both && now < m.phaseEndsAt) break;
-      // whoever did not seal a choice sits this one out
-      for (const s of [a, b]) if (!s.commit) s.strikes += 1;
-      m.phase = 'reveal';
-      m.phaseEndsAt = now + DUEL.revealMs;
-      changed = true;
-      if (!a.commit && !b.commit) {
-        // nobody threw: resolve straight away as a blank volley
-        m.phaseEndsAt = now;
-      }
+  if (m.state === 'live' && m.startAt && now >= m.startAt) {
+    // Replay the log to now. The score is whatever it says; if that
+    // decides the match, or the clock has, settle it.
+    const state = simulate(await inputLog(m.id), m.startAt, Math.min(now, hardEnd(m.startAt)));
+    const result = outcome(state, m.startAt, now);
+    m.hostHits = state.a.hits;
+    m.challengerHits = state.b.hits;
+    if (result.over) {
+      const winner = result.winner === 'a' ? m.host.wallet : result.winner === 'b' ? m.challenger!.wallet : null;
+      await finish(m, winner, result.reason);
     }
-    if (m.phase === 'reveal') {
-      const aDone = !a.commit || !!a.choice;
-      const bDone = !b.commit || !!b.choice;
-      if (!(aDone && bDone) && now < m.phaseEndsAt) break;
-      // sealed but never opened counts the same as never thrown
-      for (const s of [a, b]) if (s.commit && !s.choice) s.strikes += 1;
-
-      const r = resolveVolley(a.choice ?? null, b.choice ?? null);
-      a.hits += r.aHits;
-      b.hits += r.bHits;
-      m.history.push({ host: a.choice ?? null, challenger: b.choice ?? null, hostHits: r.aHits, challengerHits: r.bHits });
-      changed = true;
-
-      const played = m.history.length;
-      if (a.strikes >= DUEL.strikes || b.strikes >= DUEL.strikes) {
-        const quitter = a.strikes >= DUEL.strikes ? a : b;
-        await finish(m, quitter === a ? b.wallet : a.wallet, `${quitter.name} stopped throwing.`);
-        return true;
-      }
-      if (decided(played, a.hits, b.hits)) {
-        const winner = a.hits === b.hits ? null : a.hits > b.hits ? a.wallet : b.wallet;
-        await finish(m, winner, winner ? 'Most hits.' : 'A draw — stakes returned.');
-        return true;
-      }
-      startVolley(m, played);
-      // a fresh volley starts now; nothing more to apply this pass
-      break;
-    }
+    return true;
   }
-  return changed;
+  return false;
 }
 
 /** Settle the stakes. Everything a winner receives was escrowed before play. */
@@ -499,47 +463,31 @@ async function queuePayout(m: Match, to: string, amount: number, kind: 'win' | '
   await store.rpushCapped(KEY.payouts, { match: m.id, ...entry }, 10_000);
 }
 
-/** What one side may see: never the other's sealed choice mid-volley. */
+/** What one side sees. The log itself comes separately, by sequence. */
 export function viewFor(m: Match, wallet: string) {
   const mine = sideOf(m, wallet);
   const me = mine === 'challenger' ? m.challenger! : m.host;
   const them = mine === 'challenger' ? m.host : m.challenger;
-  const strip = (s: Side | undefined, self: boolean) =>
-    s && {
-      wallet: s.wallet,
-      name: s.name,
-      color: s.color,
-      hits: s.hits,
-      strikes: s.strikes,
-      committed: !!s.commit,
-      revealed: !!s.choice,
-      funded: !!s.funded,
-      choice: self ? s.choice : undefined,
-    };
+  const strip = (s: Side | undefined) => s && { wallet: s.wallet, name: s.name, color: s.color, funded: !!s.funded };
   return {
     id: m.id,
     state: m.state,
     stake: m.stake,
     createdAt: m.createdAt,
-    volley: m.volley,
-    phase: m.phase,
-    phaseEndsAt: m.phaseEndsAt,
+    startAt: m.startAt,
     fundingEndsAt: m.fundingEndsAt,
     serverNow: Date.now(),
-    iAmHost: mine === 'host',
-    me: strip(me, true),
-    them: strip(them, false),
-    history: m.history.map((h) => ({
-      mine: mine === 'host' ? h.host : h.challenger,
-      theirs: mine === 'host' ? h.challenger : h.host,
-      myHits: mine === 'host' ? h.hostHits : h.challengerHits,
-      theirHits: mine === 'host' ? h.challengerHits : h.hostHits,
-    })),
+    /** which side of the stage you are: the host is always 'a', on the left */
+    side: (mine === 'challenger' ? 'b' : 'a') as 'a' | 'b',
+    me: strip(me),
+    them: strip(them),
+    myHits: mine === 'challenger' ? (m.challengerHits ?? 0) : (m.hostHits ?? 0),
+    theirHits: mine === 'challenger' ? (m.hostHits ?? 0) : (m.challengerHits ?? 0),
     winner: m.winner,
     won: m.state === 'done' ? m.winner === wallet : undefined,
     reason: m.reason,
     payouts: m.payouts,
-    rules: { volleys: DUEL.volleys, maxVolleys: DUEL.maxVolleys, strikes: DUEL.strikes, commitMs: DUEL.commitMs, revealMs: DUEL.revealMs },
+    rules: FIGHT,
   };
 }
 
@@ -557,57 +505,49 @@ export async function matchState(wallet: string, id?: unknown): Promise<{ match?
   });
 }
 
-export async function commitChoice(wallet: string, id: unknown, hash: unknown): Promise<{ match?: MatchView; error?: string }> {
+/**
+ * Record something the player did. The timestamp is ours, taken on
+ * arrival: a jump sent after the ball landed is a jump after the ball
+ * landed, whatever the client's clock said. Not under the match lock —
+ * an append is atomic on its own, and a fight cannot wait on a lock.
+ */
+export async function addInput(wallet: string, id: unknown, raw: unknown): Promise<{ seq?: number; t?: number; error?: string }> {
   if (typeof id !== 'string' || !id) return { error: 'No such match.' };
-  if (typeof hash !== 'string' || !/^[0-9a-f]{64}$/.test(hash)) return { error: 'That is not a commitment.' };
-  return withMatch(id, async () => {
-    const m = await load(id);
-    const side = m && sideOf(m, wallet);
-    if (!m || !side) return { error: 'Not your match.' };
-    if (await advance(m)) await save(m);
-    if (m.state !== 'live') return { error: 'The match is not on.' };
-    if (m.phase !== 'commit') return { error: 'Too late for this volley — it is being revealed.' };
-    const s = side === 'host' ? m.host : m.challenger!;
-    if (s.commit) return { error: 'You have already thrown this volley.' };
-    s.commit = hash;
-    // both in: straight to the reveal, no need to wait the clock out
-    if (m.host.commit && m.challenger!.commit) {
-      m.phase = 'reveal';
-      m.phaseEndsAt = Date.now() + DUEL.revealMs;
-    }
-    await save(m);
-    return { match: viewFor(m, wallet) };
-  });
+  if (!validInput(raw)) return { error: 'That is not a move.' };
+  const m = await load(id);
+  const side = m && sideOf(m, wallet);
+  if (!m || !side) return { error: 'Not your match.' };
+  if (m.state !== 'live' || !m.startAt) return { error: 'The match is not on.' };
+  const now = Date.now();
+  if (now < m.startAt) return { error: 'Not yet — the countdown is running.' };
+  if (now > hardEnd(m.startAt)) return { error: 'The match is over.' };
+
+  const store = await kv();
+  const s = side === 'host' ? 'a' : 'b';
+  // a hand can only move so fast; a script gets the same ceiling
+  const burst = await store.incrWithTtl(KEY.rate(id, s, Math.floor(now / 1000)), 3);
+  if (burst > FIGHT.inputsPerSec) return { error: 'Slow down.' };
+
+  const r = raw as { type: 'move' | 'jump' | 'throw'; dir?: number; kind?: 'straight' | 'lob'; targetX?: number; n?: unknown };
+  const input: Omit<FightInput, 'seq'> = { t: now, side: s, type: r.type };
+  if (typeof r.n === 'string' && r.n) input.n = r.n.slice(0, 12);
+  if (r.type === 'move') input.dir = r.dir;
+  if (r.type === 'throw') {
+    input.kind = r.kind;
+    if (r.kind === 'lob') input.targetX = Math.round(r.targetX!);
+  }
+  const seq = await store.rpushLen(KEY.inputs(id), input, 3 * 24 * 3600);
+  return { seq, t: now };
 }
 
-export async function revealChoice(
-  wallet: string,
-  id: unknown,
-  choice: unknown,
-  nonce: unknown
-): Promise<{ match?: MatchView; error?: string }> {
+/** The log from `since` on, for the client's picture. */
+export async function inputsSince(wallet: string, id: unknown, since: unknown): Promise<{ inputs?: FightInput[]; serverNow?: number; error?: string }> {
   if (typeof id !== 'string' || !id) return { error: 'No such match.' };
-  if (!validChoice(choice)) return { error: 'That is not a throw.' };
-  if (typeof nonce !== 'string' || nonce.length < 8 || nonce.length > 64) return { error: 'Bad nonce.' };
-  return withMatch(id, async () => {
-    const m = await load(id);
-    const side = m && sideOf(m, wallet);
-    if (!m || !side) return { error: 'Not your match.' };
-    if (await advance(m)) await save(m);
-    if (m.state !== 'live') return { error: 'The match is not on.' };
-    const s = side === 'host' ? m.host : m.challenger!;
-    if (!s.commit) return { error: 'You did not throw this volley.' };
-    if (s.choice) return { error: 'Already revealed.' };
-    if (m.phase !== 'reveal') return { error: 'Wait for the other side to throw.' };
-    // The whole point: the choice must be the one that was sealed.
-    if ((await commitHash(choice as Choice, nonce)) !== s.commit) {
-      return { error: 'That is not what you sealed.' };
-    }
-    s.choice = choice as Choice;
-    await advance(m);
-    await save(m);
-    return { match: viewFor(m, wallet) };
-  });
+  const m = await load(id);
+  if (!m || !sideOf(m, wallet)) return { error: 'Not your match.' };
+  const from = Math.max(0, Math.floor(Number(since) || 0));
+  const rows = await (await kv()).lrange<Omit<FightInput, 'seq'>>(KEY.inputs(id), from, -1);
+  return { inputs: rows.map((r, i) => ({ ...r, seq: from + i + 1 })), serverNow: Date.now() };
 }
 
 /* ------------------------------------------------------------------ *

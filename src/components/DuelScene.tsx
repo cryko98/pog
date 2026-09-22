@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { LANES, commitHash } from '../../shared/duel.js';
+import { FIGHT, simulate } from '../../shared/fight.js';
 import { blitPenguin } from '../game/penguin';
-import { api, type DuelChoice, type DuelView } from '../lib/api';
+import { publishFightInput, subscribeFight } from '../game/presence';
+import { api, type DuelView, type FightInput } from '../lib/api';
 import { canSendTransactions, signAndSendTransaction } from '../lib/wallet';
 import { useSession } from '../state/session';
 import { describeStake } from './ArenaPanel';
@@ -12,161 +13,230 @@ interface Props {
   onLeave: () => void;
 }
 
-const LANE_X = [0.25, 0.5, 0.75];
-const laneIndex = (lane: string) => Math.max(0, LANES.indexOf(lane));
-const ANIM_MS = 2200;
-const randomNonce = () =>
-  Array.from(crypto.getRandomValues(new Uint8Array(12)), (b) => b.toString(16).padStart(2, '0')).join('');
+type Wire = { type: 'move'; dir: number } | { type: 'jump' } | { type: 'throw'; kind: 'straight' } | { type: 'throw'; kind: 'lob'; targetX: number };
 
-interface Sealed {
-  volley: number;
-  choice: DuelChoice;
-  nonce: string;
+/** An input we know about but the server has not yet stamped. */
+interface Provisional extends Omit<FightInput, 'seq'> {
+  n: string;
+  seq?: number;
+  heardAt: number;
 }
 
+const nonce = () => Math.random().toString(36).slice(2, 10);
+
 /**
- * The duel screen. Everything the server decided is drawn; everything the
- * player decides is sealed before it is sent.
+ * The fight, on screen.
  *
- * Each volley: pick where to throw (a lane, high or low) and how to dodge
- * (a lane, and whether to jump). The choice is hashed and the hash sent
- * while the clock runs; once both sides have sealed, the choice itself is
- * sent, the server checks it against the hash, resolves both throws, and
- * the volley plays out on the rink from the server's verdict.
+ * Every frame the world is rebuilt from the input log by the same
+ * `simulate` the server scores with, so what you see is what will count —
+ * once the server has stamped it. Your own inputs are drawn the moment
+ * you make them (guessing the stamp), the opponent's the moment they
+ * arrive over the broker, and both are replaced by the server's stamped
+ * copies within a poll. The picture can nudge; the score never lies.
  */
 export function DuelScene({ id, onLeave }: Props) {
   const { connected, identity } = useSession();
   const [view, setView] = useState<DuelView | null>(null);
   const [error, setError] = useState('');
-  const [throwLane, setThrowLane] = useState<string | null>(null);
-  const [throwHeight, setThrowHeight] = useState<'low' | 'high'>('low');
-  const [dodgeLane, setDodgeLane] = useState('centre');
-  const [jump, setJump] = useState(false);
   const [paying, setPaying] = useState(false);
-  const sealed = useRef<Sealed | null>(null);
-  const sealing = useRef(false);
-  const revealing = useRef(false);
-  const anim = useRef<{ at: number; index: number } | null>(null);
-  const shownVolleys = useRef(0);
   const canvas = useRef<HTMLCanvasElement>(null);
-  const clockSkew = useRef(0);
   const viewRef = useRef<DuelView | null>(null);
-  const choiceRef = useRef({ throwLane, throwHeight, dodgeLane, jump });
-  choiceRef.current = { throwLane, throwHeight, dodgeLane, jump };
+  const log = useRef<FightInput[]>([]);
+  const provisional = useRef<Provisional[]>([]);
+  const lastSeq = useRef(0);
+  const skew = useRef(0);
+  const latency = useRef(120);
+  const held = useRef({ left: false, right: false });
+  const lastDir = useRef(0);
+  const lastThrowAt = useRef(0);
+  const lastJumpAt = useRef(0);
+  const flashes = useRef<Array<{ t: number; x: number; side: 'a' | 'b' }>>([]);
+  const seenHits = useRef(0);
 
-  /* ---------------- polling ---------------- */
+  const serverNow = () => Date.now() + skew.current;
 
-  const refresh = useCallback(async () => {
+  /* ---------------- the truth, polled ---------------- */
+
+  const refreshState = useCallback(async () => {
     try {
+      const sent = Date.now();
       const { match } = await api.duel(id);
+      const rtt = Date.now() - sent;
       if (!match) return;
-      clockSkew.current = match.serverNow - Date.now();
+      latency.current = Math.min(latency.current, rtt / 2) || rtt / 2;
+      skew.current = match.serverNow - (sent + rtt / 2);
       viewRef.current = match;
       setView(match);
-      if (match.history.length > shownVolleys.current) {
-        anim.current = { at: performance.now(), index: match.history.length - 1 };
-        shownVolleys.current = match.history.length;
-      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Lost the arena.');
     }
   }, [id]);
 
-  useEffect(() => {
-    void refresh();
-    const t = setInterval(refresh, 650);
-    return () => clearInterval(t);
-  }, [refresh]);
-
-  const serverNow = () => Date.now() + clockSkew.current;
-
-  /* ---------------- sealing and opening ---------------- */
-
-  const seal = useCallback(async () => {
+  const pullInputs = useCallback(async () => {
     const v = viewRef.current;
-    if (!v || v.state !== 'live' || v.phase !== 'commit' || v.me.committed || sealing.current) return;
-    sealing.current = true;
-    const c = choiceRef.current;
-    const choice: DuelChoice = {
-      throwLane: c.throwLane ?? 'centre',
-      throwHeight: c.throwHeight,
-      dodgeLane: c.dodgeLane,
-      jump: c.jump,
-    };
-    const nonce = randomNonce();
+    if (!v || v.state !== 'live') return;
     try {
-      const hash = await commitHash(choice, nonce);
-      sealed.current = { volley: v.volley, choice, nonce };
-      const { match } = await api.duelCommit(v.id, hash);
-      viewRef.current = match;
-      setView(match);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not throw.');
-    } finally {
-      sealing.current = false;
+      const { inputs } = await api.duelInputs(id, lastSeq.current);
+      if (inputs.length) {
+        log.current = log.current.concat(inputs);
+        lastSeq.current = inputs[inputs.length - 1].seq;
+        const known = new Set(inputs.map((i) => (i as FightInput & { n?: string }).n).filter(Boolean));
+        provisional.current = provisional.current.filter((p) => !known.has(p.n));
+      }
+      // anything provisional the log should have carried by now is stale
+      const cutoff = Date.now() - 2500;
+      provisional.current = provisional.current.filter((p) => p.heardAt > cutoff);
+    } catch {
+      /* the next poll will catch up */
     }
-  }, []);
+  }, [id]);
 
-  // open the sealed choice as soon as the server is in the reveal half
   useEffect(() => {
-    const v = view;
-    const s = sealed.current;
-    if (!v || v.state !== 'live' || v.phase !== 'reveal' || !v.me.committed || v.me.revealed) return;
-    if (!s || s.volley !== v.volley || revealing.current) return;
-    revealing.current = true;
-    api
-      .duelReveal(v.id, s.choice, s.nonce)
-      .then(({ match }) => {
-        viewRef.current = match;
-        setView(match);
-      })
-      .catch((err) => setError(err instanceof Error ? err.message : 'Could not reveal.'))
-      .finally(() => {
-        revealing.current = false;
+    void refreshState();
+    const a = setInterval(refreshState, 1000);
+    const b = setInterval(pullInputs, 220);
+    return () => {
+      clearInterval(a);
+      clearInterval(b);
+    };
+  }, [refreshState, pullInputs]);
+
+  /* ---------------- the fast lane ---------------- */
+
+  useEffect(() => {
+    return subscribeFight(id, (m) => {
+      const v = viewRef.current;
+      if (!v || !v.them || m.from !== v.them.wallet) return; // only the opponent
+      const theirs: 'a' | 'b' = v.side === 'a' ? 'b' : 'a';
+      provisional.current.push({
+        n: m.n || 'mq' + m.ts + m.type,
+        t: serverNow(),
+        side: theirs,
+        type: m.type,
+        dir: m.dir,
+        kind: m.kind,
+        targetX: m.targetX,
+        heardAt: Date.now(),
       });
-  }, [view]);
-
-  // seal automatically just before the clock runs out, so a slow hand is
-  // never a strike — and reset the throw for the next volley
-  useEffect(() => {
-    if (!view || view.state !== 'live') return;
-    if (view.phase === 'commit' && !view.me.committed) {
-      const left = view.phaseEndsAt - serverNow();
-      const t = setTimeout(() => void seal(), Math.max(0, left - 900));
-      return () => clearTimeout(t);
-    }
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [view?.volley, view?.phase, view?.me.committed, view?.state]);
+  }, [id]);
+
+  /* ---------------- what the player does ---------------- */
+
+  const send = useCallback(
+    (input: Wire) => {
+      const v = viewRef.current;
+      if (!v || v.state !== 'live' || !v.startAt || serverNow() < v.startAt) return;
+      const n = nonce();
+      const entry: Provisional = {
+        n,
+        t: serverNow() + latency.current,
+        side: v.side,
+        type: input.type,
+        dir: input.type === 'move' ? input.dir : undefined,
+        kind: input.type === 'throw' ? input.kind : undefined,
+        targetX: input.type === 'throw' && input.kind === 'lob' ? input.targetX : undefined,
+        heardAt: Date.now(),
+      };
+      provisional.current.push(entry);
+      publishFightInput(id, { from: v.me.wallet, n, type: input.type, dir: entry.dir, kind: entry.kind, targetX: entry.targetX });
+      api
+        .duelInput(id, { ...input, n })
+        .then(({ t, seq }) => {
+          entry.t = t; // the stamp that counts
+          entry.seq = seq;
+        })
+        .catch((err: Error) => {
+          provisional.current = provisional.current.filter((p) => p !== entry);
+          if (!/Slow down|Not yet/.test(err.message)) setError(err.message);
+        });
+    },
+    [id]
+  );
+
+  const move = useCallback(() => {
+    const dir = (held.current.right ? 1 : 0) - (held.current.left ? 1 : 0);
+    if (dir === lastDir.current) return;
+    lastDir.current = dir;
+    send({ type: 'move', dir });
+  }, [send]);
+
+  const jump = useCallback(() => {
+    if (Date.now() - lastJumpAt.current < 250) return;
+    lastJumpAt.current = Date.now();
+    send({ type: 'jump' });
+  }, [send]);
+
+  const throwBall = useCallback(
+    (kind: 'straight' | 'lob') => {
+      if (Date.now() - lastThrowAt.current < 300) return;
+      lastThrowAt.current = Date.now();
+      if (kind === 'straight') send({ type: 'throw', kind });
+      else {
+        // aim where they are now; leading them is the skill
+        const v = viewRef.current;
+        const world = simulate(merged(), v?.startAt ?? 0, serverNow());
+        const them = v?.side === 'a' ? world.b : world.a;
+        send({ type: 'throw', kind: 'lob', targetX: Math.round(them.x) });
+      }
+    },
+    [send]
+  );
+
+  const merged = () => {
+    const out: Array<FightInput | Provisional> = [...log.current];
+    for (const p of provisional.current) out.push(p);
+    return out;
+  };
 
   useEffect(() => {
-    setThrowLane(null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [view?.volley]);
-
-  /* ---------------- keys ---------------- */
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
+    const down = (e: KeyboardEvent) => {
       if (e.repeat) return;
-      const k = e.code;
-      const idx = laneIndex(choiceRef.current.dodgeLane);
-      if (k === 'KeyA' || k === 'ArrowLeft') setDodgeLane(LANES[Math.max(0, idx - 1)]);
-      else if (k === 'KeyD' || k === 'ArrowRight') setDodgeLane(LANES[Math.min(2, idx + 1)]);
-      else if (k === 'KeyW' || k === 'ArrowUp' || k === 'Space') setJump((j) => !j);
-      else if (k === 'Digit1') setThrowLane('left');
-      else if (k === 'Digit2') setThrowLane('centre');
-      else if (k === 'Digit3') setThrowLane('right');
-      else if (k === 'KeyQ') setThrowHeight('high');
-      else if (k === 'KeyE') setThrowHeight('low');
-      else if (k === 'Enter') void seal();
-      else return;
+      switch (e.code) {
+        case 'KeyA':
+        case 'ArrowLeft':
+          held.current.left = true;
+          move();
+          break;
+        case 'KeyD':
+        case 'ArrowRight':
+          held.current.right = true;
+          move();
+          break;
+        case 'KeyW':
+        case 'ArrowUp':
+        case 'Space':
+          jump();
+          break;
+        case 'KeyJ':
+        case 'KeyE':
+          throwBall('straight');
+          break;
+        case 'KeyK':
+        case 'KeyQ':
+          throwBall('lob');
+          break;
+        default:
+          return;
+      }
       e.preventDefault();
     };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [seal]);
+    const up = (e: KeyboardEvent) => {
+      if (e.code === 'KeyA' || e.code === 'ArrowLeft') held.current.left = false;
+      else if (e.code === 'KeyD' || e.code === 'ArrowRight') held.current.right = false;
+      else return;
+      move();
+    };
+    window.addEventListener('keydown', down);
+    window.addEventListener('keyup', up);
+    return () => {
+      window.removeEventListener('keydown', down);
+      window.removeEventListener('keyup', up);
+    };
+  }, [move, jump, throwBall]);
 
-  /* ---------------- the rink ---------------- */
+  /* ---------------- the picture ---------------- */
 
   useEffect(() => {
     const el = canvas.current;
@@ -185,136 +255,148 @@ export function DuelScene({ id, onLeave }: Props) {
       }
       ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
 
-      // packed snow, lanes, centre line
-      ctx.fillStyle = '#dbeefb';
+      // sky, far snow, the rink floor
+      const sky = ctx.createLinearGradient(0, 0, 0, h);
+      sky.addColorStop(0, '#dff1fb');
+      sky.addColorStop(0.7, '#eef7fc');
+      sky.addColorStop(0.71, '#f6fbff');
+      sky.addColorStop(1, '#d9eaf5');
+      ctx.fillStyle = sky;
       ctx.fillRect(0, 0, w, h);
-      ctx.strokeStyle = 'rgba(120,170,205,0.35)';
+      const ground = h * 0.74;
+      ctx.fillStyle = '#e7f2fa';
+      ctx.fillRect(0, ground, w, h - ground);
+      ctx.strokeStyle = 'rgba(120,170,205,0.5)';
       ctx.lineWidth = 2;
-      for (const lx of LANE_X) {
-        ctx.beginPath();
-        ctx.moveTo(lx * w, h * 0.08);
-        ctx.lineTo(lx * w, h * 0.92);
-        ctx.stroke();
-      }
-      ctx.strokeStyle = 'rgba(120,170,205,0.6)';
-      ctx.setLineDash([10, 8]);
       ctx.beginPath();
-      ctx.moveTo(w * 0.08, h / 2);
-      ctx.lineTo(w * 0.92, h / 2);
+      ctx.moveTo(0, ground);
+      ctx.lineTo(w, ground);
       ctx.stroke();
-      ctx.setLineDash([]);
+      // snow banks at the ends
+      ctx.fillStyle = '#ffffff';
+      for (const bx of [0, w]) {
+        ctx.beginPath();
+        ctx.ellipse(bx, ground + 6, 70, 34, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
 
-      const c = choiceRef.current;
-      const scale = Math.min(1.1, Math.max(0.7, h / 620));
+      const margin = 60;
+      const sx = (x: number) => margin + (x / FIGHT.width) * (w - margin * 2);
+      const scale = Math.min(1.25, Math.max(0.75, w / 1100));
       const pengH = 84 * scale;
+      const unit = ((w - margin * 2) / FIGHT.width) * 1.0; // world units -> px, horizontally
+      const yUnit = Math.min(unit * 1.6, 1.1); // vertical exaggeration so a jump reads
 
-      // where each penguin stands and whether it is in the air
-      let myLane = laneIndex(c.dodgeLane);
-      let theirLane = 1;
-      let myAir = 0;
-      let theirAir = 0;
-      let ball: { from: number; to: number; high: boolean; t: number; mine: boolean }[] = [];
-      let flash: { mine: boolean; t: number } | null = null;
+      if (v && v.state === 'live' && v.startAt) {
+        const now = serverNow();
+        const world = simulate(merged(), v.startAt, Math.max(v.startAt, now));
 
-      const a = anim.current;
-      const last = a && v?.history[a.index];
-      if (a && last) {
-        const t = Math.min(1, (performance.now() - a.at) / ANIM_MS);
-        if (t >= 1) anim.current = null;
-        const mine = last.mine;
-        const theirs = last.theirs;
-        if (mine) myLane = laneIndex(mine.dodgeLane);
-        if (theirs) theirLane = laneIndex(theirs.dodgeLane);
-        const hop = (jumpNow: boolean) => (jumpNow ? Math.sin(Math.min(1, Math.max(0, (t - 0.35) / 0.35)) * Math.PI) * 46 * scale : 0);
-        myAir = hop(!!mine?.jump);
-        theirAir = hop(!!theirs?.jump);
-        const flight = Math.min(1, Math.max(0, (t - 0.15) / 0.5));
-        if (mine) ball.push({ from: myLane, to: laneIndex(mine.throwLane), high: mine.throwHeight === 'high', t: flight, mine: true });
-        if (theirs) ball.push({ from: theirLane, to: laneIndex(theirs.throwLane), high: theirs.throwHeight === 'high', t: flight, mine: false });
-        if (t > 0.65 && t < 0.95) {
-          if (last.theirHits) flash = { mine: true, t };
-          if (last.myHits) flash = { mine: false, t };
+        // new hits flash where they landed
+        const hitEvents = world.events.filter((e) => e.type === 'hit');
+        if (hitEvents.length > seenHits.current) {
+          for (const e of hitEvents.slice(seenHits.current)) flashes.current.push({ t: performance.now(), x: e.x, side: e.side });
+          seenHits.current = hitEvents.length;
+        } else if (hitEvents.length < seenHits.current) {
+          seenHits.current = hitEvents.length; // a provisional hit the server did not stamp
         }
-      } else if (v?.state === 'live' && v.phase === 'commit' && !v.me.committed) {
-        myAir = c.jump ? 10 * scale : 0;
+
+        for (const [f, dir, color] of [
+          [world.a, 'right', v.side === 'a' ? identity?.color ?? v.me.color : v.them?.color ?? '#38bdf8'],
+          [world.b, 'left', v.side === 'b' ? identity?.color ?? v.me.color : v.them?.color ?? '#38bdf8'],
+        ] as Array<[typeof world.a, 'left' | 'right', string]>) {
+          const x = sx(f.x);
+          const y = ground - f.y * yUnit;
+          ctx.fillStyle = 'rgba(56,92,120,0.25)';
+          ctx.beginPath();
+          ctx.ellipse(x, ground + 2, 24 * scale * (1 - Math.min(0.5, f.y / 400)), 8 * scale, 0, 0, Math.PI * 2);
+          ctx.fill();
+          const stunned = now < f.stunUntil;
+          if (stunned) ctx.globalAlpha = 0.55 + 0.45 * Math.abs(Math.sin(now / 45));
+          blitPenguin(ctx, color, dir, Math.floor(now / 90), f.dir !== 0 && !f.airborne, x, y, pengH);
+          ctx.globalAlpha = 1;
+          if (stunned) {
+            ctx.fillStyle = '#ffffff';
+            for (let i = 0; i < 3; i++) {
+              const a = now / 300 + (i * Math.PI * 2) / 3;
+              ctx.beginPath();
+              ctx.arc(x + Math.cos(a) * 26 * scale, y - pengH - 8 + Math.sin(a) * 6, 3.5 * scale, 0, Math.PI * 2);
+              ctx.fill();
+            }
+          }
+        }
+
+        for (const ball of world.balls) {
+          const x = sx(ball.x);
+          const y = ground - ball.y * yUnit;
+          ctx.fillStyle = 'rgba(56,92,120,0.18)';
+          ctx.beginPath();
+          ctx.ellipse(x, ground + 2, 9 * scale, 4 * scale, 0, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = '#ffffff';
+          ctx.strokeStyle = 'rgba(150,190,215,0.9)';
+          ctx.lineWidth = 1.2;
+          ctx.beginPath();
+          ctx.arc(x, y, 9 * scale, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.stroke();
+        }
+
+        // where a lob would land, so the aim reads
+        // (drawn for balls in the air, as a faint ring on the ground)
+        for (const ball of world.balls) {
+          if (ball.kind !== 'lob' || ball.targetX === undefined) continue;
+          ctx.strokeStyle = 'rgba(255,92,23,0.45)';
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.ellipse(sx(ball.targetX), ground + 2, FIGHT.lobRadius * unit, 6 * scale, 0, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+
+        // countdown
+        if (now < v.startAt) {
+          const n = Math.ceil((v.startAt - now) / 1000);
+          ctx.fillStyle = '#0f2f38';
+          ctx.font = `800 ${Math.round(72 * scale)}px "Baloo 2", system-ui, sans-serif`;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(String(n), w / 2, h * 0.38);
+        } else if (now - v.startAt < 900) {
+          ctx.fillStyle = '#ff5c17';
+          ctx.font = `800 ${Math.round(64 * scale)}px "Baloo 2", system-ui, sans-serif`;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.globalAlpha = 1 - (now - v.startAt) / 900;
+          ctx.fillText('FIGHT!', w / 2, h * 0.38);
+          ctx.globalAlpha = 1;
+        }
       }
 
-      const themY = h * 0.26;
-      const meY = h * 0.84;
-
-      // the throw target, shown on their side while we are choosing
-      if (v?.state === 'live' && v.phase === 'commit' && !v.me.committed && c.throwLane) {
-        const tx = LANE_X[laneIndex(c.throwLane)] * w;
-        const ty = themY - (c.throwHeight === 'high' ? pengH * 0.75 : pengH * 0.2);
-        ctx.strokeStyle = 'rgba(255,92,23,0.9)';
-        ctx.lineWidth = 3;
-        ctx.beginPath();
-        ctx.arc(tx, ty, 18 * scale, 0, Math.PI * 2);
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.arc(tx, ty, 5 * scale, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(255,92,23,0.9)';
-        ctx.fill();
-      }
-
-      // shadows
-      for (const [lx, y, air] of [
-        [LANE_X[theirLane], themY, theirAir],
-        [LANE_X[myLane], meY, myAir],
-      ] as Array<[number, number, number]>) {
-        ctx.fillStyle = 'rgba(56,92,120,0.25)';
-        ctx.beginPath();
-        ctx.ellipse(lx * w, y, 22 * scale * (1 - air / 200), 8 * scale, 0, 0, Math.PI * 2);
-        ctx.fill();
-      }
-
-      // penguins
-      const themColor = v?.them?.color ?? '#38bdf8';
-      const meColor = identity?.color ?? v?.me.color ?? '#ff6b2c';
-      blitPenguin(ctx, themColor, 'down', 0, false, LANE_X[theirLane] * w, themY - theirAir, pengH);
-      blitPenguin(ctx, meColor, 'up', 0, false, LANE_X[myLane] * w, meY - myAir, pengH);
-
-      // snowballs in flight
-      for (const b of ball) {
-        const fromY = b.mine ? meY - pengH * 0.5 : themY - pengH * 0.5;
-        const toY = b.mine ? themY - (b.high ? pengH * 0.75 : pengH * 0.2) : meY - (b.high ? pengH * 0.75 : pengH * 0.2);
-        const x = (LANE_X[b.from] + (LANE_X[b.to] - LANE_X[b.from]) * b.t) * w;
-        const y = fromY + (toY - fromY) * b.t - Math.sin(b.t * Math.PI) * (b.high ? 90 : 30) * scale;
-        ctx.fillStyle = 'rgba(56,92,120,0.2)';
-        ctx.beginPath();
-        ctx.ellipse(x, fromY + (toY - fromY) * b.t + 6, 9 * scale, 4 * scale, 0, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = '#ffffff';
-        ctx.strokeStyle = 'rgba(150,190,215,0.8)';
-        ctx.lineWidth = 1.2;
-        ctx.beginPath();
-        ctx.arc(x, y, 9 * scale, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.stroke();
-      }
-
-      // the splat
-      if (flash) {
-        const x = LANE_X[flash.mine ? myLane : theirLane] * w;
-        const y = (flash.mine ? meY - myAir : themY - theirAir) - pengH * 0.5;
-        const k = (flash.t - 0.65) / 0.3;
+      // splats
+      const pnow = performance.now();
+      flashes.current = flashes.current.filter((f) => pnow - f.t < 500);
+      for (const f of flashes.current) {
+        const k = (pnow - f.t) / 500;
+        const x = sx(f.x);
+        const y = ground - 40 * yUnit;
         ctx.globalAlpha = 1 - k;
         ctx.fillStyle = '#ffffff';
         for (let i = 0; i < 8; i++) {
-          const ang = (i / 8) * Math.PI * 2;
+          const a = (i / 8) * Math.PI * 2;
           ctx.beginPath();
-          ctx.arc(x + Math.cos(ang) * (14 + k * 30) * scale, y + Math.sin(ang) * (10 + k * 22) * scale, (5 - k * 3) * scale, 0, Math.PI * 2);
+          ctx.arc(x + Math.cos(a) * (12 + k * 34) * scale, y + Math.sin(a) * (8 + k * 24) * scale, (5 - k * 3) * scale, 0, Math.PI * 2);
           ctx.fill();
         }
-        ctx.globalAlpha = 1;
         ctx.fillStyle = '#ff5c17';
         ctx.font = `800 ${Math.round(26 * scale)}px "Baloo 2", system-ui, sans-serif`;
         ctx.textAlign = 'center';
-        ctx.fillText('HIT!', x, y - (30 + k * 20) * scale);
+        ctx.textBaseline = 'middle';
+        ctx.fillText('HIT!', x, y - (36 + k * 24) * scale);
+        ctx.globalAlpha = 1;
       }
     };
     draw();
     return () => cancelAnimationFrame(raf);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [identity?.color]);
 
   /* ---------------- real stakes ---------------- */
@@ -335,109 +417,98 @@ export function DuelScene({ id, onLeave }: Props) {
         if (!r.pending) break;
         await new Promise((res) => setTimeout(res, 3000));
       }
-      await refresh();
+      await refreshState();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'The payment did not go through.');
     }
     setPaying(false);
   };
 
-  /* ---------------- the frame around the rink ---------------- */
+  /* ---------------- the frame ---------------- */
 
   const live = view?.state === 'live';
-  const choosing = live && view!.phase === 'commit' && !view!.me.committed;
-  const left = view ? Math.max(0, view.phaseEndsAt - serverNow()) : 0;
-  const clockMs = view ? (view.phase === 'commit' ? view.rules.commitMs : view.rules.revealMs) : 1;
   const over = view?.state === 'done' || view?.state === 'cancelled';
+  const clockLeft = view?.startAt ? Math.max(0, view.startAt + FIGHT.durationMs - serverNow()) : 0;
+  const overtime = view?.startAt ? serverNow() > view.startAt + FIGHT.durationMs : false;
+
+  // the live score, from the same picture the rink draws
+  let myHits = view?.myHits ?? 0;
+  let theirHits = view?.theirHits ?? 0;
+  if (live && view?.startAt) {
+    const world = simulate(merged(), view.startAt, Math.max(view.startAt, serverNow()));
+    myHits = view.side === 'a' ? world.a.hits : world.b.hits;
+    theirHits = view.side === 'a' ? world.b.hits : world.a.hits;
+  }
+
+  const hold = (key: 'left' | 'right', on: boolean) => {
+    held.current[key] = on;
+    move();
+  };
 
   return (
     <div className="duel">
-      <canvas
-        ref={canvas}
-        className="duel-rink"
-        onClick={(e) => {
-          if (!choosing) return;
-          const r = e.currentTarget.getBoundingClientRect();
-          const fx = (e.clientX - r.left) / r.width;
-          const fy = (e.clientY - r.top) / r.height;
-          const lane = LANES[fx < 0.375 ? 0 : fx < 0.625 ? 1 : 2];
-          if (fy < 0.5) {
-            setThrowLane(lane);
-            setThrowHeight(fy < 0.2 ? 'high' : 'low');
-          } else {
-            setDodgeLane(lane);
-          }
-        }}
-      />
+      <canvas ref={canvas} className="duel-rink" />
 
       <div className="duel-top">
         <div className="duel-side">
-          <b style={{ color: view?.them?.color }}>{view?.them?.name ?? '…'}</b>
-          <span>{view?.them?.hits ?? 0}</span>
+          <b style={{ color: view?.side === 'a' ? identity?.color : view?.them?.color }}>
+            {view?.side === 'a' ? view?.me.name : view?.them?.name ?? '…'}
+          </b>
+          <span>{view?.side === 'a' ? myHits : theirHits}</span>
         </div>
         <div className="duel-mid">
-          {view && live && (
+          {live && (
             <>
-              <small>
-                Volley {view.volley + 1}
-                {view.volley + 1 > view.rules.volleys ? ' · sudden death' : ` / ${view.rules.volleys}`}
-              </small>
+              <small>{overtime ? 'Overtime — next hit wins' : `${Math.ceil(clockLeft / 1000)}s`}</small>
               <div className="duel-clock">
-                <i style={{ width: `${Math.min(100, (left / clockMs) * 100)}%` }} />
+                <i style={{ width: `${Math.min(100, (clockLeft / FIGHT.durationMs) * 100)}%` }} />
               </div>
-              <small>
-                {view.phase === 'commit'
-                  ? view.me.committed
-                    ? view.them?.committed
-                      ? 'Both sealed'
-                      : 'Sealed — waiting for them'
-                    : 'Choose and seal'
-                  : 'Revealing…'}
-              </small>
+              <small>First to {FIGHT.hitsToWin}</small>
             </>
           )}
           {view?.state === 'funding' && <small>Paying the stakes</small>}
           {over && <small>{view?.reason}</small>}
         </div>
         <div className="duel-side me">
-          <b style={{ color: identity?.color }}>{view?.me.name ?? 'You'}</b>
-          <span>{view?.me.hits ?? 0}</span>
+          <b style={{ color: view?.side === 'b' ? identity?.color : view?.them?.color }}>
+            {view?.side === 'b' ? view?.me.name : view?.them?.name ?? '…'}
+          </b>
+          <span>{view?.side === 'b' ? myHits : theirHits}</span>
         </div>
       </div>
 
       {view && <div className="duel-stake">Pot: {describeStake(view.stake)} × 2</div>}
 
-      {choosing && (
+      {live && (
         <div className="duel-controls">
           <div className="duel-group">
-            <small>Throw</small>
-            {LANES.map((l) => (
-              <button key={l} className={`duel-btn${throwLane === l ? ' active' : ''}`} onClick={() => setThrowLane(l)}>
-                {l}
-              </button>
-            ))}
-            <button className={`duel-btn${throwHeight === 'high' ? ' active' : ''}`} onClick={() => setThrowHeight('high')}>
-              high
+            <button
+              className="duel-btn big"
+              onPointerDown={() => hold('left', true)}
+              onPointerUp={() => hold('left', false)}
+              onPointerLeave={() => hold('left', false)}
+            >
+              ◀
             </button>
-            <button className={`duel-btn${throwHeight === 'low' ? ' active' : ''}`} onClick={() => setThrowHeight('low')}>
-              low
+            <button
+              className="duel-btn big"
+              onPointerDown={() => hold('right', true)}
+              onPointerUp={() => hold('right', false)}
+              onPointerLeave={() => hold('right', false)}
+            >
+              ▶
+            </button>
+            <button className="duel-btn big" onPointerDown={jump}>
+              Jump
+            </button>
+            <button className="duel-btn big throw" onPointerDown={() => throwBall('straight')}>
+              Throw
+            </button>
+            <button className="duel-btn big throw" onPointerDown={() => throwBall('lob')}>
+              Lob
             </button>
           </div>
-          <div className="duel-group">
-            <small>Dodge</small>
-            {LANES.map((l) => (
-              <button key={l} className={`duel-btn${dodgeLane === l ? ' active' : ''}`} onClick={() => setDodgeLane(l)}>
-                {l}
-              </button>
-            ))}
-            <button className={`duel-btn${jump ? ' active' : ''}`} onClick={() => setJump((j) => !j)}>
-              jump
-            </button>
-          </div>
-          <button className="btn btn-primary duel-seal" disabled={!throwLane} onClick={() => void seal()}>
-            <Icon name="hand" size={16} /> Throw!
-          </button>
-          <small className="duel-keys">1 2 3 lane · Q high / E low · A D stand · W jump · Enter throw</small>
+          <small className="duel-keys">A D move · W jump · J straight · K lob — jump the straight ones, step out from under the lobs</small>
         </div>
       )}
 
@@ -461,19 +532,19 @@ export function DuelScene({ id, onLeave }: Props) {
 
       {over && view && (
         <div className="duel-card">
-          <b>
-            {view.state === 'cancelled' ? 'Called off' : view.won ? 'You win!' : view.winner === null ? 'A draw' : 'Beaten'}
-          </b>
-          <p>{view.reason}</p>
-          {view.state === 'done' && view.won && view.stake.kind === 'soft' && (
-            <p>The pot is in your pack.</p>
-          )}
-          {view.payouts?.filter((p) => p.to === view.me.wallet).map((p, i) => (
-            <p key={i}>
-              {p.kind === 'win' ? 'Winnings' : 'Refund'}: {p.amount.toLocaleString('en-US')} $POG —{' '}
-              {p.status === 'paid' ? 'sent on chain' : 'queued for payout'}
-            </p>
-          ))}
+          <b>{view.state === 'cancelled' ? 'Called off' : view.won ? 'You win!' : view.winner === null ? 'A draw' : 'Beaten'}</b>
+          <p>
+            {view.reason} {view.state === 'done' ? `${view.myHits} – ${view.theirHits}.` : ''}
+          </p>
+          {view.state === 'done' && view.won && view.stake.kind === 'soft' && <p>The pot is in your pack.</p>}
+          {view.payouts
+            ?.filter((p) => p.to === view.me.wallet)
+            .map((p, i) => (
+              <p key={i}>
+                {p.kind === 'win' ? 'Winnings' : 'Refund'}: {p.amount.toLocaleString('en-US')} $POG —{' '}
+                {p.status === 'paid' ? 'sent on chain' : 'queued for payout'}
+              </p>
+            ))}
           <button className="btn btn-ghost" onClick={onLeave}>
             Back to the ice
           </button>
@@ -484,7 +555,7 @@ export function DuelScene({ id, onLeave }: Props) {
         <button
           className="duel-leave"
           onClick={() => {
-            if (live && !confirm('Leaving a live match forfeits it after three missed volleys. Leave anyway?')) return;
+            if (live && !confirm('Leaving a live match means standing still in it — the clock keeps running. Leave anyway?')) return;
             onLeave();
           }}
         >

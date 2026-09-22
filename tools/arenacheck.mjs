@@ -1,5 +1,5 @@
 /**
- * The snowball arena, played by two throwaway wallets against a real API —
+ * The snowball arena, fought by two throwaway wallets against a real API —
  * and cheated at, every way a client could try.
  *
  *   node tools/arenacheck.mjs        (needs POG_DEV_KEY=localtest on the server)
@@ -10,7 +10,8 @@
 import nacl from 'tweetnacl';
 import bs58 from 'bs58';
 import { getNode } from '../shared/world.js';
-import { DUEL, LANES, commitHash, resolveVolley, throwLands } from '../shared/duel.js';
+import { DUEL } from '../shared/duel.js';
+import { FIGHT, simulate, outcome } from '../shared/fight.js';
 
 const BASE = process.env.BASE || 'http://localhost:5173';
 const DEV = process.env.DEV_KEY || 'localtest';
@@ -56,11 +57,26 @@ const here = { x: arena.x + 30, y: arena.y + 10 };
 const post = (path, token, body) => call(path, { method: 'POST', token, body });
 
 console.log('--- the rules, offline ---');
-check('same lane, standing: hit', throwLands('left', 'low', 'left', false));
-check('same lane, jumping over a low ball: miss', !throwLands('left', 'low', 'left', true));
-check('same lane, jumping into a high ball: hit', throwLands('left', 'high', 'left', true));
-check('different lane: miss', !throwLands('left', 'high', 'right', false));
-check('a side that sat out throws nothing and stands in the centre', JSON.stringify(resolveVolley(null, { throwLane: 'centre', throwHeight: 'low', dodgeLane: 'left', jump: false })) === '{"aHits":0,"bHits":1}');
+{
+  const s0 = 1_000_000;
+  let st = simulate([{ t: s0 + 100, side: 'b', type: 'throw', kind: 'straight' }], s0, s0 + 2000);
+  check('a straight ball hits a penguin standing in its way', st.b.hits === 1);
+  st = simulate([{ t: s0 + 100, side: 'b', type: 'throw', kind: 'straight' }, { t: s0 + 650, side: 'a', type: 'jump' }], s0, s0 + 2000);
+  check('a jump in time clears it', st.b.hits === 0);
+  st = simulate([{ t: s0 + 100, side: 'b', type: 'throw', kind: 'straight' }, { t: s0 + 900, side: 'a', type: 'jump' }], s0, s0 + 2000);
+  check('a jump after it has crossed does not', st.b.hits === 1);
+  st = simulate([{ t: s0 + 100, side: 'b', type: 'throw', kind: 'lob', targetX: FIGHT.startA }], s0, s0 + 2000);
+  check('a lob lands on a penguin that stays put', st.b.hits === 1);
+  st = simulate([{ t: s0 + 100, side: 'b', type: 'throw', kind: 'lob', targetX: FIGHT.startA }, { t: s0 + 200, side: 'a', type: 'move', dir: -1 }], s0, s0 + 2000);
+  check('stepping out from under a lob dodges it', st.b.hits === 0);
+  st = simulate([{ t: s0 + 100, side: 'a', type: 'jump' }, { t: s0 + 200, side: 'a', type: 'jump' }, { t: s0 + 300, side: 'a', type: 'jump' }], s0, s0 + 400);
+  check('jumps have a cooldown', st.events.filter((e) => e.type === 'jump').length === 1);
+  st = simulate([0, 1, 2, 3, 4].map((i) => ({ t: s0 + 100 + i * 50, side: 'a', type: 'throw', kind: 'straight' })), s0, s0 + 500);
+  check('throws have a cooldown and a cap in the air', st.events.filter((e) => e.type === 'throw').length === 1);
+  const ins = Array.from({ length: 60 }, (_, i) => ({ t: s0 + i * 250, side: i % 2 ? 'a' : 'b', type: ['move', 'jump', 'throw'][i % 3], dir: 1, kind: i % 2 ? 'lob' : 'straight', targetX: 500 }));
+  check('the replay is deterministic whatever order the log is in', JSON.stringify(simulate(ins, s0, s0 + 20000)) === JSON.stringify(simulate([...ins].reverse(), s0, s0 + 20000)));
+  check('level after the clock and overtime is a draw', outcome(simulate([], s0, s0 + 80000), s0, s0 + 80000).winner === null);
+}
 
 const probe = await grant((await signIn('Probe')).token, {});
 if (probe.status === 404 || probe.status === 401) {
@@ -115,9 +131,8 @@ let matchId = '';
   check('it shows on the board', json.challenges.some((c) => c.id === matchId));
 }
 {
-  await sleep(1100);
-  const r = await post('/api/arena/commit', B.token, { id: matchId, hash: 'a'.repeat(64) });
-  check('a stranger cannot throw in a match they are not in', r.status === 409, r.json.error);
+  const r = await post('/api/arena/input', B.token, { id: matchId, type: 'jump' });
+  check('a stranger cannot act in a match they are not in', r.status === 409, r.json.error);
 }
 
 console.log('\n--- taking it ---');
@@ -135,89 +150,64 @@ const bBefore = await profile(B.token);
 }
 
 const state = async (token) => (await call(`/api/arena/state?id=${matchId}`, { token })).json.match;
-{
-  const v = await state(A.token);
-  check('the match is live, volley 1, sealing', v.state === 'live' && v.volley === 0 && v.phase === 'commit', `${v.state}/${v.phase}`);
-  check('the host cannot see the challenger’s choice', v.them && v.them.choice === undefined);
-}
+let v = await state(A.token);
+check('the match is live with a countdown', v.state === 'live' && v.startAt > v.serverNow, `${v.state} startAt-now=${v.startAt - v.serverNow}`);
+check('the host is side a, the challenger side b', v.side === 'a' && (await state(B.token)).side === 'b');
 
-console.log('\n--- cheating at a volley ---');
-const choiceA = { throwLane: 'left', throwHeight: 'low', dodgeLane: 'right', jump: false };
-const choiceB = { throwLane: 'right', throwHeight: 'high', dodgeLane: 'left', jump: true };
-const nonceA = 'nonce-a-0001';
-const nonceB = 'nonce-b-0001';
+console.log('\n--- cheating at the fight ---');
 {
-  const r = await post('/api/arena/reveal', A.token, { id: matchId, choice: choiceA, nonce: nonceA });
-  check('revealing before sealing is refused', r.status === 409 && /did not throw/.test(r.json.error), r.json.error);
+  const r = await post('/api/arena/input', A.token, { id: matchId, type: 'jump' });
+  check('nothing counts during the countdown', r.status === 409 && /Not yet/.test(r.json.error), r.json.error);
+}
+await sleep(Math.max(0, v.startAt - v.serverNow + 200));
+{
+  const r = await post('/api/arena/input', A.token, { id: matchId, type: 'teleport', x: 900 });
+  check('an invented move type is refused', r.status === 409, r.json.error);
+  const r2 = await post('/api/arena/input', A.token, { id: matchId, type: 'throw', kind: 'lob', targetX: 99999 });
+  check('a lob aimed off the stage is refused', r2.status === 409, r2.json.error);
+  const r3 = await post('/api/arena/input', A.token, { id: matchId, type: 'move', dir: 1, x: 999, y: 50, hits: 5, t: 1 });
+  check('position, hits and timestamps in a request are ignored, not applied', r3.status === 200 && r3.json.t > Date.now() - 5000, JSON.stringify(r3.json));
+  const { json } = await call(`/api/arena/inputs?id=${matchId}&since=0`, { token: A.token });
+  const last = json.inputs[json.inputs.length - 1];
+  check('the stamped log holds only what the server allows', last && last.type === 'move' && last.dir === 1 && !('x' in last) && !('hits' in last) && last.t === r3.json.t, JSON.stringify(last));
 }
 {
-  const r = await post('/api/arena/commit', A.token, { id: matchId, hash: 'not-a-hash' });
-  check('a malformed commitment is refused', r.status === 409, r.json.error);
+  // a flood: more inputs in one second than a hand can make
+  const rs = await Promise.all(Array.from({ length: 25 }, () => post('/api/arena/input', A.token, { id: matchId, type: 'move', dir: 0 })));
+  const refused = rs.filter((r) => r.status === 409 && /Slow down/.test(r.json.error)).length;
+  check('an input flood is capped', refused >= 8, `${refused} of 25 refused`);
 }
 {
-  const r = await post('/api/arena/commit', A.token, { id: matchId, hash: await commitHash(choiceA, nonceA) });
-  check('A seals', r.status === 200, r.json.error);
-  const r2 = await post('/api/arena/commit', A.token, { id: matchId, hash: await commitHash(choiceB, nonceA) });
-  check('A cannot seal twice', r2.status === 409, r2.json.error);
-}
-{
-  const r = await post('/api/arena/reveal', A.token, { id: matchId, choice: choiceA, nonce: nonceA });
-  check('A cannot open before B has sealed', r.status === 409 && /Wait/.test(r.json.error), r.json.error);
-}
-{
-  const r = await post('/api/arena/commit', B.token, { id: matchId, hash: await commitHash(choiceB, nonceB) });
-  check('B seals; the volley moves to the reveal', r.status === 200 && r.json.match.phase === 'reveal', r.json.error);
-}
-{
-  const other = { ...choiceA, throwLane: 'right' };
-  const r = await post('/api/arena/reveal', A.token, { id: matchId, choice: other, nonce: nonceA });
-  check('changing the throw after sealing is refused', r.status === 409 && /sealed/.test(r.json.error), r.json.error);
-  const r2 = await post('/api/arena/reveal', A.token, { id: matchId, choice: choiceA, nonce: 'wrong-nonce' });
-  check('a wrong nonce is refused', r2.status === 409 && /sealed/.test(r2.json.error), r2.json.error);
-  const r3 = await post('/api/arena/reveal', A.token, { id: matchId, choice: { ...choiceA, throwLane: 'up' }, nonce: nonceA });
-  check('an impossible lane is refused', r3.status === 409, r3.json.error);
-}
-{
-  const r = await post('/api/arena/reveal', A.token, { id: matchId, choice: choiceA, nonce: nonceA });
-  check('A opens the real choice', r.status === 200, r.json.error);
-  const r2 = await post('/api/arena/reveal', B.token, { id: matchId, choice: choiceB, nonce: nonceB });
-  check('B opens; the volley resolves', r2.status === 200 && r2.json.match.history.length === 1, r2.json.error);
-  const v = r2.json.match;
-  // A threw left/low; B stood left and jumped -> miss. B threw right/high; A stood right, no jump -> hit.
-  check('the server scored it: B hit, A missed', v.me.hits === 1 && v.them.hits === 0, `B=${v.me.hits} A=${v.them.hits}`);
-  check('both choices are public once resolved', v.history[0].theirs?.throwLane === 'left' && v.history[0].mine?.throwLane === 'right');
+  const r = await post('/api/arena/input', B.token, { id: matchId, type: 'throw', kind: 'straight' });
+  check('B throws', r.status === 200, r.json.error);
+  // A "jumps" too late: the ball has long crossed by the time this lands
+  await sleep(1300);
+  const r2 = await post('/api/arena/input', A.token, { id: matchId, type: 'jump' });
+  check('A jumps (late)', r2.status === 200, r2.json.error);
+  await sleep(300);
+  const now = await state(B.token);
+  check('the server scored the hit — a late jump does not undo it', now.myHits === 1 && now.theirHits === 0, `B=${now.myHits} A=${now.theirHits}`);
 }
 
 console.log('\n--- playing it out ---');
-// B keeps throwing high into A's lane while A stands still: B wins the rest
-async function volley(a, b) {
-  const na = 'n' + Math.random().toString(36).slice(2, 12);
-  const nb = 'n' + Math.random().toString(36).slice(2, 12);
-  const ca = await post('/api/arena/commit', A.token, { id: matchId, hash: await commitHash(a, na) });
-  const cb = await post('/api/arena/commit', B.token, { id: matchId, hash: await commitHash(b, nb) });
-  if (ca.status !== 200 || cb.status !== 200) return { error: ca.json.error || cb.json.error };
-  await post('/api/arena/reveal', A.token, { id: matchId, choice: a, nonce: na });
-  const r = await post('/api/arena/reveal', B.token, { id: matchId, choice: b, nonce: nb });
-  return r.json.match || { error: r.json.error };
-}
-let v = null;
-for (let i = 0; i < DUEL.volleys + 2; i++) {
-  v = await volley(
-    { throwLane: LANES[i % 3], throwHeight: 'low', dodgeLane: 'centre', jump: false },
-    { throwLane: 'centre', throwHeight: 'high', dodgeLane: LANES[(i + 1) % 3], jump: false }
-  );
-  if (v.error || v.state === 'done') break;
-}
-check('the match ends after the volleys', v && v.state === 'done', v?.error || `${v?.state} after ${v?.history?.length}`);
-check('B won on hits', v && v.won === true && v.winner === B.wallet, `winner ${v?.winner?.slice(0, 6)} reason ${v?.reason}`);
 {
+  // B throws a straight ball every cooldown; A stands there. First to five.
+  let final = null;
+  for (let i = 0; i < 12; i++) {
+    await post('/api/arena/input', B.token, { id: matchId, type: 'throw', kind: 'straight' });
+    await sleep(FIGHT.throwCooldownMs + 350);
+    final = await state(B.token);
+    if (final.state === 'done') break;
+  }
+  check('the match ends at five hits', final && final.state === 'done', `${final?.state} ${final?.myHits}-${final?.theirHits}`);
+  check('B won', final && final.won === true && final.winner === B.wallet, final?.reason);
   const a = await profile(A.token);
   const b = await profile(B.token);
   const rake = Math.max(1, Math.round(20 * DUEL.rake));
   check('the winner holds both stakes, less the $POG rake', b.wood === bBefore.wood + 40 && b.pog === bBefore.pog + 10 - rake, `wood ${b.wood} pog ${b.pog} (expected ${bBefore.wood + 40}/${bBefore.pog + 10 - rake})`);
   check('the loser is out their stake', a.wood === before.wood - 40 && a.pog === before.pog - 10, `wood ${a.wood} pog ${a.pog}`);
-  const r = await post('/api/arena/commit', A.token, { id: matchId, hash: 'b'.repeat(64) });
-  check('nothing more can be thrown once it is over', r.status === 409, r.json.error);
+  const r = await post('/api/arena/input', A.token, { id: matchId, type: 'jump' });
+  check('nothing more can be done once it is over', r.status === 409, r.json.error);
   const mine = (await call('/api/arena/state', { token: A.token })).json.match;
   check('both are free to fight again', mine === null || mine.state === 'done');
 }

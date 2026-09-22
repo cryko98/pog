@@ -6,13 +6,14 @@
  *   POST create  { kind, stake, x, y } -> put up a challenge (soft stake escrowed now)
  *   POST cancel                        -> take an untaken challenge down
  *   POST accept  { id, x, y }          -> take one; the match starts (or waits for stakes)
- *   POST commit  { id, hash }          -> seal this volley's throw and dodge
- *   POST reveal  { id, choice, nonce } -> open it; the server resolves the volley
+ *   POST input   { id, type, ... }     -> something the player did, stamped on arrival
+ *   GET  inputs?id=&since=             -> the log from that sequence on
  *   POST invoice { id }                -> the on-chain stake payment to sign
  *   POST deposit { id, signature }     -> prove the stake landed in the pool
  *
- * Nothing here decides a hit. The server resolves every volley from the
- * sealed choices, and every stake is in escrow before the first throw.
+ * Nothing here takes a position or a hit from a request. The server
+ * replays the stamped input log to score, and every stake is in escrow
+ * before the first throw.
  */
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -23,16 +24,17 @@ import { walletForToken } from '../../src/server/game.js';
 import { poolReady } from '../../src/server/pool.js';
 import {
   acceptChallenge,
+  addInput,
   cancelChallenge,
-  commitChoice,
   confirmDeposit,
   createChallenge,
   depositInvoice,
+  inputsSince,
   listOpen,
   matchState,
-  revealChoice,
 } from '../../src/server/arena.js';
 import { DUEL } from '../../shared/duel.js';
+import { FIGHT } from '../../shared/fight.js';
 
 export default async function handler(req: any, res: any) {
   const action = actionOf(req, 'arena');
@@ -47,7 +49,7 @@ export default async function handler(req: any, res: any) {
           stake: m.stake,
           createdAt: m.createdAt,
         })),
-        rules: DUEL,
+        rules: { ...DUEL, fight: FIGHT },
         realStakes: poolReady(),
       });
     }
@@ -81,18 +83,17 @@ export default async function handler(req: any, res: any) {
       return json(res, 200, { id: result.match!.id });
     }
 
-    if (action === 'commit') {
-      const { id, hash } = body(req);
-      const result = await commitChoice(wallet, id, hash);
+    if (action === 'input') {
+      const { id, ...input } = body(req);
+      const result = await addInput(wallet, id, input);
       if (result.error) return json(res, 409, { error: result.error });
-      return json(res, 200, { match: result.match });
+      return json(res, 200, result);
     }
 
-    if (action === 'reveal') {
-      const { id, choice, nonce } = body(req);
-      const result = await revealChoice(wallet, id, choice, nonce);
+    if (action === 'inputs') {
+      const result = await inputsSince(wallet, query(req, 'id'), query(req, 'since'));
       if (result.error) return json(res, 409, { error: result.error });
-      return json(res, 200, { match: result.match });
+      return json(res, 200, result);
     }
 
     if (action === 'invoice') {

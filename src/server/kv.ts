@@ -45,6 +45,8 @@ export interface Kv {
   hdel(key: string, field: string): Promise<void>;
   /** append to a capped log, newest last */
   rpushCapped(key: string, value: any, max: number): Promise<void>;
+  /** append and return the new length; the key expires after `ttl` seconds */
+  rpushLen(key: string, value: any, ttl: number): Promise<number>;
   lrange<T = any>(key: string, start: number, stop: number): Promise<T[]>;
   /**
    * Take an exclusive lock, or return null if somebody holds it. The lock
@@ -101,6 +103,11 @@ async function redisKv(): Promise<Kv> {
     rpushCapped: async (key, value, max) => {
       await r.rpush(key, value);
       await r.ltrim(key, -max, -1);
+    },
+    rpushLen: async (key, value, ttl) => {
+      const n = Number(await r.rpush(key, value));
+      if (n === 1) await r.expire(key, ttl);
+      return n;
     },
     lrange: (key, start, stop) => r.lrange(key, start, stop) as any,
     lock: async (key, ttlMs) => {
@@ -234,6 +241,12 @@ const memoryKv: Kv = {
     const l = lists.get(key)!;
     l.push(value);
     if (l.length > max) l.splice(0, l.length - max);
+  },
+  async rpushLen(key, value) {
+    if (!lists.has(key)) lists.set(key, []);
+    const l = lists.get(key)!;
+    l.push(value);
+    return l.length;
   },
   async lrange(key, start, stop) {
     const l = lists.get(key) ?? [];

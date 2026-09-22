@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { DUEL, STAKE_KEYS } from '../../shared/duel.js';
+import { FIGHT } from '../../shared/fight.js';
 import type { Inventory } from '../game/engine';
 import { api, type DuelStake, type DuelView, type OpenChallenge } from '../lib/api';
 import { shortAddress } from '../lib/wallet';
@@ -94,9 +95,9 @@ export function ArenaPanel({ guest, inventory, position, onEnter, onClose }: Pro
       </div>
 
       <p className="bp-note">
-        Two penguins, {DUEL.volleys} volleys, most hits wins the pot. Each volley you throw at a lane
-        — high or low — and pick where to stand and whether to jump, both sealed before either is
-        shown. Read your opponent; do not be read.
+        Two penguins face off across the rink. Throw straight balls and lobs, jump the straight
+        ones, step out from under the lobs. First to {FIGHT.hitsToWin} hits, or the most when{' '}
+        {FIGHT.durationMs / 1000} seconds run out, takes the pot.
       </p>
 
       {guest ? (

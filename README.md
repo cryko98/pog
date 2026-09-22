@@ -134,22 +134,30 @@ the token exists.
 
 ## The snowball arena
 
-Off the plaza, past the lanterns. Two penguins, a stake each, winner takes the
-pot. It is the one place in the game where players play *against* each other,
-and it is built so that neither of them — nor anyone watching the network —
-can bend it.
+Off the plaza, past the lanterns. Two penguins face off across a rink, a stake
+each, winner takes the pot. Real time, side on: move with A/D, jump with W,
+throw a straight ball with J and a lob with K. A straight ball flies at chest
+height and is dodged by jumping; a lob comes down where it was aimed and is
+dodged by stepping out from under it. A hit stuns you for half a second. First
+to five hits, or the most when sixty seconds run out; level, and it is overtime
+until the next hit.
 
-**Why it is not a real-time fight.** Presence is peer-to-peer and unauthenticated,
-so a fight in which a client reports "I hit them" cannot be made honest: either
-side could say anything. What can be made honest is a fight resolved by the
-server from **sealed choices**. Each volley, both players secretly pick a throw
-(a lane, high or low) and a dodge (a lane, and whether to jump). Each sends a
-SHA-256 of the choice first, then the choice itself once both hashes are in. The
-server checks the hash, resolves both throws at once, and scores the hits. A
-jump clears a low ball and meets a high one; standing meets both; the wrong lane
-meets nothing. Ten volleys, sudden death on a tie, a draw after twenty. The
-client's job is only to animate what the server decided. It plays like a penalty
-shoot-out with snowballs: read your opponent, and do not be read.
+**How a real-time fight stays honest without a game server.** Presence is
+peer-to-peer and unauthenticated, so a client is never asked where it is or
+what it hit. It sends what the player *did* — move, jump, throw — and the API
+stamps each input with its own clock the moment it arrives. The match is then
+a pure function of that log: `simulate(inputs, startAt, until)` in
+`shared/fight.js` steps a fixed-rate world forward and applies every input at
+its server time. The clients run that function for the picture, the server
+runs it for the score. A jump that reached the server after the ball crossed
+you is a jump after the ball crossed you, whatever the client's clock said.
+Nothing about position or hits is ever taken from a request; inputs are capped
+per second so a script gets the same hand a human has.
+
+For the picture, the opponent's inputs also travel over the broker — a
+fraction of a request's round trip — and are drawn provisionally until the
+server's stamped copies replace them within a poll. A forged broker message
+could nudge your screen for a moment; it cannot touch the result.
 
 **Stakes are escrowed before the first throw.** A soft stake (wood, ice, fish,
 $POG) leaves the host's pack when the challenge goes up and the challenger's
@@ -170,12 +178,11 @@ keypair file with `tools/payout.mjs`, dry run by default — the same shape as
 verified deposit amounts, to the verified winner; nothing takes an amount or a
 recipient from a request.
 
-**What a cheat cannot do**, and `arenacheck` proves: reveal a choice other than
-the sealed one, reveal before the other side has sealed, seal twice, throw in a
-match they are not in, take their own challenge, take one twice, put up a stake
-they do not hold, act from anywhere but the arena, or keep playing once it is
-over. Stalling does not work either: a side that does not seal or does not
-reveal in time sits the volley out, and three of those forfeit.
+**What a cheat cannot do**, and `arenacheck` proves: backdate a jump, put a
+position or a hit count in a request and have it applied, flood inputs, act
+during the countdown or after the end, act in a match they are not in, take
+their own challenge, take one twice, put up a stake they do not hold, act from
+anywhere but the arena, or keep playing once it is over.
 
 ## The season, and the airdrop
 

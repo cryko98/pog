@@ -273,6 +273,48 @@ export function subscribeCoins(cb: (id: number) => void): () => void {
  * ------------------------------------------------------------------ */
 
 const NODE_TOPIC = `${NS}/nodes`;
+
+/* ------------------------------------------------------------------ *
+ * The arena's fast lane
+ *
+ * A fight's inputs go to the server (the truth) AND over the broker (the
+ * picture): the broker hop is a fraction of a request's round trip, so
+ * the opponent's throw shows up on your screen almost as they make it.
+ * Everything heard here is provisional — the server's stamped log
+ * replaces it within a poll — and a message not from the opponent's
+ * wallet is dropped on arrival.
+ * ------------------------------------------------------------------ */
+
+const FIGHT_TOPIC = (id: string) => `${NS}/fight/${id}`;
+
+export interface FightWire {
+  from: string;
+  /** the sender's tag for this input, so the stamped copy can replace it */
+  n?: string;
+  type: 'move' | 'jump' | 'throw';
+  dir?: number;
+  kind?: 'straight' | 'lob';
+  targetX?: number;
+  ts: number;
+}
+
+export function publishFightInput(id: string, input: Omit<FightWire, 'ts'>) {
+  publish(FIGHT_TOPIC(id), { ...input, ts: Date.now() });
+}
+
+export function subscribeFight(id: string, cb: (m: FightWire) => void): () => void {
+  const topic = FIGHT_TOPIC(id);
+  return listen(topic, (t, payload) => {
+    if (t !== topic) return;
+    try {
+      const m = JSON.parse(payload.toString());
+      if (typeof m?.from !== 'string' || typeof m?.type !== 'string') return;
+      cb(m as FightWire);
+    } catch {
+      /* ignore */
+    }
+  });
+}
 const IGLOO_TOPIC = `${NS}/igloos`;
 
 export function announceNode(id: string, respawnAt: number) {

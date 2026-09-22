@@ -521,7 +521,7 @@ console.log('\n--- concurrency (needs POG_DEV_KEY=localtest on the server) ---')
       await call('/api/home/place', { method: 'POST', token: c.token, body: { id: 'rug', x: 0, y: -40 } });
       await grant(c.token, { items: { iglooKit: 1 } });
       await sleep(1100);
-      const again = await call('/api/game/build', { method: 'POST', token: c.token, body: { x: spot.x + 5, y: spot.y + 5, style: 'classic' } });
+      const again = await call('/api/game/build', { method: 'POST', token: c.token, body: { x: spot.x, y: spot.y, style: 'classic' } });
       check('raising a second kit moves the igloo instead of replacing it', again.status === 200 && (again.json.igloo?.furniture || []).length === 1, again.json.error || `furniture=${(again.json.igloo?.furniture || []).length}`);
     }
   }
