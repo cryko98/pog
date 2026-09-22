@@ -260,6 +260,61 @@ console.log('\n--- daily quests ---');
   check('a prototype-pollution quest id is rejected', r.status === 409, r.json.error);
 }
 
+console.log('\n--- the season ledger ---');
+{
+  const r = await call('/api/season/status', { token: 'not-a-real-token-0000000000' });
+  check('reading the Frost ledger needs a real session', r.status === 401);
+}
+{
+  const cairn = getNodes().find((n) => n.id === 'station-cairn');
+  const r = await call('/api/season/offer', { method: 'POST', body: { id: 'wood', x: cairn.x, y: cairn.y } });
+  check('offering with no session is rejected', r.status === 401);
+}
+{
+  const r = await call('/api/season/status', { token: me.token });
+  check('a fresh wallet has no Frost', (r.json.frost || 0) === 0, `frost=${r.json.frost}`);
+  check('and has not passed the gate', r.json.gate?.ok === false);
+}
+{
+  // Frost is the airdrop ledger, so this is the write nobody may make.
+  await call('/api/profile/set', {
+    method: 'POST',
+    token: me.token,
+    body: { name: 'Hacker', color: '#38bdf8', frost: 999999, frostStreak: 99, playToday: 9999 },
+  });
+  const r = await call('/api/season/status', { token: me.token });
+  check(
+    'a profile write cannot inject Frost, a streak or playtime',
+    (r.json.frost || 0) === 0 && (r.json.streak || 0) === 0,
+    `frost=${r.json.frost} streak=${r.json.streak}`
+  );
+}
+{
+  // The architectural claim: there is no endpoint that hands out Frost.
+  const attempts = ['credit', 'grant', 'award', 'add', 'set'];
+  const answers = await Promise.all(
+    attempts.map((a) =>
+      call(`/api/season/${a}`, { method: 'POST', token: me.token, body: { amount: 999999, frost: 999999 } })
+    )
+  );
+  check(
+    'there is no endpoint that credits Frost',
+    answers.every((r) => r.status === 404),
+    answers.map((r, i) => `${attempts[i]}:${r.status}`).join(' ')
+  );
+}
+{
+  const r = await call('/api/season/verify', {
+    method: 'POST',
+    token: me.token,
+    body: { token: 'forged-captcha-token' },
+  });
+  check('a forged captcha token is rejected', r.status === 409, r.json.error);
+  const s = await call('/api/season/status', { token: me.token });
+  const human = (s.json.gate?.items || []).find((i) => i.id === 'human');
+  check('and leaves no verified mark', !human || human.done === false);
+}
+
 console.log('\n--- coins ---');
 {
   const coin = getCoins()[0];

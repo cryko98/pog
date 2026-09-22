@@ -350,6 +350,7 @@ const FOOTPRINT = {
   workbench: 46,
   stall: 52,
   campfire: 44,
+  cairn: 40,
 };
 
 const footprintOf = (p) => (FOOTPRINT[p.type] ?? 24) * p.scale;
@@ -408,6 +409,8 @@ export function getProps() {
     { type: 'stall', x: sx + 205, y: sy - 55, r: 32, scale: 1, variant: 0 },
     // a catch is worth nothing raw; the fire is where fish becomes $POG
     { type: 'campfire', x: sx, y: sy + 120, r: 24, scale: 1, variant: 0 },
+    // and the cairn is where a season's work is counted
+    { type: 'cairn', x: sx - 250, y: sy + 185, r: 22, scale: 1, variant: 0 },
     { type: 'snowman', x: sx - 118, y: sy + 150, r: 16, scale: 1.2, variant: 3 },
     { type: 'snowman', x: sx + 132, y: sy + 152, r: 16, scale: 1.1, variant: 7 },
     { type: 'pine', x: sx - 322, y: sy + 252, r: 16, scale: 1.3, variant: 4 },
@@ -564,7 +567,8 @@ export function getNodes() {
   nodes.push(
     { id: 'station-craft', type: 'craft', x: WORLD.spawn.x - 205, y: WORLD.spawn.y - 55 },
     { id: 'station-shop', type: 'shop', x: WORLD.spawn.x + 205, y: WORLD.spawn.y - 55 },
-    { id: 'station-fire', type: 'fire', x: WORLD.spawn.x, y: WORLD.spawn.y + 120 }
+    { id: 'station-fire', type: 'fire', x: WORLD.spawn.x, y: WORLD.spawn.y + 120 },
+    { id: 'station-cairn', type: 'cairn', x: WORLD.spawn.x - 250, y: WORLD.spawn.y + 185 }
   );
 
   // Every pine is choppable.

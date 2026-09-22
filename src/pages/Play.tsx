@@ -8,6 +8,7 @@ import { PenguinMark } from '../components/PenguinMark';
 import { ProfileModal } from '../components/ProfileModal';
 import { BackpackPanel } from '../components/BackpackPanel';
 import { QuestPanel } from '../components/QuestPanel';
+import { SeasonPanel } from '../components/SeasonPanel';
 import { Icon } from '../components/Icon';
 import { skinById } from '../../shared/world.js';
 
@@ -43,6 +44,9 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
   const [bagTab, setBagTab] = useState<'bag' | 'craft' | 'cook' | 'shop'>('bag');
   const [quests, setQuests] = useState<QuestBoard | null>(null);
   const [showQuests, setShowQuests] = useState(false);
+  const [showSeason, setShowSeason] = useState(false);
+  /** bumped whenever something may have moved the Frost ledger */
+  const [seasonTick, setSeasonTick] = useState(0);
   const [editing, setEditing] = useState(false);
   const [fatal, setFatal] = useState('');
   const [booting, setBooting] = useState(true);
@@ -75,7 +79,15 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
       onChat: pushLine,
       onFatal: setFatal,
       onQuests: setQuests,
+      onSeason: () => setSeasonTick((n) => n + 1),
       onStation: (which) => {
+        // the cairn has its own panel; the other three are backpack tabs
+        if (which === 'cairn') {
+          setShowBag(false);
+          setBagPinned(false);
+          setShowSeason(true);
+          return;
+        }
         setBagTab(which === 'fire' ? 'cook' : which);
         setBagPinned(true); // opened from a station, so it stays until closed
         setShowBag(true);
@@ -333,6 +345,19 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
             {!!quests?.claimable && <i className="badge">{quests.claimable}</i>}
           </button>
           <button
+            className={`icon-btn${showSeason ? ' active' : ''}`}
+            title="Season — Frost and the airdrop"
+            onClick={() => {
+              setShowSeason((v) => !v);
+              setShowQuests(false);
+              setShowBoard(false);
+              setShowBag(false);
+              setBagPinned(false);
+            }}
+          >
+            <Icon name="snowflake" size={17} />
+          </button>
+          <button
             className={`icon-btn${showBoard ? ' active' : ''}`}
             title="Leaderboard"
             onClick={() => setShowBoard((v) => !v)}
@@ -388,7 +413,17 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
           />
         )}
 
-        {showQuests && !showBag && (
+        {showSeason && !showBag && (
+          <SeasonPanel
+            guest={!!identity?.guest}
+            inventory={hud.inventory}
+            refresh={seasonTick}
+            onOffer={(id) => gameRef.current?.offer(id) ?? Promise.resolve('Not in the world yet.')}
+            onClose={() => setShowSeason(false)}
+          />
+        )}
+
+        {showQuests && !showBag && !showSeason && (
           <QuestPanel
             board={quests}
             guest={!!identity?.guest}
@@ -397,7 +432,7 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
           />
         )}
 
-        {showBoard && !showBag && !showQuests && (
+        {showBoard && !showBag && !showQuests && !showSeason && (
           <div className="panel side-panel">
             <h4>
               <Icon name="trophy" size={16} /> Top holders on ice

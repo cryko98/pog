@@ -35,6 +35,8 @@ export interface Kv {
   setnx(key: string, value: any, ttlSeconds: number): Promise<boolean>;
   del(key: string): Promise<void>;
   incrWithTtl(key: string, ttlSeconds: number): Promise<number>;
+  /** add to a counter that never expires; returns the new total */
+  incrBy(key: string, amount: number): Promise<number>;
   hget<T = any>(key: string, field: string): Promise<T | null>;
   hgetall<T = any>(key: string): Promise<Record<string, T> | null>;
   hset(key: string, field: string, value: any): Promise<void>;
@@ -75,6 +77,7 @@ async function redisKv(): Promise<Kv> {
       if (n === 1) await r.expire(key, ttl);
       return n;
     },
+    incrBy: (key, amount) => r.incrby(key, Math.trunc(amount)),
     hget: (key, field) => r.hget(key, field) as any,
     hgetall: (key) => r.hgetall(key) as any,
     hset: async (key, field, value) => {
@@ -150,6 +153,12 @@ const memoryKv: Kv = {
     const e = mem.get(key);
     const n = (alive(e) ? Number(e.value) || 0 : 0) + 1;
     mem.set(key, { value: n, exp: alive(e) ? e.exp : Date.now() + ttl * 1000 });
+    return n;
+  },
+  async incrBy(key, amount) {
+    const e = mem.get(key);
+    const n = (alive(e) ? Number(e.value) || 0 : 0) + Math.trunc(amount);
+    mem.set(key, { value: n, exp: 0 });
     return n;
   },
   async hget(key, field) {

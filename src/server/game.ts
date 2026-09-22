@@ -7,6 +7,24 @@
 import nacl from 'tweetnacl';
 import bs58 from 'bs58';
 import { kv } from './kv.js';
+import { holdingOf } from './chain.js';
+import { humanGateOn, isVerified } from './human.js';
+import {
+  applyOffering,
+  checkOffering,
+  creditFrost,
+  eligibility,
+  indexFrost,
+  normalizeFrost,
+  pendingStreak,
+  rollover,
+  frostBoard,
+  frostPool,
+  seasonSummary,
+  type FrostFields,
+  type GateInput,
+} from './season.js';
+import { FROST, SEASON, multipliers, seasonState, shareOf } from '../../shared/season.js';
 import {
   COIN,
   DAILY_QUESTS,
@@ -165,7 +183,7 @@ async function trackMovement(
 /** How much of a resource this wallet has earned the right to hold. */
 const holdCap = (profile: Profile) => HOLD_BASE + (profile.playMinutes || 0) * HOLD_PER_MINUTE;
 
-export interface Profile {
+export interface Profile extends FrostFields {
   wallet: string;
   name: string;
   color: string;
@@ -213,6 +231,7 @@ function normalize(p: Partial<Profile> & { wallet: string }): Profile {
     playMinutes: Math.max(0, Math.floor(Number(p.playMinutes) || 0)),
     streak: Math.max(0, Math.floor(Number(p.streak) || 0)),
     lastQuestDay: typeof p.lastQuestDay === 'string' ? p.lastQuestDay : '',
+    ...normalizeFrost(p),
     createdAt: p.createdAt ?? Date.now(),
     updatedAt: p.updatedAt ?? Date.now(),
   };
@@ -227,6 +246,163 @@ const clampStock = (p: Profile) => {
   }
   return p;
 };
+
+/* ------------------------------------------------------------------ *
+ * Frost — the season ledger
+ *
+ * Every grant funnels through `grantFrost`. It is never reachable from a
+ * request directly: the callers are `heartbeat`, `claimQuest`, `buildIgloo`
+ * and `offerAtCairn`, all of which have already established that the thing
+ * being rewarded actually happened.
+ * ------------------------------------------------------------------ */
+
+async function ownsIgloo(wallet: string): Promise<boolean> {
+  const store = await kv();
+  return (await store.hget<Igloo>(K.igloos, wallet)) != null;
+}
+
+/** The checklist inputs, gathered from the profile, the chain and the captcha. */
+async function gateFor(profile: Profile): Promise<GateInput> {
+  const [holding, human] = await Promise.all([holdingOf(profile.wallet), isVerified(profile.wallet)]);
+  return {
+    playMinutes: profile.playMinutes,
+    playToday: profile.playToday,
+    balance: holding.balance,
+    chainLive: holding.live,
+    humanRequired: humanGateOn(),
+    humanVerified: human,
+  };
+}
+
+/**
+ * Bank `base` Frost against a profile, if the wallet qualifies and the
+ * season is open. Mutates the profile; the caller still has to persist it
+ * and then mirror the new total with `indexFrost`.
+ *
+ * Returns 0 for every ordinary reason — not qualified yet, season closed,
+ * daily cap reached — because none of those are errors. A player who has
+ * not passed the gate should still be able to play, quest and build; they
+ * simply are not accruing yet.
+ */
+async function grantFrost(profile: Profile, base: number): Promise<number> {
+  if (base <= 0) return 0;
+  if (!seasonState().open) return 0;
+
+  rollover(profile);
+  const gate = await gateFor(profile);
+  if (!eligibility(gate).ok) return 0;
+
+  const mult = multipliers({
+    streakDays: pendingStreak(profile),
+    hasIgloo: await ownsIgloo(profile.wallet),
+    balance: gate.balance,
+  });
+  return creditFrost(profile, base, mult.total).banked;
+}
+
+/** Persist a profile and mirror its Frost into the season index. */
+async function saveWithFrost(profile: Profile, banked: number): Promise<Profile> {
+  const saved = await putProfile(profile);
+  if (banked > 0) await indexFrost(saved.wallet, saved.frost, banked);
+  return saved;
+}
+
+export interface FrostEntry {
+  rank: number;
+  name: string;
+  color: string;
+  frost: number;
+  /** what this rank takes if the season ended right now */
+  tokens: number;
+}
+
+/** The season board, with names and a running estimate of each share. */
+export async function frostLeaderboard(limit = 25): Promise<FrostEntry[]> {
+  const [rows, pool] = await Promise.all([frostBoard(limit), frostPool()]);
+  if (!rows.length) return [];
+
+  const store = await kv();
+  const profiles = await store.mget<Profile>(rows.map((r) => K.profile(r.wallet)));
+  return rows
+    .map((r, i) => ({ r, p: profiles[i] }))
+    .filter(({ p }) => !!p?.name)
+    .map(({ r, p }, i) => ({
+      rank: i + 1,
+      name: p!.name,
+      color: p!.color,
+      frost: r.frost,
+      tokens: shareOf(r.frost, pool).tokens,
+    }));
+}
+
+/** The whole season panel for one wallet. */
+export async function seasonFor(wallet: string) {
+  const profile = await getProfile(wallet);
+  if (!profile) return { error: 'Pick a username first.' };
+  rollover(profile);
+  const gate = await gateFor(profile);
+  return seasonSummary(wallet, profile, gate, await ownsIgloo(wallet));
+}
+
+/**
+ * Burn resources at the cairn for Frost.
+ *
+ * Unlike crafting, this one is position-checked. Frost is the thing worth
+ * scripting, so it is worth making a script walk to the plaza and stand
+ * there like everyone else.
+ */
+export async function offerAtCairn(
+  wallet: string,
+  offeringId: unknown,
+  x: unknown,
+  y: unknown
+): Promise<{ profile?: Profile; frost?: number; spent?: Record<string, number>; error?: string }> {
+  if (!seasonState().open) return { error: 'The season is closed.' };
+
+  const cairn = getNode('station-cairn');
+  const px = Number(x);
+  const py = Number(y);
+  if (!cairn) return { error: 'The cairn is not there.' };
+  if (!Number.isFinite(px) || !Number.isFinite(py)) return { error: 'Where are you?' };
+  if (Math.hypot(px - cairn.x, py - cairn.y) > GATHER.range * 1.6) {
+    return { error: 'Bring it to the cairn on the plaza.' };
+  }
+
+  const profile = await getProfile(wallet);
+  if (!profile) return { error: 'Pick a username first.' };
+
+  rollover(profile);
+  const gate = await gateFor(profile);
+  const check = eligibility(gate);
+  if (!check.ok) {
+    const missing = check.items.find((i) => !i.done);
+    return { error: `Not eligible yet — ${missing?.label.toLowerCase()}.` };
+  }
+
+  // Everything that can refuse this runs before the movement check, so a
+  // bad id or an empty pack costs nothing and the rate limiter never ends
+  // up answering on behalf of a validation that did not happen.
+  const precheck = checkOffering(profile, offeringId);
+  if (precheck.error) return { error: precheck.error };
+
+  const moveError = await trackMovement(wallet, px, py);
+  if (moveError) return { error: moveError };
+
+  const mult = multipliers({
+    streakDays: pendingStreak(profile),
+    hasIgloo: await ownsIgloo(wallet),
+    balance: gate.balance,
+  });
+
+  const result = applyOffering(profile, offeringId, mult.total);
+  if (result.error) return { error: result.error };
+
+  return {
+    profile: await saveWithFrost(profile, result.credit!.banked),
+    frost: result.credit!.banked,
+    spent: result.spent,
+  };
+}
 
 /* ------------------------------------------------------------------ *
  * Wallet auth (Solana ed25519 over a plain-text message)
@@ -691,7 +867,7 @@ export async function questBoard(wallet: string): Promise<QuestBoard> {
 export async function claimQuest(
   wallet: string,
   questId: unknown
-): Promise<{ profile?: Profile; reward?: number; bonus?: number; streak?: number; error?: string }> {
+): Promise<{ profile?: Profile; reward?: number; bonus?: number; streak?: number; frost?: number; error?: string }> {
   const day = questDay();
   const defs = dailyQuests(wallet, day);
   const def = defs.find((q) => q.id === questId);
@@ -721,9 +897,14 @@ export async function claimQuest(
   }
 
   profile.pog += def.reward + bonus;
-  const saved = await putProfile(profile);
+
+  // Frost for the quest, plus the sweep bonus on the one that finishes the set.
+  const sweep = claimed.size >= Math.min(DAILY_QUESTS, defs.length);
+  const frost = await grantFrost(profile, FROST.quest + (sweep ? FROST.questSweep : 0));
+
+  const saved = await saveWithFrost(profile, frost);
   await store.zadd(K.leaderboard, saved.pog, wallet);
-  return { profile: saved, reward: def.reward, bonus, streak: saved.streak };
+  return { profile: saved, reward: def.reward, bonus, streak: saved.streak, frost };
 }
 
 /* ------------------------------------------------------------------ *
@@ -741,7 +922,7 @@ export async function buildIgloo(
   x: unknown,
   y: unknown,
   style: unknown
-): Promise<{ igloo?: Igloo; profile?: Profile; error?: string }> {
+): Promise<{ igloo?: Igloo; profile?: Profile; frost?: number; error?: string }> {
   const px = Number(x);
   const py = Number(y);
   if (!Number.isFinite(px) || !Number.isFinite(py)) return { error: 'Where are you?' };
@@ -771,7 +952,16 @@ export async function buildIgloo(
   profile.items.iglooKit -= 1;
   const store = await kv();
   await store.hset(K.igloos, wallet, igloo);
-  return { igloo, profile: await putProfile(profile) };
+
+  // One Frost award per season for raising a shelter — after the hset, so
+  // the igloo multiplier already counts the one just built.
+  let frost = 0;
+  if (profile.iglooFrostSeason !== SEASON.id) {
+    frost = await grantFrost(profile, FROST.igloo);
+    if (frost > 0) profile.iglooFrostSeason = SEASON.id;
+  }
+
+  return { igloo, profile: await saveWithFrost(profile, frost), frost };
 }
 
 /* ------------------------------------------------------------------ *
@@ -847,8 +1037,19 @@ export async function heartbeat(clientId: string, wallet?: string | null): Promi
     if (fresh) {
       const profile = await getProfile(wallet);
       if (profile) {
+        rollover(profile);
         profile.playMinutes = Math.min(100_000, (profile.playMinutes || 0) + 1);
-        await putProfile(profile);
+        profile.playToday = Math.min(1440, profile.playToday + 1);
+
+        // Frost for time on the ice, in blocks. `playToday` moves one at a
+        // time and only on a real elapsed minute, so testing the boundary
+        // is exact and needs no separate "blocks paid" counter.
+        let banked = 0;
+        const block = profile.playToday / FROST.playBlockMinutes;
+        if (Number.isInteger(block) && block <= FROST.maxPlayBlocks) {
+          banked = await grantFrost(profile, FROST.perPlayBlock);
+        }
+        await saveWithFrost(profile, banked);
       }
     }
   }

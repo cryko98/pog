@@ -210,6 +210,7 @@ const PROP_HEIGHT: Record<string, number> = {
   workbench: 62,
   stall: 86,
   campfire: 58,
+  cairn: 84,
 };
 
 export const propHeight = (p: Prop) => (PROP_HEIGHT[p.type] ?? 40) * p.scale;
@@ -516,6 +517,80 @@ function drawCampfire(ctx: CanvasRenderingContext2D, h: number, time: number) {
   ctx.fill();
 }
 
+/**
+ * The season cairn: a stack of balanced stones under a shard of ice that
+ * catches the light. It is where a season's work gets counted, so it is
+ * drawn to look like the one deliberate, made thing on the plaza.
+ */
+function drawCairn(ctx: CanvasRenderingContext2D, h: number, time: number) {
+  const w = h * 0.52;
+
+  // stacked stones, widest at the base and slightly offset as they rise
+  const stones = [
+    { y: 0.0, rx: 1.0, ry: 0.19, dx: 0.0, tone: '#7d919f' },
+    { y: 0.2, rx: 0.82, ry: 0.16, dx: 0.05, tone: '#8ea3b2' },
+    { y: 0.37, rx: 0.66, ry: 0.14, dx: -0.04, tone: '#7d919f' },
+    { y: 0.52, rx: 0.5, ry: 0.12, dx: 0.03, tone: '#98acba' },
+    { y: 0.64, rx: 0.36, ry: 0.1, dx: -0.02, tone: '#8ea3b2' },
+  ];
+  for (const s of stones) {
+    ctx.fillStyle = s.tone;
+    ctx.beginPath();
+    ctx.ellipse(s.dx * w, -h * s.y, w * s.rx * 0.5, h * s.ry * 0.5, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(38,62,79,0.45)';
+    ctx.lineWidth = 1.1;
+    ctx.stroke();
+    // snow caught on the upper face
+    ctx.fillStyle = 'rgba(255,255,255,0.8)';
+    ctx.beginPath();
+    ctx.ellipse(s.dx * w, -h * s.y - h * s.ry * 0.3, w * s.rx * 0.34, h * s.ry * 0.2, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // the shard on top, breathing slowly
+  const pulse = 0.82 + Math.sin(time * 1.5) * 0.18;
+  const tipY = -h * 0.74;
+  const glow = ctx.createRadialGradient(0, tipY, 1, 0, tipY, w * 0.7 * pulse);
+  glow.addColorStop(0, 'rgba(126,220,255,0.55)');
+  glow.addColorStop(1, 'rgba(126,220,255,0)');
+  ctx.fillStyle = glow;
+  ctx.beginPath();
+  ctx.arc(0, tipY, w * 0.7 * pulse, 0, Math.PI * 2);
+  ctx.fill();
+
+  const shard = ctx.createLinearGradient(0, tipY - h * 0.2, 0, tipY + h * 0.06);
+  shard.addColorStop(0, '#eafaff');
+  shard.addColorStop(0.5, '#9fe0f7');
+  shard.addColorStop(1, '#52b5da');
+  ctx.fillStyle = shard;
+  ctx.beginPath();
+  ctx.moveTo(0, tipY - h * 0.22);
+  ctx.lineTo(w * 0.15, tipY - h * 0.02);
+  ctx.lineTo(0, tipY + h * 0.07);
+  ctx.lineTo(-w * 0.15, tipY - h * 0.02);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(255,255,255,0.75)';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  // a facet line so it reads as carved rather than flat
+  ctx.strokeStyle = 'rgba(255,255,255,0.6)';
+  ctx.beginPath();
+  ctx.moveTo(0, tipY - h * 0.22);
+  ctx.lineTo(0, tipY + h * 0.07);
+  ctx.stroke();
+
+  // cold light pooling on the snow beneath it
+  const pool = ctx.createRadialGradient(0, 0, 1, 0, 0, w * 1.5);
+  pool.addColorStop(0, 'rgba(126,220,255,0.18)');
+  pool.addColorStop(1, 'rgba(126,220,255,0)');
+  ctx.fillStyle = pool;
+  ctx.beginPath();
+  ctx.ellipse(0, 0, w * 1.5, w * 0.6, 0, 0, Math.PI * 2);
+  ctx.fill();
+}
+
 export function drawProp(
   ctx: CanvasRenderingContext2D,
   prop: Prop,
@@ -560,6 +635,9 @@ export function drawProp(
       break;
     case 'campfire':
       drawCampfire(ctx, h, time);
+      break;
+    case 'cairn':
+      drawCairn(ctx, h, time);
       break;
   }
   ctx.restore();

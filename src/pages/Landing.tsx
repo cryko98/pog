@@ -47,9 +47,14 @@ const FEATURES = [
     body: 'Coins are deliberately scarce and the shop only sells hats. Nothing you can buy makes you gather faster — the real economy is wood, ice and fish.',
   },
   {
+    icon: 'snowflake' as IconName,
+    title: 'Frost, and a share of the season',
+    body: 'A separate ledger that only ever goes up. At the end of the season a fixed budget is split by share — your Frost over everyone’s. Quests, playtime, your igloo and offerings at the cairn all feed it.',
+  },
+  {
     icon: 'lock' as IconName,
     title: 'Hard to cheat, on purpose',
-    body: 'Every action is checked against where you last stood and how long ago. A bot has to walk the map and swing the axe exactly as often as you do.',
+    body: 'Every action is checked against where you last stood and how long ago. Frost has no endpoint that credits it, a wallet earns nothing until it qualifies, and the holder tiers make one deep wallet beat three shallow ones.',
   },
 ];
 
@@ -113,12 +118,22 @@ const ROADMAP = [
     ],
   },
   {
-    phase: 'Phase 4 — Blizzard',
+    phase: 'Phase 4 — The season',
+    done: true,
+    items: [
+      'Frost: the airdrop ledger',
+      'Qualifying gate & holder tiers',
+      'The cairn and offerings',
+      'Snapshot & audit tooling',
+    ],
+  },
+  {
+    phase: 'Phase 5 — Blizzard',
     items: ['Igloo furniture & interiors', 'Igloo marketplace', 'Snowball PvP arena', 'Guilds'],
   },
   {
-    phase: 'Phase 5 — Glacier',
-    items: ['On-chain reward claims', 'NFT penguin skins', 'Seasonal tournaments', 'Community-built zones'],
+    phase: 'Phase 6 — Glacier',
+    items: ['The claim contract', 'NFT penguin skins', 'Seasonal tournaments', 'Community-built zones'],
   },
 ];
 
@@ -365,16 +380,28 @@ export function Landing({ navigate }: { navigate: (r: Route) => void }) {
             <div className="card">
               <h3 style={{ marginBottom: 12 }}>Play to earn, honestly explained</h3>
               <p>
-                There are three ways to bank $POG: find a coin on the ice, cook a catch over the
-                plaza fire, or clear a daily quest. All three are recorded against your wallet and
-                shown on the live leaderboard. In game, coins buy hats and nothing else — they never
-                make you gather faster, so nobody can spend their way up the board.
+                Two currencies, two jobs. <strong>$POG</strong> is the soft one — found on the ice,
+                cooked at the fire, paid out by quests — and it buys hats and nothing else.{' '}
+                <strong>Frost</strong> is the airdrop ledger: it is never spendable, never goes
+                down, and is the only thing the season pays out against.
               </p>
               <p style={{ marginTop: 14 }}>
-                Those balances are the ledger for future on-chain reward distributions from the
-                community treasury. <strong>Nothing is claimable on chain yet</strong> — Phase 5
-                wires the claim contract. Until then, playing is free and every coin you bank counts
-                toward your place in line.
+                The season budget is split <strong>by share</strong>, not at a fixed rate:{' '}
+                <code>your Frost ÷ all Frost × the budget</code>. That is the only promise that can
+                actually be kept — a fixed rate against a game that mints points forever cannot be.
+              </p>
+              <p style={{ marginTop: 14 }}>
+                A wallet earns nothing until it qualifies: an hour of server-counted playtime, a
+                captcha, and a minimum on-chain balance once the token is live. Multipliers stack on
+                a capped daily base and every one of them rewards depth — the holder tiers are
+                absolute, so a bag split across ten wallets puts all ten in a lower tier than the
+                same bag held in one.
+              </p>
+              <p style={{ marginTop: 14 }}>
+                <strong>Nothing is claimable on chain yet.</strong> The ledger, the caps and the
+                snapshot tooling are built and running; the distributor contract is Phase 6. Every
+                season ends with a published snapshot — wallet, Frost, share, tokens — so the maths
+                can be checked by anyone.
               </p>
             </div>
           </div>

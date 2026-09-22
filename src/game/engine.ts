@@ -108,17 +108,20 @@ interface Options {
   onStation: (which: StationKind) => void;
   /** today's quests, whenever the server's view of them changes */
   onQuests: (board: QuestBoard) => void;
+  /** something may have moved the season ledger — re-read it */
+  onSeason: () => void;
 }
 
-export type StationKind = 'craft' | 'shop' | 'fire';
+export type StationKind = 'craft' | 'shop' | 'fire' | 'cairn';
 
-const STATION_KINDS: StationKind[] = ['craft', 'shop', 'fire'];
+const STATION_KINDS: StationKind[] = ['craft', 'shop', 'fire', 'cairn'];
 const isStation = (type: string): type is StationKind => STATION_KINDS.includes(type as StationKind);
 
 const STATION_PROMPT: Record<StationKind, string> = {
   craft: 'Press E to use the workbench',
   shop: 'Press E to browse the stall',
   fire: 'Press E to cook at the fire',
+  cairn: 'Press E to leave an offering',
 };
 
 const DIR_KEYS: Record<string, [number, number]> = {
@@ -596,6 +599,25 @@ export class PogGame {
   }
 
   /**
+   * Leave an offering at the cairn. Position-checked server-side, so this
+   * sends where we actually are rather than where the cairn is.
+   */
+  async offer(id: string): Promise<string | null> {
+    try {
+      const { profile, frost } = await api.offer(id, this.me.x, this.me.y);
+      this.applyProfile(profile);
+      const cairn = this.nodes.find((n) => n.id === 'station-cairn');
+      if (cairn) {
+        this.pickupFx.push({ x: cairn.x, y: cairn.y, t: performance.now(), label: `+${frost} Frost` });
+      }
+      this.opts.onSeason();
+      return null;
+    } catch (err) {
+      return err instanceof Error ? err.message : 'The cairn refused it.';
+    }
+  }
+
+  /**
    * Enter placement mode. The player then walks around with a ghost igloo
    * under them and confirms with E once the ground is clear.
    */
@@ -646,6 +668,7 @@ export class PogGame {
       announceIgloo(igloo);
       this.building = null;
       this.pushChat({ id: crypto.randomUUID(), text: 'Your igloo is up. Welcome home.', system: true });
+      this.opts.onSeason(); // raising one is worth Frost, once a season
       return null;
     } catch (err) {
       return err instanceof Error ? err.message : 'Could not build here.';

@@ -34,6 +34,65 @@ export interface QuestBoard {
   claimable: number;
 }
 
+/* --- the season / Frost ledger --- */
+
+export interface SeasonWindow {
+  id: number;
+  name: string;
+  open: boolean;
+  before: boolean;
+  over: boolean;
+  daysLeft: number;
+  dayNumber: number;
+  totalDays: number;
+}
+
+export interface GateItem {
+  id: string;
+  label: string;
+  done: boolean;
+  have?: number;
+  need?: number;
+}
+
+export interface SeasonStatus {
+  season: SeasonWindow;
+  budget: number;
+  budgetLabel: string;
+  frost: number;
+  frostToday: number;
+  dailyCap: number;
+  offerToday: number;
+  offerCap: number;
+  streak: number;
+  multipliers: {
+    streak: { add: number; days: number };
+    igloo: { add: number; has: boolean };
+    holder: { add: number; label: string; balance: number };
+    total: number;
+  };
+  pool: number;
+  rank: number | null;
+  share: number;
+  tokens: number;
+  gate: { ok: boolean; items: GateItem[] };
+}
+
+export interface FrostEntry {
+  rank: number;
+  name: string;
+  color: string;
+  frost: number;
+  tokens: number;
+}
+
+export interface Offering {
+  id: string;
+  label: string;
+  cost: Record<string, number>;
+  frost: number;
+}
+
 export interface Igloo {
   wallet: string;
   owner: string;
@@ -175,6 +234,26 @@ export const api = {
     ),
 
   igloos: () => request<{ igloos: Igloo[] }>('/game/igloos'),
+
+  /* --- season --- */
+
+  seasonConfig: () =>
+    request<{
+      season: SeasonWindow;
+      budgetLabel: string;
+      offerings: Offering[];
+      gates: { chain: boolean; captcha: boolean };
+    }>('/season/config'),
+
+  season: () => request<SeasonStatus>('/season/status'),
+
+  frostBoard: () => request<{ entries: FrostEntry[] }>('/season/board'),
+
+  offer: (id: string, x: number, y: number) =>
+    request<{ profile: Profile; frost: number; spent: Record<string, number> }>(
+      '/season/offer',
+      post({ id, x: Math.round(x), y: Math.round(y) })
+    ),
 
   buySkin: (skin: string) => request<{ profile: Profile }>('/game/buy', post({ skin })),
 
