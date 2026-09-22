@@ -313,7 +313,38 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
           )}
         </div>
 
-        {!identity!.guest && (
+        <div className="hud-left">
+          {/*
+            The bag lives on its own down here rather than in the icon row.
+            It is the control you reach for most, so it gets the size and
+            the space to match, and it sits beside what it contains.
+          */}
+          <button
+            className={`bag-btn${showBag ? ' active' : ''}`}
+            title="Backpack, crafting and shop"
+            onMouseEnter={hoverOpenBag}
+            onMouseLeave={hoverCloseBag}
+            onFocus={hoverOpenBag}
+            onBlur={hoverCloseBag}
+            onClick={() => {
+              // A click pins it open so it survives the pointer wandering
+              // off. It must not toggle `showBag`: hovering has already
+              // opened the panel, so a toggle would close the very thing
+              // the click was meant to keep.
+              const next = !bagPinned;
+              setBagTab('bag');
+              setBagPinned(next);
+              setShowBag(next);
+              setShowQuests(false);
+              setShowSeason(false);
+              setShowHome(false);
+            }}
+          >
+            <Icon name="backpack" size={30} />
+            <span>Bag</span>
+          </button>
+
+          {!identity!.guest && (
           <div className="panel hud-resources">
             <span title="Wood">
               <Icon name="wood" size={15} /> {hud.inventory.wood}
@@ -335,7 +366,31 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
               </span>
             )}
           </div>
-        )}
+          )}
+
+          {showBag && (
+          <BackpackPanel
+            key={bagTab}
+            initialTab={bagTab}
+            onHoverIn={hoverOpenBag}
+            onHoverOut={hoverCloseBag}
+            inventory={hud.inventory}
+            scarf={identity!.color}
+            skins={profileSkins}
+            equipped={equippedSkin}
+            guest={!!identity?.guest}
+            onCraft={(r) => gameRef.current?.craft(r) ?? Promise.resolve('Not in the world yet.')}
+            onBuild={(s) => gameRef.current?.startBuilding(s)}
+            onBuy={buySkin}
+            onEquip={equipSkin}
+            onClose={() => {
+              setBagPinned(false);
+              setShowBag(false);
+            }}
+          />
+
+          )}
+        </div>
 
         <div className="hud-top-right">
           <div className="panel hud-status">
@@ -399,25 +454,6 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
           >
             <Icon name="trophy" size={17} />
           </button>
-          <button
-            className={`icon-btn${showBag ? ' active' : ''}`}
-            title="Backpack, crafting and shop"
-            onMouseEnter={hoverOpenBag}
-            onMouseLeave={hoverCloseBag}
-            onClick={() => {
-              // A click pins it open so it survives the pointer wandering
-              // off. It must not toggle `showBag`: hovering the button has
-              // already opened the panel, so a toggle would close the thing
-              // the click was meant to keep.
-              const next = !bagPinned;
-              setBagTab('bag');
-              setBagPinned(next);
-              setShowBag(next);
-              setShowQuests(false);
-            }}
-          >
-            <Icon name="backpack" size={17} />
-          </button>
           <button className="icon-btn" title="Edit penguin" onClick={() => setEditing(true)}>
             <Icon name="palette" size={17} />
           </button>
@@ -426,27 +462,6 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
           </button>
         </div>
 
-        {showBag && (
-          <BackpackPanel
-            key={bagTab}
-            initialTab={bagTab}
-            onHoverIn={hoverOpenBag}
-            onHoverOut={hoverCloseBag}
-            inventory={hud.inventory}
-            scarf={identity!.color}
-            skins={profileSkins}
-            equipped={equippedSkin}
-            guest={!!identity?.guest}
-            onCraft={(r) => gameRef.current?.craft(r) ?? Promise.resolve('Not in the world yet.')}
-            onBuild={(s) => gameRef.current?.startBuilding(s)}
-            onBuy={buySkin}
-            onEquip={equipSkin}
-            onClose={() => {
-              setBagPinned(false);
-              setShowBag(false);
-            }}
-          />
-        )}
 
         {station && (
           <div

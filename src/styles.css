@@ -1585,7 +1585,6 @@ section.band {
 /* ---- always-on resource strip ---- */
 
 .hud-resources {
-  grid-area: 2 / 1;
   align-self: start;
   justify-self: start;
   display: flex;
@@ -2234,4 +2233,79 @@ section.band {
     width: calc(100vw - 24px);
     max-height: calc(100vh - 150px);
   }
+}
+
+/* ---- the backpack, on its own ----
+   The control reached for most often, so it is the one that gets room. */
+
+.hud-left {
+  grid-area: 2 / 1;
+  align-self: stretch;
+  min-height: 0;
+  justify-self: start;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+}
+
+.bag-btn {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 20px 12px 16px;
+  border-radius: 18px;
+  background: var(--hud);
+  box-shadow: inset 0 0 0 1px var(--hud-line), 0 8px 22px -12px rgba(4, 26, 32, 0.7);
+  backdrop-filter: blur(8px);
+  color: var(--snow);
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 1.05rem;
+  letter-spacing: 0.01em;
+  transition: background 0.15s, transform 0.15s, box-shadow 0.15s;
+}
+
+.bag-btn:hover,
+.bag-btn.active {
+  background: rgba(22, 154, 148, 0.92);
+  transform: translateY(-1px);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.3), 0 12px 26px -12px rgba(4, 26, 32, 0.8);
+}
+
+.bag-btn.active {
+  background: var(--teal-400);
+  color: #07333a;
+}
+
+@media (max-width: 620px) {
+  .bag-btn {
+    padding: 10px 16px 10px 13px;
+    gap: 9px;
+    font-size: 0.95rem;
+    border-radius: 15px;
+  }
+
+  .hud-left {
+    gap: 8px;
+  }
+}
+
+/* The bag panel is a sibling of its own button in the left column, so it
+   flows underneath whatever is there rather than guessing at an offset —
+   the resources strip is not shown to a guest, and a fixed margin left a
+   hole.  keeps this off the copy inside a shop window. */
+
+.hud-left > .side-panel.backpack {
+  grid-area: auto;
+  position: static;
+  justify-self: auto;
+  align-self: auto;
+  width: 250px;
+  max-height: none;
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
 }

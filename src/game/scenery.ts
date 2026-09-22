@@ -801,7 +801,9 @@ export interface WorldNode {
   y: number;
 }
 
-const NODE_HEIGHT: Record<string, number> = { ice: 34, hole: 56 };
+// Chest-high on a penguin. These are things you walk around now, so they
+// had better look like it.
+const NODE_HEIGHT: Record<string, number> = { ice: 52, hole: 62 };
 
 export function drawNode(
   ctx: CanvasRenderingContext2D,

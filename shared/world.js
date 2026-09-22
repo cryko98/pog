@@ -372,6 +372,44 @@ export const IGLOO = {
  * cannot know about them. Same y-squash convention as the props: the tilt
  * is a render-time projection, so footprints are squashed to match.
  */
+/**
+ * How much room each resource node takes on the ground. Trees are absent
+ * on purpose: a pine is already a solid prop and its node rides on it.
+ *
+ * A cut block leaves nothing but a scar in the ice, so it stops being
+ * solid while it is on cooldown. A fished hole is still a hole.
+ */
+export const NODE_SOLID = { ice: 34, hole: 38 };
+
+/**
+ * Push a walker out of the ice blocks and the fishing holes. Same
+ * squashed-footprint convention as everything else — the tilt is a
+ * render-time projection, so the ground shape is squashed on y to match.
+ *
+ * @param {number} x
+ * @param {number} y
+ * @param {(id: string) => boolean} [isDepleted] is this block already cut?
+ * @param {number} [radius]
+ */
+export function resolveNodes(x, y, isDepleted = () => false, radius = PLAYER.radius) {
+  for (const node of nodesNear(x, y, 160)) {
+    const solid = NODE_SOLID[node.type];
+    if (!solid) continue;
+    if (node.type === 'ice' && isDepleted(node.id)) continue;
+
+    const dx = x - node.x;
+    const dy = (y - node.y) * 1.7;
+    const min = solid + radius;
+    const dist = Math.hypot(dx, dy);
+    if (dist > 0.0001 && dist < min) {
+      const push = (min - dist) / dist;
+      x += dx * push;
+      y += (dy * push) / 1.7;
+    }
+  }
+  return { x, y };
+}
+
 export function resolveIgloos(x, y, igloos, radius = PLAYER.radius) {
   for (const igloo of igloos) {
     const dx = x - igloo.x;

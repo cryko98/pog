@@ -13,6 +13,7 @@ import {
   isOnIce,
   resolveCollisions,
   resolveIgloos,
+  resolveNodes,
   resolveInterior,
   iglooAt,
   iglooLevel,
@@ -1115,9 +1116,10 @@ export class PogGame {
       }
       next = room;
     } else {
-      // the world's props first, then any igloo standing on it
+      // props first, then the ice and the holes, then any igloo on top
       const solid = resolveCollisions(wantX, wantY);
-      next = resolveIgloos(solid.x, solid.y, [...this.igloos.values()]);
+      const past = resolveNodes(solid.x, solid.y, (id) => (this.depleted.get(id) ?? 0) > Date.now());
+      next = resolveIgloos(past.x, past.y, [...this.igloos.values()]);
     }
 
     // kill velocity into a wall so we do not vibrate against it
