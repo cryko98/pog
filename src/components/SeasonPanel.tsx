@@ -138,7 +138,15 @@ export function SeasonPanel({ guest, inventory, refresh, onOffer, onClose }: Pro
                 </div>
                 <div>
                   <b>{big(status.airdrop.owed)} $POG</b>
-                  <small>{status.airdrop.owed > 0 ? (status.airdrop.automatic ? 'owed — sent on your next visit' : 'owed — paid out by the team') : 'nothing owed'}</small>
+                  <small>
+                    {status.airdrop.inFlight
+                      ? `${big(status.airdrop.inFlight.amount)} sent (${short(status.airdrop.inFlight.signature)}), waiting for the chain`
+                      : status.airdrop.owed > 0
+                        ? status.airdrop.automatic
+                          ? 'owed — sent on your next visit'
+                          : 'owed — sent once the wallet is live'
+                        : 'nothing owed'}
+                  </small>
                 </div>
                 {status.airdrop.owed >= status.airdrop.rules.minPayout && status.airdrop.automatic && (
                   <button

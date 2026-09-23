@@ -309,6 +309,12 @@ The panel also has a Collect button. With no key in the environment the
 amounts simply stay owed — nothing is lost — and go out on each wallet's next
 visit once the key is set.
 
+A send is held as **pending** until the chain shows it finalized: confirmed,
+it becomes history; failed on chain, or unseen for five minutes (a blockhash
+is good for a minute or two, so it can never land after that), its amount
+goes back on the ledger. Nothing more is sent to a wallet while a send is in
+the air. So a wallet can be paid late, but never twice and never not at all.
+
 The environment needs three things for automatic payment:
 
 | Variable | What it is |

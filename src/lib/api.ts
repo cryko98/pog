@@ -108,6 +108,7 @@ export interface AirdropView {
   todayPool: number;
   todayEstimate: number;
   owed: number;
+  inFlight: { amount: number; signature: string; at: number } | null;
   yesterday: { day: string; players: number; igloo: number; total: number; frost: number } | null;
   yesterdayRecord: AirdropDay | null;
   history: Array<{ day?: string; amount: number; signature: string; at: number }>;

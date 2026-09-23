@@ -22,8 +22,12 @@
  *
  * Lazily, per wallet: the next time a wallet reads its season status (or
  * asks), whatever it is owed — whole tokens, at least `minPayout` — is
- * sent from the airdrop wallet under that wallet's lock, and the signature
- * is kept. That spreads the sending over the day instead of needing one
+ * sent from the airdrop wallet under that wallet's lock. The send is held
+ * as *pending* until the chain shows it finalized; a send that never
+ * lands (its blockhash expires within a couple of minutes) is put back
+ * on the ledger and tried again next time, and nothing more goes out to
+ * a wallet while a send is still in the air. So a wallet can be paid
+ * late, but never twice and never not at all. That spreads the sending over the day instead of needing one
  * long job, and a wallet that never comes back is never paid, which is
  * fine: the tokens stay in the wallet and go into the next days' budgets.
  * Without the key in the environment, the owed balances simply wait, and
@@ -37,7 +41,7 @@ import { withWallet } from './lock.js';
 import { AIRDROP, dailyBudget, splitDay } from '../../shared/airdrop.js';
 import { dayOf } from '../../shared/season.js';
 import { iglooLevel } from '../../shared/world.js';
-import { chainLive, heldBalance } from './chain.js';
+import { chainLive, finalizedTransaction, heldBalance } from './chain.js';
 import { ESCROW_KEY, airdropAddress, airdropReady, canPayAirdrop, payFromAirdrop, poolIsAirdrop } from './pool.js';
 import { K, type Igloo } from './game.js';
 import { SEASON_KEYS } from './season.js';
@@ -51,8 +55,10 @@ const KEY = {
   owed: (wallet: string) => `pog:airdrop:owed:${wallet}`,
   /** every wallet with something owed, for the operator's tool */
   owedSet: 'pog:airdrop:owedset',
-  /** a wallet's payouts, newest last */
+  /** a wallet's payouts, newest last — only ones the chain has finalized */
   history: (wallet: string) => `pog:airdrop:hist:${wallet}`,
+  /** a payout sent but not yet seen finalized; nothing more is sent while one is open */
+  pending: (wallet: string) => `pog:airdrop:pending:${wallet}`,
   /** a wallet's share of each closed day, so the panel can say "yesterday: N" */
   dayShare: (wallet: string, day: string) => `pog:airdrop:share:${wallet}:${day}`,
   /** what the wallet is taken to hold before the chain exists; decremented as days close */
@@ -85,6 +91,9 @@ export interface Payout {
   signature: string;
   at: number;
 }
+
+/** a blockhash is good for a minute or two; after this long a send that is not on chain never will be */
+const PENDING_GIVE_UP_MS = 5 * 60_000;
 
 /**
  * What the airdrop wallet has to give: on chain once live, the virtual
@@ -200,31 +209,66 @@ export async function owedTo(wallet: string): Promise<number> {
 }
 
 /**
+ * Settle a send that is still in the air: confirmed on chain, it becomes
+ * history; failed on chain, or unseen for long enough that its blockhash
+ * has expired, its amount goes back on the ledger. Returns true when the
+ * way is clear to send again. Call under the wallet's lock.
+ */
+async function reconcilePending(wallet: string): Promise<boolean> {
+  const store = await kv();
+  const open = await store.get<Payout>(KEY.pending(wallet));
+  if (!open) return true;
+  const tx = (await finalizedTransaction(open.signature)) as { meta?: { err?: unknown } } | null | undefined;
+  if (tx === null) return false; // the RPC is down; leave it be
+  if (tx === undefined) {
+    if (Date.now() - open.at < PENDING_GIVE_UP_MS) return false; // still could land
+    // it cannot land any more: back on the ledger
+    await store.del(KEY.pending(wallet));
+    const owed = await store.incrBy(KEY.owed(wallet), open.amount);
+    await store.zadd(KEY.owedSet, owed, wallet);
+    await store.incrBy(KEY.owedTotal, open.amount);
+    return true;
+  }
+  await store.del(KEY.pending(wallet));
+  if (tx.meta?.err) {
+    // landed, but failed: nothing moved, so it is still owed
+    const owed = await store.incrBy(KEY.owed(wallet), open.amount);
+    await store.zadd(KEY.owedSet, owed, wallet);
+    await store.incrBy(KEY.owedTotal, open.amount);
+    return true;
+  }
+  await store.rpushCapped(KEY.history(wallet), open, 60);
+  await store.incrBy(KEY.paidTotal, open.amount);
+  return true;
+}
+
+/**
  * Send a wallet what it is owed, if there is a key to send with. Runs
  * under the wallet's lock so two reads cannot both pay. Returns what was
  * sent and the signature, or nothing when there was nothing to do.
  */
 export async function settleOwed(wallet: string): Promise<{ paid: number; signature?: string; pending: number }> {
-  // a cheap look first: most reads owe nothing, and need no lock
+  if (!canPayAirdrop()) return { paid: 0, pending: await owedTo(wallet) };
+  // a cheap look first: most reads owe nothing and have nothing in the air, and need no lock
+  const store = await kv();
   const peek = await owedTo(wallet);
-  if (peek < AIRDROP.minPayout || !canPayAirdrop()) return { paid: 0, pending: peek };
+  if (peek < AIRDROP.minPayout && !(await store.get(KEY.pending(wallet)))) return { paid: 0, pending: peek };
   return withWallet(wallet, async () => {
-    const store = await kv();
+    if (!(await reconcilePending(wallet))) return { paid: 0, pending: await owedTo(wallet) };
     const owed = await owedTo(wallet);
-    if (owed < AIRDROP.minPayout || !canPayAirdrop()) return { paid: 0, pending: owed };
-    // take it off the ledger BEFORE sending; a failed send puts it back.
-    // The other order can pay twice; this order can at worst pay late.
+    if (owed < AIRDROP.minPayout) return { paid: 0, pending: owed };
+    // off the ledger BEFORE sending, and held as pending until the chain
+    // confirms it: a send can at worst be late, never doubled
     await store.set(KEY.owed(wallet), 0);
+    await store.incrBy(KEY.owedTotal, -owed);
     const signature = await payFromAirdrop(wallet, owed);
     if (!signature) {
       await store.incrBy(KEY.owed(wallet), owed);
+      await store.incrBy(KEY.owedTotal, owed);
       return { paid: 0, pending: owed };
     }
     await store.zadd(KEY.owedSet, 0, wallet);
-    const entry: Payout = { amount: owed, signature, at: Date.now() };
-    await store.rpushCapped(KEY.history(wallet), entry, 60);
-    await store.incrBy(KEY.paidTotal, owed);
-    await store.incrBy(KEY.owedTotal, -owed);
+    await store.set(KEY.pending(wallet), { amount: owed, signature, at: Date.now() } satisfies Payout, { ex: 30 * 24 * 3600 });
     return { paid: owed, signature, pending: 0 };
   });
 }
@@ -237,13 +281,14 @@ export async function airdropFor(wallet: string, frostToday: number) {
   const store = await kv();
   const today = dayOf();
   const y = yesterday();
-  const [owed, history, yShare, yRecord, supply, todayPool] = await Promise.all([
+  const [owed, history, yShare, yRecord, supply, todayPool, inFlight] = await Promise.all([
     owedTo(wallet),
     store.lrange<Payout>(KEY.history(wallet), -10, -1),
     store.get<{ players: number; igloo: number; total: number; frost: number }>(KEY.dayShare(wallet, y)),
     dayRecord(y),
     remainingSupply(),
     store.get<number>(`pog:fdaypool:${today}`),
+    store.get<Payout>(KEY.pending(wallet)),
   ]);
   const pool = Math.max(0, Number(todayPool) || 0);
   const budget = dailyBudget(supply.remaining);
@@ -259,6 +304,8 @@ export async function airdropFor(wallet: string, frostToday: number) {
     todayPool: pool,
     todayEstimate: estimate,
     owed,
+    /** sent, not yet seen finalized on chain */
+    inFlight: inFlight ?? null,
     yesterday: yShare ? { day: y, ...yShare } : null,
     yesterdayRecord: yRecord,
     history: history.slice().reverse(),
