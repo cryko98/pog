@@ -145,6 +145,36 @@ console.log('\n--- walking out ---');
   check('a new run right after is on cooldown', r.status === 409 && /breath/i.test(r.json.error), r.json.error);
 }
 
+console.log('\n--- winning ---');
+{
+  // a third wallet goes in, puts the first bear down with two snowballs,
+  // and walks out before the second one is close: the coins land in the
+  // pack and nothing else in the pack moves
+  const hunter = await signIn('Hunter' + Math.floor(Math.random() * 9000 + 1000));
+  await grant(hunter.token, { wood: 7, fish: 2, pog: 15 });
+  const r = await post('/api/dungeon/enter', hunter.token, here);
+  check('the hunter goes in', r.status === 200, JSON.stringify(r.json).slice(0, 100));
+  const hunt = r.json.run;
+  await sleep(Math.max(0, hunt.startAt - Date.now()) + 5000);
+  await post('/api/dungeon/input', hunter.token, { id: hunt.id, type: 'throw' });
+  await sleep(600);
+  await post('/api/dungeon/input', hunter.token, { id: hunt.id, type: 'throw' });
+  await sleep(1500);
+  // what the server will settle, predicted from its own stamped log and seed
+  const { json: log } = await call('/api/dungeon/inputs?id=' + hunt.id + '&since=0', { token: hunter.token });
+  const expected = simulateRun(log.inputs, hunt.seed, hunt.startAt, Date.now() + 200);
+  check('two snowballs put the first bear down', expected.kills >= 1 && expected.coins >= 1, `kills ${expected.kills} coins ${expected.coins}`);
+  const l = await post('/api/dungeon/input', hunter.token, { id: hunt.id, type: 'leave' });
+  check('walking out with the coins is accepted', l.status === 200, JSON.stringify(l.json));
+  await sleep(300);
+  const st = await state(hunter.token, hunt.id);
+  const settled = st.json.run?.settled;
+  check('the run settles as left, with the coins', settled?.why === 'left' && settled.coins === expected.coins && settled.coins >= 1, JSON.stringify(settled));
+  const p = await profile(hunter.token);
+  check('the coins are in the pack', p.pog === 15 + (settled?.coins ?? 0), `pog=${p.pog} expected ${15 + (settled?.coins ?? 0)}`);
+  check('nothing else in the pack moved', p.wood === 7 && p.fish === 2 && p.items.axe === 1, `wood=${p.wood} fish=${p.fish} items=${JSON.stringify(p.items)}`);
+}
+
 console.log('\n--- dying ---');
 const dead = await signIn('Bait' + Math.floor(Math.random() * 9000 + 1000));
 await grant(dead.token, { wood: 12, ice: 3, fish: 2, pog: 9 });

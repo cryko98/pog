@@ -329,10 +329,6 @@ export function Landing({ navigate }: { navigate: (r: Route) => void }) {
                 <b>{igloos}</b>
                 <span>Igloos built</span>
               </div>
-              <div className="stat">
-                <b>{stats.coins}</b>
-                <span>P coins to find</span>
-              </div>
             </div>
           </div>
 

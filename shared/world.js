@@ -29,7 +29,7 @@ export const COIN = {
   radius: 18,
   pickupRadius: 52,
   respawnMs: 240000,
-  count: 70,
+  count: 32,
   value: 1,
 };
 

@@ -18,7 +18,7 @@ game server to keep alive.
 | **Multiplayer** | Everyone shares one map over a public MQTT broker — positions, chat and name tags in real time. |
 | **Survival loop** | Chop wood, cut ice, fish. Craft a rod, then an igloo kit, then raise the igloo — all validated server-side. |
 | **Daily quests** | Three a day, derived from your wallet address and the UTC date. Clear all three and a streak bonus stacks on top. |
-| **Play to earn** | 70 scarce P coins on the ice — none near the plaza, and well apart — the plaza cookout, and quest rewards. P coins are the in-game money, not the $POG token; the token only ever moves wallet to wallet. Balances are banked per wallet on a live leaderboard. |
+| **Play to earn** | A few dozen scarce P coins on the ice — none near the plaza, and well apart — the plaza cookout, and quest rewards. P coins are the in-game money, not the $POG token; the token only ever moves wallet to wallet. Balances are banked per wallet on a live leaderboard. |
 | **The season** | **Frost**, a separate ledger that only goes up. A fixed token budget is split by share at the end of each season. Gated, capped, and snapshot to a merkle root. |
 | **Phone support** | An on-screen action button next to the virtual stick, so gathering, the stations and building all work without a keyboard. |
 | **Onboarding** | A card that says the one thing to do next — move, fell a pine, gather 25 wood, craft a rod, catch a fish, cook it — with an arrow on the ice to where. Judged from the pack, not from clicks, so it cannot get stuck; goes away for good once the loop has been walked once, or when skipped. |
@@ -80,7 +80,7 @@ endpoint that takes "I did the thing" as input. Rewards are gated on an atomic
 Clearing all three extends a streak, worth an extra $POG per consecutive day up
 to five. Miss a day and it starts over.
 
-**$POG is cosmetic only.** Coins are scarce — 70 on the whole map with a
+**$POG is cosmetic only.** Coins are scarce — a few dozen on the whole map with a
 four-minute respawn — and the only thing they buy is a hat in the shop.
 Nothing purchasable makes you gather faster; the real economy is wood, ice
 and fish. The cookout and the quest board add two more ways in, both bounded

@@ -44,35 +44,35 @@ export const CAVE = {
   /** how high the body has to be to clear a bear, or a swipe */
   clearHeight: 62,
   /** snowballs: a handful, packed one at a time while standing still — and only once the throwing has stopped for a beat */
-  ammoMax: 6,
-  ammoStart: 6,
-  packDelayMs: 1200,
-  packMs: 550,
+  ammoMax: 8,
+  ammoStart: 8,
+  packDelayMs: 900,
+  packMs: 450,
   /** throws: straight balls the way you face */
   throwCooldownMs: 520,
   windupMs: 160,
   ballSpeed: 760,
   ballHeight: 34,
   /** bears */
-  bearSpeed: 140,
-  bearSpeedPerWave: 18,
+  bearSpeed: 125,
+  bearSpeedPerWave: 14,
   bearHp: 2,
-  bearHpEvery: 1, // +1 hp every this many waves
+  bearHpEvery: 2, // +1 hp every this many waves
   bearReach: 80,
   /** a bear's body: the floor it blocks */
   bearBody: 64,
   /** a swipe comes up for this long before it lands — the window to jump */
-  swipeWindupMs: 380,
+  swipeWindupMs: 420,
   /** and comes again after this, plus a bear's own jitter */
   bearSwipeMs: 700,
   bearSwipeJitterMs: 500,
   /** how long a bear takes to turn round once you are behind it */
   bearTurnMs: 550,
   bearKnockback: 24,
-  bearsAlive: 5,
-  spawnMs: 2600,
-  spawnMsPerWave: 300,
-  spawnMsMin: 900,
+  bearsAlive: 4,
+  spawnMs: 3000,
+  spawnMsPerWave: 280,
+  spawnMsMin: 1000,
   /** the loot, in P coins */
   coinsPerKill: 1,
   coinsEveryWaves: 2, // +1 coin every this many waves
