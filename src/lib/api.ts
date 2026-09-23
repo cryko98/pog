@@ -81,6 +81,37 @@ export interface SeasonStatus {
   share: number;
   tokens: number;
   gate: { ok: boolean; items: GateItem[] };
+  bankedToday: number;
+  airdrop: AirdropView;
+  /** set when reading this status just sent a payout */
+  justPaid: { paid: number; signature?: string; pending: number } | null;
+}
+
+export interface AirdropDay {
+  day: string;
+  remaining: number;
+  budget: number;
+  frostPool: number;
+  wallets: number;
+  paid: number;
+  closedAt: number;
+  source: 'chain' | 'virtual';
+}
+
+export interface AirdropView {
+  wallet: string | null;
+  live: boolean;
+  automatic: boolean;
+  remaining: number;
+  source: 'chain' | 'virtual';
+  todayBudget: number;
+  todayPool: number;
+  todayEstimate: number;
+  owed: number;
+  yesterday: { day: string; players: number; igloo: number; total: number; frost: number } | null;
+  yesterdayRecord: AirdropDay | null;
+  history: Array<{ day?: string; amount: number; signature: string; at: number }>;
+  rules: { supply: number; supplyLabel: string; dailyRate: number; dailyFloor: number; dailyCap: number; playersShare: number; iglooShare: number; minPayout: number };
 }
 
 export interface FrostEntry {
@@ -483,11 +514,16 @@ export const api = {
       offerings: Offering[];
       gates: { chain: boolean; captcha: boolean };
       captchaSiteKey: string;
+      airdrop: { wallet: string | null; live: boolean; automatic: boolean; rules: AirdropView['rules'] };
     }>('/season/config'),
 
   verifyHuman: (token: string) => request<{ ok: boolean }>('/season/verify', post({ token })),
 
   season: () => request<SeasonStatus>('/season/status'),
+
+  collectAirdrop: () => request<{ paid: number; signature?: string; pending: number }>('/season/collect', post()),
+
+  airdropDays: () => request<{ days: AirdropDay[] }>('/season/days'),
 
   frostBoard: () => request<{ entries: FrostEntry[] }>('/season/board'),
 

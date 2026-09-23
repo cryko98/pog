@@ -32,25 +32,35 @@ import { POG_MINT, chainLive, latestBlockhash, mintInfo, sendRawTransaction } fr
 import { toBaseUnits } from '../../shared/sale.js';
 
 const POOL = (process.env.POG_ARENA_POOL || '').trim();
+/** the play-to-earn allocation: where the daily payouts come from */
+const AIRDROP_WALLET = (process.env.POG_AIRDROP_WALLET || '').trim();
 
 export const poolAddress = () => POOL;
 /** Real-token duels need the mint AND somewhere for the stakes to go. */
 export const poolReady = () => chainLive() && POOL.length >= 32;
 
-function signer(): Keypair | null {
-  const raw = (process.env.POG_ARENA_POOL_KEYPAIR || '').trim();
-  if (!raw) return null;
+function keypairFrom(envName: string, expected: string): Keypair | null {
+  const raw = (process.env[envName] || '').trim();
+  if (!raw || !expected) return null;
   try {
     const bytes = JSON.parse(raw) as number[];
     const kp = Keypair.fromSecretKey(Uint8Array.from(bytes));
-    // the key must be THE pool's key, not some other wallet's
-    return kp.publicKey.toBase58() === POOL ? kp : null;
+    // the key must be THAT wallet's key, not some other wallet's
+    return kp.publicKey.toBase58() === expected ? kp : null;
   } catch {
     return null;
   }
 }
 
+const signer = () => keypairFrom('POG_ARENA_POOL_KEYPAIR', POOL);
+const airdropSigner = () => keypairFrom('POG_AIRDROP_KEYPAIR', AIRDROP_WALLET);
+
 export const canPayAutomatically = () => signer() !== null;
+
+export const airdropAddress = () => AIRDROP_WALLET;
+/** Daily payouts need the mint and a wallet to pay from. */
+export const airdropReady = () => chainLive() && AIRDROP_WALLET.length >= 32;
+export const canPayAirdrop = () => airdropReady() && airdropSigner() !== null;
 
 /**
  * Send `amount` whole tokens from the pool to `to`. Returns the signature,
@@ -60,7 +70,17 @@ export const canPayAutomatically = () => signer() !== null;
 export async function payFromPool(to: string, amount: number): Promise<string | null> {
   const kp = signer();
   if (!kp || !poolReady() || !(amount > 0)) return null;
+  return transfer(kp, to, amount);
+}
 
+/** The same, from the airdrop wallet. Only `airdrop.ts` calls this, for amounts it computed. */
+export async function payFromAirdrop(to: string, amount: number): Promise<string | null> {
+  const kp = airdropSigner();
+  if (!kp || !airdropReady() || !(amount > 0)) return null;
+  return transfer(kp, to, amount);
+}
+
+async function transfer(kp: Keypair, to: string, amount: number): Promise<string | null> {
   const [mint, recent] = await Promise.all([mintInfo(), latestBlockhash()]);
   if (!mint || !recent) return null;
 

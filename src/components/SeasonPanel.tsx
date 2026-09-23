@@ -25,6 +25,7 @@ const RES_ICON: Record<string, IconName> = { wood: 'wood', ice: 'ice', fish: 'fi
 
 const pct = (n: number) => (n * 100).toFixed(n < 0.001 ? 4 : 2) + '%';
 const big = (n: number) => n.toLocaleString('en-US');
+const short = (s: string) => s.slice(0, 4) + '…' + s.slice(-4);
 
 /**
  * The season panel: what you have earned toward the airdrop, what is
@@ -40,6 +41,7 @@ export function SeasonPanel({ guest, inventory, refresh, onOffer, onClose }: Pro
   const [tab, setTab] = useState<'you' | 'board'>('you');
   const [busy, setBusy] = useState('');
   const [note, setNote] = useState('');
+  const [collecting, setCollecting] = useState(false);
   /** empty unless the deploy has both halves of the Turnstile pair set */
   const [siteKey, setSiteKey] = useState('');
 
@@ -112,22 +114,67 @@ export function SeasonPanel({ guest, inventory, refresh, onOffer, onClose }: Pro
             <>
               <div className="sn-hero">
                 <b>{big(status.frost)}</b>
-                <small>Frost · day {status.season.dayNumber} of {status.season.totalDays}</small>
+                <small>Frost · day {status.season.dayNumber} of {status.season.totalDays} · {status.pool > 0 ? `${pct(status.share)} of the season` : 'nothing banked yet across the world'}</small>
                 <div className="sn-share">
-                  {status.pool > 0 ? (
-                    <>
-                      {pct(status.share)} of the pool ·{' '}
-                      <strong>~{big(status.tokens)} $POG</strong>
-                    </>
-                  ) : (
-                    <>Nothing banked yet across the world</>
-                  )}
+                  Today so far:{' '}
+                  <strong>~{big(status.airdrop.todayEstimate)} $POG</strong>
+                  {status.airdrop.todayPool > 0 && <> · {big(status.bankedToday)} of {big(status.airdrop.todayPool)} Frost banked today, world-wide</>}
                 </div>
                 <small className="sn-fine">
-                  {status.budgetLabel} is split by share when the season ends in{' '}
-                  {status.season.daysLeft} days. The estimate moves as others earn.
+                  Every day the airdrop wallet pays out {(status.airdrop.rules.dailyRate * 100).toFixed(1)}% of what it holds —{' '}
+                  {big(status.airdrop.todayBudget)} $POG today — {Math.round(status.airdrop.rules.playersShare * 100)}% by the
+                  Frost each player banked that day, {Math.round(status.airdrop.rules.iglooShare * 100)}% by furnished igloos. The
+                  estimate moves as others earn.
                 </small>
               </div>
+
+              <div className="sn-payout">
+                <div>
+                  <b>{status.airdrop.yesterday ? `+${big(status.airdrop.yesterday.total)} $POG` : '—'}</b>
+                  <small>
+                    yesterday
+                    {status.airdrop.yesterday && status.airdrop.yesterday.igloo > 0 ? ` · ${big(status.airdrop.yesterday.igloo)} of it for the igloo` : ''}
+                  </small>
+                </div>
+                <div>
+                  <b>{big(status.airdrop.owed)} $POG</b>
+                  <small>{status.airdrop.owed > 0 ? (status.airdrop.automatic ? 'owed — sent on your next visit' : 'owed — paid out by the team') : 'nothing owed'}</small>
+                </div>
+                {status.airdrop.owed >= status.airdrop.rules.minPayout && status.airdrop.automatic && (
+                  <button
+                    className="btn btn-primary btn-sm"
+                    disabled={collecting}
+                    onClick={() => {
+                      setCollecting(true);
+                      api
+                        .collectAirdrop()
+                        .then((r) => {
+                          setNote(r.paid > 0 ? `${big(r.paid)} $POG sent to your wallet.` : 'Nothing could be sent right now — it stays owed.');
+                          reload();
+                        })
+                        .catch((err) => setNote(err instanceof Error ? err.message : 'That did not work.'))
+                        .finally(() => setCollecting(false));
+                    }}
+                  >
+                    {collecting ? 'Sending…' : 'Collect'}
+                  </button>
+                )}
+              </div>
+              {status.justPaid && (
+                <p className="bp-feedback">
+                  {big(status.justPaid.paid)} $POG just went to your wallet
+                  {status.justPaid.signature ? ` (${short(status.justPaid.signature)})` : ''}.
+                </p>
+              )}
+              {status.airdrop.history.length > 0 && (
+                <small className="bp-note">
+                  Last sent: {status.airdrop.history.slice(0, 3).map((h) => `${big(h.amount)} on ${new Date(h.at).toISOString().slice(0, 10)}`).join(' · ')}
+                </small>
+              )}
+              <small className="bp-note">
+                The wallet holds {big(status.airdrop.remaining)} $POG{status.airdrop.source === 'virtual' ? ' (the ledger; the chain is not live yet)' : ''}
+                {status.airdrop.wallet ? ` · ${short(status.airdrop.wallet)}` : ''}. Amounts under {status.airdrop.rules.minPayout} carry over.
+              </small>
 
               {!status.gate.ok && (
                 <div className="sn-gate">
@@ -227,8 +274,8 @@ export function SeasonPanel({ guest, inventory, refresh, onOffer, onClose }: Pro
                 </div>
               ))}
               <small className="bp-note">
-                {status.rank ? `You are #${status.rank}.` : 'You are outside the top 200.'} Shares are
-                settled from a snapshot when the season closes.
+                {status.rank ? `You are #${status.rank}.` : 'You are outside the top 200.'} The season
+                board ranks all Frost this season; the airdrop pays every day on that day's Frost.
               </small>
             </>
           )}

@@ -3,6 +3,7 @@
  * twenty-minute grind — chiefly raising an igloo.
  *
  *   POST grant { wood, ice, fish, pog, items }  -> { profile }
+ *   POST closeday { day }                        -> close a day of the airdrop now, even today
  *
  * ------------------------------------------------------------------ *
  * Three locks, because this mints resources out of nothing
@@ -23,6 +24,7 @@
 
 import { actionOf, body, bearer, json } from '../_shared.js';
 import { devGrant, walletForToken } from '../../src/server/game.js';
+import { closeDay } from '../../src/server/airdrop.js';
 
 const DEV_KEY = (process.env.POG_DEV_KEY || '').trim();
 /**
@@ -53,6 +55,12 @@ export default async function handler(req: any, res: any) {
       const result = await devGrant(wallet, body(req));
       if (result.error) return json(res, 409, { error: result.error });
       return json(res, 200, result);
+    }
+
+    if (action === 'closeday') {
+      const day = String(body(req).day || '');
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return json(res, 409, { error: 'Which day?' });
+      return json(res, 200, { record: await closeDay(day, true) });
     }
 
     return json(res, 404, { error: 'Unknown dev action.' });

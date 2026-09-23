@@ -424,7 +424,7 @@ async function grantFrost(profile: Profile, base: number): Promise<number> {
 /** Persist a profile and mirror its Frost into the season index. */
 async function saveWithFrost(profile: Profile, banked: number): Promise<Profile> {
   const saved = await putProfile(profile);
-  if (banked > 0) await indexFrost(saved.wallet, saved.frost, banked);
+  if (banked > 0) await indexFrost(saved.wallet, saved.frost, banked, saved.frostDay, saved.bankedToday);
   return saved;
 }
 

@@ -35,6 +35,8 @@ export interface FrostFields {
   frostDay: string;
   /** base Frost banked today, against FROST.dailyCap */
   frostToday: number;
+  /** Frost actually banked today, after multipliers — what the day pays out on */
+  bankedToday: number;
   /** consecutive days with any Frost */
   frostStreak: number;
   /** base Frost taken from the cairn today, against OFFERING_DAILY_CAP */
@@ -51,6 +53,7 @@ export const emptyFrost = (): FrostFields => ({
   frostSeason: SEASON.id,
   frostDay: '',
   frostToday: 0,
+  bankedToday: 0,
   frostStreak: 0,
   offerToday: 0,
   iglooFrostSeason: 0,
@@ -66,6 +69,7 @@ export function normalizeFrost(p: Partial<FrostFields>): FrostFields {
     frostSeason: n(p.frostSeason) || SEASON.id,
     frostDay: typeof p.frostDay === 'string' ? p.frostDay : '',
     frostToday: n(p.frostToday),
+    bankedToday: n(p.bankedToday),
     frostStreak: n(p.frostStreak),
     offerToday: n(p.offerToday),
     iglooFrostSeason: n(p.iglooFrostSeason),
@@ -98,6 +102,7 @@ export function rollover(p: FrostFields, now = Date.now()): FrostFields {
     p.frostSeason = SEASON.id;
     p.frostDay = '';
     p.frostToday = 0;
+    p.bankedToday = 0;
     p.frostStreak = 0;
     p.offerToday = 0;
     p.iglooFrostSeason = 0;
@@ -105,6 +110,7 @@ export function rollover(p: FrostFields, now = Date.now()): FrostFields {
   const today = dayOf(now);
   if (p.frostDay !== today) {
     p.frostToday = 0;
+    p.bankedToday = 0;
     p.offerToday = 0;
   }
   if (p.playDay !== today) {
@@ -243,6 +249,7 @@ export function creditFrost(
 
   const banked = applyMultiplier(use, multTotal);
   p.frostToday += use;
+  p.bankedToday += banked;
   p.frost += banked;
 
   // The streak only advances on a day that actually produced Frost, so a
@@ -256,11 +263,18 @@ export function creditFrost(
   return { base: use, banked, roomLeft: room - use };
 }
 
-/** Mirror a profile's Frost into the season index. Call after persisting. */
-export async function indexFrost(wallet: string, total: number, delta: number): Promise<void> {
+/**
+ * Mirror a profile's Frost into the season index, and into the day's
+ * index that the airdrop closes on. Call after persisting.
+ */
+export async function indexFrost(wallet: string, total: number, delta: number, day?: string, bankedToday?: number): Promise<void> {
   const store = await kv();
   await store.zadd(K.board, total, wallet);
   if (delta > 0) await store.incrBy(K.pool, delta);
+  if (day && delta > 0) {
+    await store.zadd(`pog:fday:${day}`, Math.max(0, Math.floor(bankedToday ?? 0)), wallet);
+    await store.incrBy(`pog:fdaypool:${day}`, delta);
+  }
 }
 
 /* ------------------------------------------------------------------ *
@@ -389,6 +403,7 @@ export async function seasonSummary(
     budgetLabel: SEASON.budgetLabel,
     frost: p.frost,
     frostToday: p.frostToday,
+    bankedToday: p.bankedToday,
     dailyCap: FROST.dailyCap,
     offerToday: p.offerToday,
     offerCap: OFFERING_DAILY_CAP,

@@ -6,6 +6,8 @@
  *   GET  board                    -> the Frost leaderboard with estimates
  *   POST offer  { id, x, y }      -> burn resources at the cairn for Frost
  *   POST verify { token }         -> pass the captcha once per season
+ *   POST collect                  -> send what the airdrop owes this wallet, if a key is set
+ *   GET  days                     -> the last closed days: budget, wallets, paid (public)
  *
  * There is deliberately no endpoint that credits Frost. Frost is only ever
  * written from inside `heartbeat`, `claimQuest`, `buildIgloo` and `offer` —
@@ -30,6 +32,7 @@ import {
 import { chainLive } from '../../src/server/chain.js';
 import { humanGateOn, humanSiteKey, verifyHuman } from '../../src/server/human.js';
 import { frostLeaderboard, offerAtCairn, seasonFor, walletForToken } from '../../src/server/game.js';
+import { airdropConfig, airdropFor, ensureClosed, recentDays, settleOwed } from '../../src/server/airdrop.js';
 
 /** Best-effort client IP, passed to Turnstile as a weak extra signal. */
 function clientIp(req: any): string | undefined {
@@ -59,7 +62,13 @@ export default async function handler(req: any, res: any) {
         gates: { chain: chainLive(), captcha: humanGateOn() },
         /** public by design; empty unless the captcha is fully configured */
         captchaSiteKey: humanSiteKey(),
+        airdrop: airdropConfig(),
       });
+    }
+
+    if (action === 'days') {
+      await ensureClosed();
+      return json(res, 200, { days: await recentDays(14) });
     }
 
     if (action === 'board') {
@@ -70,9 +79,18 @@ export default async function handler(req: any, res: any) {
     if (!wallet) return json(res, 401, { error: 'No valid session.' });
 
     if (action === 'status') {
+      // reading your status is what closes yesterday and pays what is owed
+      await ensureClosed();
+      const paid = await settleOwed(wallet);
       const summary = await seasonFor(wallet);
       if ('error' in summary && summary.error) return json(res, 409, { error: summary.error });
-      return json(res, 200, summary);
+      const airdrop = await airdropFor(wallet, (summary as { bankedToday?: number }).bankedToday ?? 0);
+      return json(res, 200, { ...summary, airdrop, justPaid: paid.paid > 0 ? paid : null });
+    }
+
+    if (action === 'collect') {
+      await ensureClosed();
+      return json(res, 200, await settleOwed(wallet));
     }
 
     if (action === 'offer') {

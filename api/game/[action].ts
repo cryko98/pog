@@ -17,6 +17,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { BusyError } from '../../src/server/lock.js';
+import { ensureClosed, settleOwed } from '../../src/server/airdrop.js';
 import { actionOf, bearer, body, json } from '../_shared.js';
 import { RECIPES, SKINS } from '../../shared/world.js';
 import {
@@ -49,6 +50,10 @@ export default async function handler(req: any, res: any) {
     if (!wallet) return json(res, 401, { error: 'No valid session.' });
 
     if (action === 'state') {
+      // the first read of the day closes yesterday's airdrop; any read pays
+      // what this wallet is owed, so nobody has to open a panel to be paid
+      await ensureClosed();
+      await settleOwed(wallet);
       const [profile, depleted, igloos, quests] = await Promise.all([
         getProfile(wallet),
         depletedNodes(),

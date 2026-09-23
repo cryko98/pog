@@ -89,6 +89,8 @@ const TOKENOMICS = [
   ['Buy / sell tax', '0% / 0%'],
   ['LP', 'Burned at launch'],
   ['Mint & freeze authority', 'Revoked'],
+  ['Play-to-earn wallet', '50,000,000 $POG'],
+  ['Paid out', '0.2% of the wallet, every day'],
 ];
 
 const ROADMAP = [
@@ -398,7 +400,7 @@ export function Landing({ navigate }: { navigate: (r: Route) => void }) {
               </div>
             </div>
             <div className="card">
-              <h3 style={{ marginBottom: 12 }}>Play to earn, honestly explained</h3>
+              <h3 style={{ marginBottom: 12 }}>Play to earn, paid daily</h3>
               <p>
                 Two currencies, two jobs. <strong>P coins</strong> are the in-game money — found on the ice,
                 cooked at the fire, paid out by quests and by a furnished igloo — and it buys hats,
@@ -414,9 +416,19 @@ export function Landing({ navigate }: { navigate: (r: Route) => void }) {
                 the chain before the igloo changes hands, and it never holds a key or a coin.
               </p>
               <p style={{ marginTop: 14 }}>
-                The season budget is split <strong>by share</strong>, not at a fixed rate:{' '}
-                <code>your Frost ÷ all Frost × the budget</code>. That is the only promise that can
-                actually be kept — a fixed rate against a game that mints points forever cannot be.
+                <strong>50,000,000 $POG</strong> sit in one airdrop wallet, and every UTC day it pays
+                out <strong>0.2% of whatever it still holds</strong> — 100,000 $POG on day one, shrinking
+                as the wallet does and never quite running out: about half of it is paid in the first
+                year, half of the rest in the second. 80% of each day's budget is split among that
+                day's players <strong>by the Frost they banked that day</strong>, 20% among their
+                furnished igloos by value. By share, not at a rate:{' '}
+                <code>your Frost today ÷ everyone's × the day's budget</code>. That is the only promise
+                that can be kept — and it means a busy day pays everyone a little less, never nothing.
+              </p>
+              <p style={{ marginTop: 14 }}>
+                Payouts are sent to your wallet automatically, in whole tokens, the next time you
+                play; anything under a token carries over. Every closed day is recorded — budget,
+                Frost, wallets, paid — so the maths can be checked.
               </p>
               <p style={{ marginTop: 14 }}>
                 A wallet earns nothing until it qualifies: an hour of server-counted playtime, a
@@ -426,10 +438,9 @@ export function Landing({ navigate }: { navigate: (r: Route) => void }) {
                 same bag held in one.
               </p>
               <p style={{ marginTop: 14 }}>
-                <strong>Nothing is claimable on chain yet.</strong> The ledger, the caps and the
-                snapshot tooling are built and running; the distributor contract is Phase 6. Every
-                season ends with a published snapshot — wallet, Frost, share, tokens — so the maths
-                can be checked by anyone.
+                <strong>Until the token is live</strong> the wallet runs as a ledger: days close, shares
+                are recorded and owed, and they are sent the moment the wallet is funded and the key
+                is in place.
               </p>
             </div>
           </div>

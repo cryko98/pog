@@ -257,17 +257,73 @@ Two currencies, because they have two different jobs.
 | What it is | the in-game money (not the $POG token) | the airdrop ledger |
 | Spendable | yes — hats, furniture, igloos, the market, the tables | **never** |
 | Can go down | yes | no |
-| Where it comes from | coins, the cookout, quest rewards | quests, playtime, your igloo, the cairn |
+| Where it comes from | coins, the cookout, quest rewards, the caves | quests, playtime, your igloo, the cairn |
+| What it is worth | what it buys | a share of every day's airdrop budget, paid daily |
 
-At the end of a season a fixed budget is split **by share**:
+### The daily airdrop
+
+One wallet holds the play-to-earn allocation — **50,000,000 $POG** — and every
+UTC day it pays out **0.2% of whatever it still holds**. Not a fixed number of
+tokens: the budget is biggest at launch (100,000 $POG on day one), shrinks as
+the wallet does, and never quite runs out — about half is paid in the first
+year, half of the rest in the second, and with the 5,000-a-day floor the wallet
+lasts around five and a half years. More players do not drain it faster; they
+split the same day's budget into more, smaller shares. A ceiling of 250,000 a
+day stops a topped-up wallet paying a fortune in one go.
+
+Each day's budget is split two ways, both **by share**:
+
+| Slice | Split among | By |
+|---|---|---|
+| 80% | every wallet that banked Frost that day | the Frost it banked **that day** (capped and multiplied, so performance rather than hours) |
+| 20% | those same wallets' igloos | furnished igloo value — an igloo nobody plays from earns nothing |
 
 ```
-your tokens = your Frost / all Frost * SEASON.budget
+your tokens today = your Frost today / everyone's Frost today * 80% of the budget
+                  + your igloo value / all active igloo value * 20% of the budget
 ```
 
 By share, not at a rate. A rate — "1 Frost = N tokens" — cannot be honoured,
-because the game mints Frost for as long as anyone plays and the token supply
-is fixed. A share always adds up to exactly 100%, however much Frost exists.
+because the game mints Frost for as long as anyone plays and the wallet is
+finite. A share always adds up to exactly the day's budget, however many
+people played. The rules are `shared/airdrop.js`; the closing and paying are
+`src/server/airdrop.ts`.
+
+**How a day closes.** Every Frost credit also lands in that day's index
+(`pog:fday:<day>`) from inside the same validated action that banked it. Once
+the day is over, the first request to notice — or the cron at 00:07 UTC —
+closes it under a global lock: budget, split, and each wallet's amount added
+to what it is owed. A closed day is recorded (`/api/season/days`) with its
+budget, Frost pool, wallet count and total paid, so the maths can be checked,
+and it can never be closed twice. Whole tokens only; anything under a token
+carries over to the next day.
+
+**How it is paid.** Lazily, per wallet: the next time a wallet loads the game
+or reads its season status, what it is owed is sent from the airdrop wallet
+under that wallet's lock and the signature is kept. That spreads the sending
+over the day instead of needing one long job, and a wallet that never comes
+back is never paid — the tokens stay in the wallet and go into later budgets.
+The panel also has a Collect button. With no key in the environment the
+amounts simply stay owed — nothing is lost — and go out on each wallet's next
+visit once the key is set.
+
+The environment needs three things for automatic payment:
+
+| Variable | What it is |
+|---|---|
+| `POG_AIRDROP_WALLET` | the airdrop wallet's public key |
+| `POG_AIRDROP_KEYPAIR` | its secret key as a JSON byte array — the hot key; keep this wallet holding the allocation and nothing else |
+| `CRON_SECRET` | any secret; Vercel sends it with the daily cron so nobody else can call it |
+
+Before `POG_MINT` is set the wallet runs as a ledger: days close, shares are
+recorded and owed, nothing is sent. Once the token is live and the wallet is
+funded, the budget is read from its on-chain balance and the owed amounts go
+out on the next visit.
+
+Nothing takes an amount or a recipient from a request: there is no endpoint
+that closes a day (the dev one is localhost-only) and none that credits an
+amount owed; `airdropcheck.mjs` asserts both, then banks Frost with two
+wallets, closes the day and checks the shares.
 
 ### Why farming it is expensive
 
@@ -325,41 +381,27 @@ gate bites:
 Worth re-reading each season: 25,000 is 0.0025% of supply, so its dollar cost
 moves with the price — about $25 at a $1M FDV, $250 at $10M.
 
-### Closing a season
+### Manual payouts, and one-off drops
+
+The daily payout needs no operator. The tools below remain for a one-off
+drop — a season prize, say — and for the case where the airdrop key is kept
+off the server and owed amounts are sent by hand:
 
 ```bash
 node --env-file=.vercel/.env.prod tools/audit.mjs          # what does not look human
-node --env-file=.vercel/.env.prod tools/snapshot.mjs       # the payout list + merkle root
-node --env-file=.vercel/.env.prod tools/snapshot.mjs --exclude excluded.txt
+node --env-file=.vercel/.env.prod tools/snapshot.mjs       # a payout list + merkle root from the season board
+node tools/send.mjs                                        # DRY RUN — reports, sends nothing
+node tools/send.mjs --send --limit 25                      # a small first batch
 ```
 
-### Paying it out
-
-```bash
-node tools/send.mjs                    # DRY RUN — reports, sends nothing
-node tools/send.mjs --send --limit 25  # a small first batch
-node tools/send.mjs --send             # the rest
-```
-
-This moves real money, so it is built to be boring about it. Dry run is the
-default. It reads the treasury key only from the path in `TREASURY_KEYPAIR` —
-never a prompt, an argument or a config file. It preflights the token balance,
-the SOL for fees and the rent for any accounts that need creating, and refuses
-to start if any is short. `--send` asks you to type the season name.
-
-Every confirmed signature is appended to `<snapshot>.sent.json` **before the
-next batch starts**, and a re-run skips everyone already in it — so a crash, a
-timeout or a Ctrl-C costs nothing and nobody is paid twice. Do not delete that
-file.
-
-Most recipients already have a $POG token account, because qualifying for Frost
-required holding $POG. The dry run lists any that do not, with the rent.
-
-`snapshot.mjs` writes a CSV, a JSON with every input so the maths can be
-re-checked, and one merkle proof per wallet. It verifies every proof against
-the root before writing anything, and refuses to emit a root if any fails.
-Nothing in it touches a chain or moves a token — sending is a separate,
-deliberate step.
+`send.mjs` moves real money, so it is built to be boring about it. Dry run is
+the default. It reads the treasury key only from the path in `TREASURY_KEYPAIR`
+— never a prompt, an argument or a config file. It preflights the token
+balance, the SOL for fees and the rent for any accounts that need creating,
+and refuses to start if any is short. Every confirmed signature is appended to
+`<snapshot>.sent.json` before the next batch starts, and a re-run skips
+everyone already in it — so a crash, a timeout or a Ctrl-C costs nothing and
+nobody is paid twice.
 
 `audit.mjs` flags rather than bans. The signal worth reading is the **cluster**
 check: sybil rings are cheap to run but expensive to individualise, so their
@@ -400,6 +442,7 @@ node tools/salecheck.mjs     # the on-chain sale verifier against fixtures, and 
 node tools/arenacheck.mjs    # two wallets fight a full duel, and try every way to cheat it
 node tools/cavecheck.mjs     # a run in the caves: walks out, gets eaten, and cheats at both
 node tools/marketcheck.mjs   # the goods market and the casino, honestly and otherwise
+node tools/airdropcheck.mjs  # the daily airdrop: the maths, a day closed, the shares owed
 node tools/seasoncheck.mjs   # the season against a real API
 node tools/send.mjs          # dry run: what a payout would do, sending nothing
 
