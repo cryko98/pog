@@ -776,7 +776,7 @@ const FOOTPRINT = {
   market: 54,
   campfire: 44,
   cairn: 40,
-  furnishop: 54,
+  furnishop: 74,
   arena: 150,
 };
 
@@ -842,7 +842,7 @@ export function getProps() {
     // middle, where it is a landmark instead of a seventh shopfront.
     { type: 'workbench', ...onRing(210), r: 30, scale: 1, variant: 0 },
     { type: 'stall', ...onRing(270), r: 32, scale: 1, variant: 0 },
-    { type: 'furnishop', ...onRing(330), r: 34, scale: 1, variant: 0 },
+    { type: 'furnishop', ...onRing(330), r: 46, scale: 1, variant: 0 },
     { type: 'market', ...onRing(30), r: 32, scale: 1, variant: 0 },
     { type: 'campfire', ...onRing(90), r: 24, scale: 1, variant: 0 },
     { type: 'cairn', ...onRing(150), r: 22, scale: 1, variant: 0 },

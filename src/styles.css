@@ -3010,3 +3010,36 @@ html::-webkit-scrollbar-thumb:hover {
   font-size: 0.72rem;
   color: #a9cbd6;
 }
+
+
+/* the minimap's zoom buttons, tucked in its corner */
+.hud-minimap {
+  position: relative;
+  pointer-events: auto;
+}
+
+.mm-zoom {
+  position: absolute;
+  right: 12px;
+  top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.mm-zoom button {
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  background: rgba(9, 41, 48, 0.85);
+  box-shadow: inset 0 0 0 1px var(--hud-line);
+  color: var(--snow);
+  font-weight: 800;
+  font-size: 0.95rem;
+  line-height: 1;
+}
+
+.mm-zoom button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}

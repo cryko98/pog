@@ -60,6 +60,7 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
   const [showSeason, setShowSeason] = useState(false);
   const [showHome, setShowHome] = useState(false);
   const [showSkills, setShowSkills] = useState(false);
+  const [mapZoom, setMapZoom] = useState(1);
   /**
    * Which plaza building is open, if any. Buildings get a window in the
    * middle of the screen rather than the side rail — you walked up to a
@@ -762,8 +763,22 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
           <span>{hud.building ? 'Place' : 'Act'}</span>
         </button>
 
-        <div className="panel hud-minimap">
+        <div
+          className="panel hud-minimap"
+          onWheel={(e) => {
+            e.preventDefault();
+            setMapZoom(gameRef.current?.zoomMinimap(e.deltaY < 0 ? 1 : -1) ?? 1);
+          }}
+        >
           <canvas ref={minimapRef} width={296} height={296} />
+          <div className="mm-zoom">
+            <button onClick={() => setMapZoom(gameRef.current?.zoomMinimap(1) ?? 1)} disabled={mapZoom >= 4} aria-label="Zoom the map in">
+              +
+            </button>
+            <button onClick={() => setMapZoom(gameRef.current?.zoomMinimap(-1) ?? 1)} disabled={mapZoom <= 1} aria-label="Zoom the map out">
+              −
+            </button>
+          </div>
         </div>
       </div>
 

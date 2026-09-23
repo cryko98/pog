@@ -75,6 +75,16 @@ const ZOOM = 0.82;
 /** The tool stays in hand this long after the last swing. */
 const TOOL_HOLD_MS = 1800;
 const TOOL_FOR: Record<string, ToolKind> = { tree: 'axe', ice: 'pick', hole: 'rod' };
+/** how each building shows on the minimap */
+const MINIMAP_COLOURS: Record<string, string> = {
+  craft: '#8a5f3c',
+  shop: '#ff5c17',
+  fire: '#f59e0b',
+  cairn: '#7dd3fc',
+  furnish: '#a78bfa',
+  market: '#0f766e',
+  arena: '#ef4444',
+};
 /** the item each node needs in the pack, and how to ask for it */
 const NEEDS: Record<string, { item: string; label: string }> = {
   tree: { item: 'axe', label: 'an axe' },
@@ -184,7 +194,7 @@ const SIGN_HEIGHT: Record<string, number> = {
   market: 96,
   fire: 58,
   cairn: 84,
-  furnish: 92,
+  furnish: 126,
   arena: 124,
 };
 
@@ -202,6 +212,16 @@ const DIR_KEYS: Record<string, [number, number]> = {
 export class PogGame {
   private ctx: CanvasRenderingContext2D;
   private minimapCtx: CanvasRenderingContext2D | null = null;
+  /** 1 shows the whole world; 2 and 4 close in on the penguin */
+  private minimapZoom = 1;
+
+  /** Step the minimap between the whole world and a close-up. */
+  zoomMinimap(delta: number) {
+    const levels = [1, 2, 4];
+    const i = levels.indexOf(this.minimapZoom);
+    this.minimapZoom = levels[Math.max(0, Math.min(levels.length - 1, i + delta))];
+    return this.minimapZoom;
+  }
   private raf = 0;
   private running = false;
   private last = 0;
@@ -2058,39 +2078,88 @@ export class PogGame {
     ctx.fillStyle = '#e8f2fa';
     ctx.fillRect(0, 0, size, size);
 
-    ctx.fillStyle = '#a9d6ec';
-    for (const l of getLakes()) {
-      ctx.beginPath();
-      ctx.ellipse(l.x * k, l.y * k, l.rx * k, l.ry * k, l.rot, 0, Math.PI * 2);
-      ctx.fill();
-    }
-
-    ctx.strokeStyle = '#38bdf8';
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.arc(WORLD.spawn.x * k, WORLD.spawn.y * k, WORLD.spawnRadius * k, 0, Math.PI * 2);
-    ctx.stroke();
-
-    for (const r of this.remotes.values()) {
-      if (r.inside) continue; // their x/y are room coordinates, not map ones
-      ctx.fillStyle = r.color;
-      ctx.beginPath();
-      ctx.arc(r.rx * k, r.ry * k, 2.6, 0, Math.PI * 2);
-      ctx.fill();
-    }
-
     // Indoors our own x/y mean a spot in the room, so the map shows the
     // igloo we are standing in rather than a dot at the world's origin.
     const selfX = this.interior ? this.interior.igloo.x : this.me.x;
     const selfY = this.interior ? this.interior.igloo.y : this.me.y;
 
+    // Zoomed in, the map follows the penguin — clamped so the edge of the
+    // world stays at the edge of the map rather than showing nothing.
+    const z = this.minimapZoom;
+    const span = WORLD.width / z;
+    const ox = z === 1 ? 0 : Math.max(0, Math.min(WORLD.width - span, selfX - span / 2));
+    const oy = z === 1 ? 0 : Math.max(0, Math.min(WORLD.height - span, selfY - span / 2));
+    ctx.save();
+    ctx.scale(z, z);
+    ctx.translate(-ox * k, -oy * k);
+    const px = (wx: number) => wx * k;
+    const py = (wy: number) => wy * k;
+    const r = (n: number) => n / z; // a radius that stays the same on screen
+
+    ctx.fillStyle = '#a9d6ec';
+    for (const l of getLakes()) {
+      ctx.beginPath();
+      ctx.ellipse(px(l.x), py(l.y), l.rx * k, l.ry * k, l.rot, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    ctx.strokeStyle = '#38bdf8';
+    ctx.lineWidth = r(1.5);
+    ctx.beginPath();
+    ctx.arc(px(WORLD.spawn.x), py(WORLD.spawn.y), WORLD.spawnRadius * k, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // every igloo, as a small white block with a dark rim
+    for (const igloo of this.igloos.values()) {
+      ctx.fillStyle = igloo.wallet === this.selfId ? '#ffd44d' : '#ffffff';
+      ctx.strokeStyle = '#4b6b7b';
+      ctx.lineWidth = r(1);
+      ctx.beginPath();
+      ctx.rect(px(igloo.x) - r(2.5), py(igloo.y) - r(2.5), r(5), r(5));
+      ctx.fill();
+      ctx.stroke();
+    }
+
+    // every building, each its own colour; named once the map is close enough
+    for (const n of this.nodes) {
+      const colour = MINIMAP_COLOURS[n.type];
+      if (!colour) continue;
+      ctx.fillStyle = colour;
+      ctx.strokeStyle = '#0d2b3a';
+      ctx.lineWidth = r(1);
+      ctx.beginPath();
+      ctx.rect(px(n.x) - r(3), py(n.y) - r(3), r(6), r(6));
+      ctx.fill();
+      ctx.stroke();
+      if (z >= 2) {
+        const label = STATION_SIGNS[n.type as keyof typeof STATION_SIGNS] ?? n.type;
+        ctx.font = `700 ${r(11)}px Inter, system-ui, sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'bottom';
+        ctx.lineWidth = r(3);
+        ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+        ctx.strokeText(label, px(n.x), py(n.y) - r(5));
+        ctx.fillStyle = '#0d2b3a';
+        ctx.fillText(label, px(n.x), py(n.y) - r(5));
+      }
+    }
+
+    for (const rm of this.remotes.values()) {
+      if (rm.inside) continue; // their x/y are room coordinates, not map ones
+      ctx.fillStyle = rm.color;
+      ctx.beginPath();
+      ctx.arc(px(rm.rx), py(rm.ry), r(2.6), 0, Math.PI * 2);
+      ctx.fill();
+    }
+
     ctx.fillStyle = '#ff5c17';
     ctx.strokeStyle = '#0d2b3a';
-    ctx.lineWidth = 1.5;
+    ctx.lineWidth = r(1.5);
     ctx.beginPath();
-    ctx.arc(selfX * k, selfY * k, 4, 0, Math.PI * 2);
+    ctx.arc(px(selfX), py(selfY), r(4), 0, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
+    ctx.restore();
   }
 
   private loop = (now: number) => {

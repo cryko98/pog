@@ -212,7 +212,7 @@ const PROP_HEIGHT: Record<string, number> = {
   stall: 86,
   campfire: 58,
   cairn: 84,
-  furnishop: 92,
+  furnishop: 126,
   market: 96,
   arena: 120,
 };
