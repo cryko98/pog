@@ -4,9 +4,9 @@
  * Every effect is synthesised on the fly with the Web Audio API — noise
  * bursts through filters for cracks, splashes and crunches, short tones
  * with envelopes for chimes and thuds — so there are no audio files to
- * ship, license or wait for. The music is a slow winter piece:
- * a soft pad and a bass through four chords, a written music-box melody
- * looping over them, and a breath of wind underneath.
+ * ship, license or wait for. The music is a bright chiptune loop —
+ * square lead, triangle bass, kick, snare and hat — the kind of tune a
+ * penguin game should have, played faster in the arena.
  *
  * Browsers only let audio start after the player has touched something,
  * so the context is created lazily on the first gesture. Two switches,
@@ -407,8 +407,7 @@ class Sound {
     this.musicRunning = true;
     this.nextBeat = this.ctx.currentTime + 0.1;
     this.beat = 0;
-    this.wind();
-    this.musicTimer = window.setInterval(() => this.schedule(), 200);
+    this.musicTimer = window.setInterval(() => this.schedule(), 150);
   }
 
   private stopMusic() {
@@ -417,157 +416,119 @@ class Sound {
     this.musicRunning = false;
   }
 
-  /** A slow, breathy bed under everything — a breath, not a hiss. */
-  private wind() {
-    const ctx = this.ctx;
-    if (!ctx || !this.musicBus || !this.noiseBuf) return;
-    const src = ctx.createBufferSource();
-    src.buffer = this.noiseBuf;
-    src.loop = true;
-    const f = ctx.createBiquadFilter();
-    f.type = 'lowpass';
-    f.frequency.value = 180;
-    const lfo = ctx.createOscillator();
-    lfo.frequency.value = 0.05;
-    const lfoGain = ctx.createGain();
-    lfoGain.gain.value = 90;
-    lfo.connect(lfoGain).connect(f.frequency);
-    const g = ctx.createGain();
-    g.gain.value = 0.022;
-    src.connect(f).connect(g).connect(this.musicBus);
-    src.start();
-    lfo.start();
-    // stops with the context; the switch just mutes the bus
-  }
-
   /**
-   * The piece itself: four bars of C, G, Am, F under a written melody,
-   * looping. Composed rather than rolled — a random walk over a scale
-   * sounds like a phone left off the hook after a minute. A note is
-   * occasionally left out so the loop breathes.
+   * The tune: a bright chiptune loop in C, four bars of eighth notes over
+   * C, Am, F, G — a square-wave lead, a bouncing triangle bass, a kick, a
+   * snare and a hat. Written, not rolled, so it stays a tune; the arena
+   * plays it faster with the kick on every beat.
    */
-  private static readonly CHORDS = [
-    { bass: 130.8, pad: [261.6, 329.6, 392.0] }, // C
-    { bass: 98.0, pad: [196.0, 246.9, 293.7] }, // G
-    { bass: 110.0, pad: [220.0, 261.6, 329.6] }, // Am
-    { bass: 87.3, pad: [174.6, 220.0, 261.6] }, // F
+  private static readonly LEAD: Array<number | null> = [
+    523.3, 659.3, 784.0, 659.3, 523.3, 659.3, 784.0, 880.0, // C
+    880.0, 784.0, 659.3, 523.3, 587.3, 659.3, 523.3, null, // Am
+    698.5, 880.0, 1046.5, 880.0, 698.5, 880.0, 784.0, 698.5, // F
+    659.3, 587.3, 523.3, 587.3, 659.3, 784.0, 493.9, null, // G, leading home
   ];
 
-  /** One note (Hz) or a rest per beat, eight beats a chord. */
-  private static readonly MELODY: Array<number | null> = [
-    659.3, null, 784.0, null, 659.3, 587.3, 523.3, null, // over C
-    587.3, null, 493.9, null, 587.3, null, 392.0, null, // over G
-    440.0, null, 523.3, null, 659.3, 587.3, 523.3, null, // over Am
-    440.0, null, 523.3, null, 440.0, 392.0, 329.6, null, // over F, leading home
+  /** Root and fifth, alternating, per bar. */
+  private static readonly BASS = [
+    [130.8, 196.0], // C
+    [110.0, 164.8], // Am
+    [87.3, 130.8], // F
+    [98.0, 146.8], // G
   ];
 
-  /**
-   * Look a little ahead and queue what falls due: a chord and its bass
-   * every eight beats, the melody's note for this beat, a pulse in the
-   * arena.
-   */
   private schedule() {
     const ctx = this.ctx;
     if (!ctx || !this.musicBus) return;
-    const BEAT = this.tense ? 0.5 : 0.9; // seconds
-    const LOOP = Sound.MELODY.length;
-    while (this.nextBeat < ctx.currentTime + 0.6) {
+    const STEP = this.tense ? 0.21 : 0.26; // an eighth note, seconds
+    const LOOP = Sound.LEAD.length;
+    while (this.nextBeat < ctx.currentTime + 0.5) {
       const t = this.nextBeat;
       const step = this.beat % LOOP;
-      const chord = Sound.CHORDS[Math.floor(step / 8)];
-      if (step % 8 === 0) {
-        this.pad(chord.pad, t, BEAT * 8.3);
-        this.bass(chord.bass, t, BEAT * 8);
-      }
-      const note = Sound.MELODY[step];
-      // the second time round, let a note or two go so it does not grind
-      const rest = Math.floor(this.beat / LOOP) % 2 === 1 && Math.random() < 0.18;
-      if (note && !rest) this.bell(note, t);
-      if (this.tense && step % 2 === 0) this.pulse(t);
-      this.nextBeat += BEAT;
+      const bar = Math.floor(step / 8);
+      const inBar = step % 8;
+
+      // lead: the second pass drops the odd note so the loop breathes
+      const note = Sound.LEAD[step];
+      const rest = Math.floor(this.beat / LOOP) % 2 === 1 && inBar === 7;
+      if (note && !rest) this.lead(note, t, STEP * 0.85);
+
+      // bass: root on the beat, fifth off it, staccato
+      const [root, fifth] = Sound.BASS[bar];
+      this.bassNote(inBar % 2 === 0 ? root : fifth, t, STEP * 0.7);
+
+      // drums
+      const kickOn = this.tense ? inBar % 2 === 0 : inBar === 0 || inBar === 4;
+      if (kickOn) this.kick(t);
+      if (inBar === 2 || inBar === 6) this.snare(t);
+      this.hat(t, inBar % 2 === 0 ? 0.02 : 0.011);
+
+      this.nextBeat += STEP;
       this.beat++;
     }
   }
 
-  private pad(freqs: number[], at: number, dur: number) {
+  private lead(freq: number, at: number, dur: number) {
     const ctx = this.ctx!;
-    const bus = this.musicBus!;
-    for (const f of freqs) {
-      for (const detune of [-2.5, 2.5]) {
-        const osc = ctx.createOscillator();
-        osc.type = 'triangle';
-        osc.frequency.value = f;
-        osc.detune.value = detune;
-        const lp = ctx.createBiquadFilter();
-        lp.type = 'lowpass';
-        lp.frequency.value = 520;
-        const g = ctx.createGain();
-        g.gain.setValueAtTime(0.0001, at);
-        g.gain.exponentialRampToValueAtTime(0.02, at + 2.2);
-        g.gain.setValueAtTime(0.02, at + dur - 1.6);
-        g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
-        osc.connect(lp).connect(g).connect(bus);
-        osc.start(at);
-        osc.stop(at + dur + 0.05);
-      }
-    }
-  }
-
-  /** A soft root under each chord, so the pad has a floor to stand on. */
-  private bass(freq: number, at: number, dur: number) {
-    const ctx = this.ctx!;
-    const bus = this.musicBus!;
     const osc = ctx.createOscillator();
-    osc.type = 'sine';
+    osc.type = 'square';
     osc.frequency.value = freq;
+    // a touch of vibrato so the square does not sit dead still
+    const vib = ctx.createOscillator();
+    vib.frequency.value = 6;
+    const vibGain = ctx.createGain();
+    vibGain.gain.value = 4;
+    vib.connect(vibGain).connect(osc.frequency);
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = 2600;
     const g = ctx.createGain();
     g.gain.setValueAtTime(0.0001, at);
-    g.gain.exponentialRampToValueAtTime(0.05, at + 0.6);
-    g.gain.setValueAtTime(0.05, at + dur - 1.2);
+    g.gain.exponentialRampToValueAtTime(0.028, at + 0.008);
+    g.gain.setValueAtTime(0.028, at + dur * 0.6);
     g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
-    osc.connect(g).connect(bus);
+    osc.connect(lp).connect(g).connect(this.musicBus!);
     osc.start(at);
-    osc.stop(at + dur + 0.05);
+    vib.start(at);
+    osc.stop(at + dur + 0.02);
+    vib.stop(at + dur + 0.02);
   }
 
-  /** A music-box note: a sine with a soft edge and an octave whisper. */
-  private bell(freq: number, at: number) {
+  private bassNote(freq: number, at: number, dur: number) {
     const ctx = this.ctx!;
-    const bus = this.musicBus!;
     const osc = ctx.createOscillator();
-    osc.type = 'sine';
+    osc.type = 'triangle';
     osc.frequency.value = freq;
-    const oct = ctx.createOscillator();
-    oct.type = 'sine';
-    oct.frequency.value = freq * 2;
     const g = ctx.createGain();
     g.gain.setValueAtTime(0.0001, at);
-    g.gain.exponentialRampToValueAtTime(0.05, at + 0.012);
-    g.gain.exponentialRampToValueAtTime(0.0001, at + 1.9);
-    const og = ctx.createGain();
-    og.gain.setValueAtTime(0.008, at);
-    og.gain.exponentialRampToValueAtTime(0.0001, at + 0.7);
-    osc.connect(g).connect(bus);
-    oct.connect(og).connect(bus);
+    g.gain.exponentialRampToValueAtTime(0.07, at + 0.006);
+    g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
+    osc.connect(g).connect(this.musicBus!);
     osc.start(at);
-    oct.start(at);
-    osc.stop(at + 2);
-    oct.stop(at + 0.8);
+    osc.stop(at + dur + 0.02);
   }
 
-  private pulse(at: number) {
+  private kick(at: number) {
     const ctx = this.ctx!;
-    const bus = this.musicBus!;
     const osc = ctx.createOscillator();
-    osc.frequency.setValueAtTime(110, at);
-    osc.frequency.exponentialRampToValueAtTime(45, at + 0.18);
+    osc.frequency.setValueAtTime(150, at);
+    osc.frequency.exponentialRampToValueAtTime(48, at + 0.1);
     const g = ctx.createGain();
     g.gain.setValueAtTime(0.0001, at);
-    g.gain.exponentialRampToValueAtTime(0.16, at + 0.005);
-    g.gain.exponentialRampToValueAtTime(0.0001, at + 0.22);
-    osc.connect(g).connect(bus);
+    g.gain.exponentialRampToValueAtTime(0.12, at + 0.004);
+    g.gain.exponentialRampToValueAtTime(0.0001, at + 0.14);
+    osc.connect(g).connect(this.musicBus!);
     osc.start(at);
-    osc.stop(at + 0.25);
+    osc.stop(at + 0.16);
+  }
+
+  private snare(at: number) {
+    this.noise(90, { freq: 1900, q: 0.7, gain: 0.045, at: at - this.ctx!.currentTime, bus: this.musicBus });
+    this.tone(190, 70, { type: 'triangle', to: 120, gain: 0.03, at: at - this.ctx!.currentTime, bus: this.musicBus });
+  }
+
+  private hat(at: number, gain: number) {
+    this.noise(28, { type: 'highpass', freq: 7000, gain, at: at - this.ctx!.currentTime, bus: this.musicBus });
   }
 }
 
