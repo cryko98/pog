@@ -144,7 +144,9 @@ export function CasinoPanel({ guest, inventory, position, onChanged, onClose }: 
 
           {shown?.landed && (
             <div className={`cs-result ${shown.bet.won ? 'won' : 'lost'}`}>
-              <b>{shown.bet.won ? `+${big(shown.bet.paid - shown.bet.wager)} P coins` : `−${big(shown.bet.wager)} P coins`}</b>
+              <b className="with-icon">
+                <Icon name="coin" size={16} /> {shown.bet.won ? `+${big(shown.bet.paid - shown.bet.wager)}` : `−${big(shown.bet.wager)}`} P coins
+              </b>
               <small>
                 {shown.bet.game === 'dice'
                   ? `rolled ${shown.bet.shown}, you needed under ${shown.bet.choice}`
@@ -196,8 +198,13 @@ export function CasinoPanel({ guest, inventory, position, onChanged, onClose }: 
 
           <div className="cs-bet">
             <label>
-              <span>Wager</span>
-              <input inputMode="numeric" value={wager} disabled={showing} onChange={(e) => setWager(e.target.value.replace(/[^\d]/g, ''))} />
+              <span className="with-icon">
+                <Icon name="coin" size={13} /> Wager, in P coins
+              </span>
+              <span className="cs-wager">
+                <Icon name="coin" size={18} />
+                <input inputMode="numeric" value={wager} disabled={showing} onChange={(e) => setWager(e.target.value.replace(/[^\d]/g, ''))} />
+              </span>
             </label>
             <div className="cs-quick">
               {[10, 50, 200].map((n) => (
@@ -216,10 +223,14 @@ export function CasinoPanel({ guest, inventory, position, onChanged, onClose }: 
                   : game === 'flip'
                     ? 'In the air…'
                     : 'Rolling…'
-                : `Bet ${big(amount)} to win ${big(Math.floor(amount * mult))}`}
+                : (
+                    <>
+                      Bet <Icon name="coin" size={15} /> {big(amount)} to win <Icon name="coin" size={15} /> {big(Math.floor(amount * mult))}
+                    </>
+                  )}
             </button>
             <small className="bp-note">
-              {Math.round(chance * 100)}% to win, pays {mult}×. You have {big(inventory.pog)} P coins.
+              {Math.round(chance * 100)}% to win, pays {mult}×. You have <Icon name="coin" size={12} /> {big(inventory.pog)} P coins.
               {amount > inventory.pog ? ' Not enough for that wager.' : ''}
             </small>
           </div>

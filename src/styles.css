@@ -3184,6 +3184,31 @@ section.band {
   color: #a9cbd6;
 }
 
+.cs-wager {
+  position: relative;
+  display: block;
+}
+
+.cs-wager > svg {
+  position: absolute;
+  top: 50%;
+  left: 9px;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.cs-wager input {
+  padding-left: 32px;
+  font-weight: 700;
+}
+
+.casino .btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+}
+
 .cs-quick {
   display: flex;
   gap: 6px;
