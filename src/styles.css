@@ -381,6 +381,14 @@ input {
   color: var(--ink-soft);
 }
 
+.hero .lead + .lead {
+  margin-top: 10px;
+}
+
+.hero .lead strong {
+  color: var(--ink);
+}
+
 .hero-cta {
   display: flex;
   flex-wrap: wrap;

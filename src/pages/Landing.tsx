@@ -288,15 +288,23 @@ export function Landing({ navigate }: { navigate: (r: Route) => void }) {
               <i className="dot" /> Live on Solana
             </span>
             <h1>
-              Waddle. Slide.
+              🐧 POG is
               <br />
-              <em>Earn $POG.</em>
+              <em>back!</em>
             </h1>
             <p className="lead">
-              $POG is the coldest memecoin on Solana — and the only one with a survival game behind
-              it. Fell pines, saw ice out of the lakes, fish the holes, and spend a hard-won haul on
-              an igloo that everybody else can see — then furnish it, level it, and sell it on the
-              market. No wallet needed to look around.
+              POG was born in 2024 and quickly became one of the biggest cults on Solana.
+            </p>
+            <p className="lead">Now we're back — same team, same devs, same POG energy.</p>
+            <p className="lead">
+              A play-to-earn multiplayer open world where your inventory actually pays.
+            </p>
+            <p className="lead">
+              Explore a frozen world, farm loot, battle other penguins and NPCs, complete challenges,
+              and compete for valuable supplies.
+            </p>
+            <p className="lead">
+              <strong>Stake your igloo. Build your inventory. Take on the world.</strong>
             </p>
 
             <div className="hero-cta">
