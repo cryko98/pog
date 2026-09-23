@@ -2768,6 +2768,47 @@ section.band {
   filter: drop-shadow(0 0 4px rgba(255, 92, 108, 0.8));
 }
 
+.cave-ammo {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: 10px;
+}
+
+.cave-ammo i {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.14);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.3);
+}
+
+.cave-ammo i.on {
+  background: #ffffff;
+  box-shadow: 0 0 5px rgba(191, 227, 247, 0.9);
+}
+
+.cave-ammo small {
+  margin-left: 5px;
+  font-size: 0.66rem;
+  color: #bfe3f7;
+}
+
+.cave-ammo.packing i:not(.on):first-of-type {
+  animation: cave-pack 0.65s linear infinite;
+}
+
+@keyframes cave-pack {
+  from {
+    transform: scale(0.4);
+    opacity: 0.4;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
 .cave-gold {
   display: inline-flex;
   align-items: center;

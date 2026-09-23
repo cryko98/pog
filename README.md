@@ -192,12 +192,16 @@ anywhere but the arena, or keep playing once it is over.
 
 Far the other side of the plaza from the arena, past the last lantern: a hill
 with a black mouth in it. A run is a side-on corridor of ice with polar bears
-coming the other way. Move with A/D, jump with W, throw with J. A bear takes
-two snowballs at first and one more with every wave; they come faster, more
-at once, and each swipes on its own clock, so they cannot be jumped by rote.
-Every one put down is P coins, more the deeper the wave. Three hearts, a
-swipe takes one, and a swipe cannot reach a penguin in the air. Leaving is
-allowed only when no bear is close.
+coming the other way. Move with A/D, jump with W, throw with J — the way you
+face. You carry six snowballs and pack more only while standing still on the
+ground, and only once you have stopped throwing for a beat; so you cannot
+throw forever, and the moment you stop to pack, the bears close in. A bear
+blocks the floor but not the air: a well-timed jump carries you over it, after
+which it turns round and comes after you, with a beat's delay. A swipe is
+telegraphed — a "!" and the paw comes up, then lands — so a jump on the
+wind-up clears it. Bears take two snowballs at first and one more with every
+wave; they come faster and more at once. Three hearts, a swipe takes one.
+Leaving means being back at the mouth with no bear on your heels.
 
 **The bet is the pack.** Walk out (or wait for the cave to close after three
 minutes) and the coins are in your pack. Get eaten and the run's coins *and

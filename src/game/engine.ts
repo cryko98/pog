@@ -1707,7 +1707,7 @@ export class PogGame {
     ctx.font = `700 13px Inter, system-ui, sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    const label = guest ? name + ' · guest' : level > 0 ? name + ' · L' + level : name;
+    const label = guest ? name + ' · guest' : level > 0 ? name + ' · ' + level : name;
     const w = ctx.measureText(label).width + 22;
 
     ctx.fillStyle = isSelf ? 'rgba(13,43,58,0.92)' : 'rgba(13,27,38,0.72)';

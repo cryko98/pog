@@ -339,7 +339,7 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
           >
             <b>
               {identity!.name}
-              {!identity!.guest && <span className="lvl">L{playerLevel(hud.skills)}</span>}
+              {!identity!.guest && <span className="lvl">{playerLevel(hud.skills)}</span>}
             </b>
             <small>{identity!.guest ? 'playing as guest' : shortAddress(address, 4)}</small>
           </button>

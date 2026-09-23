@@ -36,10 +36,13 @@ interface Particle {
 interface Bear {
   id: number;
   x: number;
+  dir: number;
   hp: number;
   maxHp: number;
   speed: number;
   swipeAt: number;
+  landAt: number;
+  turnAt: number;
   bornAt: number;
 }
 
@@ -203,6 +206,11 @@ export function DungeonScene({ id, onLeave }: Props) {
 
   const leave = useCallback(() => {
     const w = worldNow();
+    if (w && w.me.x > CAVE.mouthX) {
+      pops.current.push({ t: performance.now(), x: 0, y: 0, text: 'Get back to the mouth first!', color: '#ffd44d' });
+      sound.error();
+      return;
+    }
     if (w && w.bears.some((b: Bear) => Math.abs(b.x - w.me.x) < CAVE.leaveGap)) {
       pops.current.push({ t: performance.now(), x: 0, y: 0, text: 'A bear is too close to leave!', color: '#ffd44d' });
       sound.error();
@@ -410,7 +418,19 @@ export function DungeonScene({ id, onLeave }: Props) {
           }
           if (e.type === 'jump') sound.jump();
           if (e.type === 'spawn') sound.growl();
-          if (e.type === 'swipe') swipes.current.set(e.id as number, pnow);
+          if (e.type === 'jump') wasAirborne.current = true;
+          if (e.type === 'swipe') {
+            swipes.current.set(e.id as number, pnow);
+            sound.growl();
+          }
+          if (e.type === 'empty') {
+            pops.current.push({ t: pnow, x: sx(world.me.x), y: ground - pengH - 10, text: 'No snow — stand still to pack', color: '#bfe3f7' });
+            sound.error();
+          }
+          if (e.type === 'pack') sound.click();
+          if (e.type === 'miss') {
+            pops.current.push({ t: pnow, x: sx(world.me.x), y: ground - pengH - 30, text: 'Dodged!', color: '#7cd67c' });
+          }
           if (e.type === 'hit') {
             sound.splat();
             burst(sx(e.x as number), ground - bearH * 0.5, 18, 220 * scale);
@@ -429,7 +449,7 @@ export function DungeonScene({ id, onLeave }: Props) {
             burst(sx(world.me.x), ground - pengH * 0.5, 14, 200 * scale, '#ff6b6b');
           }
           if (e.type === 'nope') {
-            pops.current.push({ t: pnow, x: sx(world.me.x), y: ground - pengH - 10, text: 'Too close to leave!', color: '#ffd44d' });
+            pops.current.push({ t: pnow, x: sx(world.me.x), y: ground - pengH - 10, text: (e as { why?: string }).why === 'far' ? 'Get back to the mouth!' : 'Too close to leave!', color: '#ffd44d' });
           }
           if (e.type === 'dead') sound.lose();
           if (e.type === 'left' || e.type === 'closed') sound.win();
@@ -453,9 +473,19 @@ export function DungeonScene({ id, onLeave }: Props) {
           const bx = sx(b.x);
           const born = Math.min(1, (now - b.bornAt) / 400);
           const swipeAge = pnow - (swipes.current.get(b.id) ?? -Infinity);
-          const swiping = swipeAge < 320;
-          const walking = b.x - me.x > CAVE.bearReach;
-          drawBear(ctx, bx, ground, bearH * (0.7 + 0.3 * born), now, walking, swiping ? swipeAge / 320 : -1, b.hp / b.maxHp);
+          const swipeLen = CAVE.swipeWindupMs + 160;
+          const swiping = swipeAge < swipeLen;
+          const toward = Math.sign(me.x - b.x) || b.dir;
+          const walking = Math.abs(b.x - me.x) > CAVE.bearReach || b.dir !== toward;
+          drawBear(ctx, bx, ground, bearH * (0.7 + 0.3 * born), now, walking, swiping ? swipeAge / swipeLen : -1, b.hp / b.maxHp, b.dir > 0 ? 1 : -1);
+          // the wind-up: a warning over the bear that is about to swing
+          if (swiping && swipeAge < CAVE.swipeWindupMs) {
+            ctx.fillStyle = '#ffd44d';
+            ctx.font = `800 ${Math.max(12, 18 * scale)}px "Baloo 2", system-ui, sans-serif`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'bottom';
+            ctx.fillText('!', bx, ground - bearH - 8 - Math.sin(pnow / 60) * 3);
+          }
         }
 
         // the penguin
@@ -468,15 +498,24 @@ export function DungeonScene({ id, onLeave }: Props) {
         const color = identity?.color ?? '#ff6b2c';
         const since = pnow - throwAnim.current;
         if (since < THROW_ANIM_MS) {
-          drawPenguinWithTool(ctx, color, 'right', 0, false, 0, 0, pengH, null, { kind: 'ball', phase: since / THROW_ANIM_MS, side: 1 });
+          drawPenguinWithTool(ctx, color, me.facing < 0 ? 'left' : 'right', 0, false, 0, 0, pengH, null, { kind: 'ball', phase: since / THROW_ANIM_MS, side: me.facing < 0 ? -1 : 1 });
         } else {
-          blitPenguin(ctx, color, me.dir < 0 ? 'left' : 'right', Math.floor(now / 90), me.dir !== 0 && !me.airborne, 0, 0, pengH);
+          blitPenguin(ctx, color, me.facing < 0 ? 'left' : 'right', Math.floor(now / 90), me.dir !== 0 && !me.airborne, 0, 0, pengH);
         }
         ctx.restore();
         ctx.globalAlpha = 1;
         if (me.airborne !== wasAirborne.current) {
           if (!me.airborne) sound.land();
           wasAirborne.current = me.airborne;
+        }
+
+        // packing snow: the pile at the feet
+        if (!me.airborne && me.dir === 0 && me.ammo < CAVE.ammoMax && now - me.lastThrowAt >= CAVE.packDelayMs) {
+          const k = me.packAt ? 1 - Math.max(0, Math.min(1, (me.packAt - now) / CAVE.packMs)) : 0;
+          ctx.fillStyle = '#ffffff';
+          ctx.beginPath();
+          ctx.arc(px + pengH * 0.42 * me.facing, ground - 4 * scale, (3 + 5 * k) * scale, 0, Math.PI * 2);
+          ctx.fill();
         }
 
         // balls
@@ -497,7 +536,7 @@ export function DungeonScene({ id, onLeave }: Props) {
           ctx.fillStyle = 'rgba(255,255,255,0.35)';
           for (let k = 1; k <= 3; k++) {
             ctx.beginPath();
-            ctx.arc(bx - k * 9 * scale, by, (7 - k * 1.6) * scale, 0, Math.PI * 2);
+            ctx.arc(bx - k * 9 * scale * (ball.dir || 1), by, (7 - k * 1.6) * scale, 0, Math.PI * 2);
             ctx.fill();
           }
         }
@@ -561,6 +600,8 @@ export function DungeonScene({ id, onLeave }: Props) {
   const hp = view?.settled ? (view.settled.why === 'dead' ? 0 : CAVE.hp) : (world?.me.hp ?? CAVE.hp);
   const coins = view?.settled ? view.settled.coins : (world?.coins ?? 0);
   const kills = view?.settled ? view.settled.kills : (world?.kills ?? 0);
+  const ammo = world?.me.ammo ?? CAVE.ammoStart;
+  const packing = !!world && !world.me.airborne && world.me.dir === 0 && ammo < CAVE.ammoMax && serverNow() - world.me.lastThrowAt >= CAVE.packDelayMs;
   const wave = view?.settled ? view.settled.wave : (world?.wave ?? 1);
   const clockLeft = view ? Math.max(0, view.startAt + CAVE.durationMs - serverNow()) : 0;
   const live = !!view && !view.settled && serverNow() >= view.startAt;
@@ -589,6 +630,12 @@ export function DungeonScene({ id, onLeave }: Props) {
             {Array.from({ length: CAVE.hp }, (_, i) => (
               <i key={i} className={i < hp ? 'on' : ''} />
             ))}
+          </span>
+          <span className={`cave-ammo${packing ? ' packing' : ''}`} title="Snowballs — stand still to pack more">
+            {Array.from({ length: CAVE.ammoMax }, (_, i) => (
+              <i key={i} className={i < ammo ? 'on' : ''} />
+            ))}
+            {packing && <small>packing…</small>}
           </span>
         </div>
         <div className="duel-mid">
@@ -631,7 +678,7 @@ export function DungeonScene({ id, onLeave }: Props) {
               Leave
             </button>
           </div>
-          <small className="duel-keys">A D move · W jump over a swipe · J throw — leave when no bear is close, or lose the pack</small>
+          <small className="duel-keys">A D move · W jump a swipe (the ! is your cue) or a bear · J throw the way you face · stand still to pack snow · leave from the mouth, with no bear close</small>
         </div>
       )}
 
