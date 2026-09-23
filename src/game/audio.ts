@@ -16,6 +16,8 @@
 type Kind = 'sfx' | 'music';
 
 const STORE_KEY = 'pog.audio';
+/** The music's level relative to the effects: background, not foreground. */
+const MUSIC_LEVEL = 0.4;
 
 interface Prefs {
   sfx: boolean;
@@ -125,7 +127,7 @@ class Sound {
     if (!this.ctx || !this.sfxBus || !this.musicBus) return;
     const t = this.ctx.currentTime;
     this.sfxBus.gain.setTargetAtTime(this.prefs.sfx ? 1 : 0, t, 0.02);
-    this.musicBus.gain.setTargetAtTime(this.prefs.music ? 1 : 0, t, 0.3);
+    this.musicBus.gain.setTargetAtTime(this.prefs.music ? MUSIC_LEVEL : 0, t, 0.3);
     if (this.prefs.music) this.startMusic();
     else this.stopMusic();
   }
@@ -440,7 +442,7 @@ class Sound {
   private schedule() {
     const ctx = this.ctx;
     if (!ctx || !this.musicBus) return;
-    const STEP = this.tense ? 0.21 : 0.26; // an eighth note, seconds
+    const STEP = this.tense ? 0.24 : 0.31; // an eighth note, seconds
     const LOOP = Sound.LEAD.length;
     while (this.nextBeat < ctx.currentTime + 0.5) {
       const t = this.nextBeat;
@@ -457,11 +459,12 @@ class Sound {
       const [root, fifth] = Sound.BASS[bar];
       this.bassNote(inBar % 2 === 0 ? root : fifth, t, STEP * 0.7);
 
-      // drums
+      // drums, kept light: a kick on the beat, a brush of snare, hats
+      // only on the beats (every step in the arena)
       const kickOn = this.tense ? inBar % 2 === 0 : inBar === 0 || inBar === 4;
       if (kickOn) this.kick(t);
       if (inBar === 2 || inBar === 6) this.snare(t);
-      this.hat(t, inBar % 2 === 0 ? 0.02 : 0.011);
+      if (this.tense || inBar % 2 === 0) this.hat(t, inBar % 2 === 0 ? 0.012 : 0.007);
 
       this.nextBeat += STEP;
       this.beat++;
@@ -481,11 +484,11 @@ class Sound {
     vib.connect(vibGain).connect(osc.frequency);
     const lp = ctx.createBiquadFilter();
     lp.type = 'lowpass';
-    lp.frequency.value = 2600;
+    lp.frequency.value = 1500; // takes the edge off the square
     const g = ctx.createGain();
     g.gain.setValueAtTime(0.0001, at);
-    g.gain.exponentialRampToValueAtTime(0.028, at + 0.008);
-    g.gain.setValueAtTime(0.028, at + dur * 0.6);
+    g.gain.exponentialRampToValueAtTime(0.022, at + 0.012);
+    g.gain.setValueAtTime(0.022, at + dur * 0.55);
     g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
     osc.connect(lp).connect(g).connect(this.musicBus!);
     osc.start(at);
@@ -501,7 +504,7 @@ class Sound {
     osc.frequency.value = freq;
     const g = ctx.createGain();
     g.gain.setValueAtTime(0.0001, at);
-    g.gain.exponentialRampToValueAtTime(0.07, at + 0.006);
+    g.gain.exponentialRampToValueAtTime(0.05, at + 0.006);
     g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
     osc.connect(g).connect(this.musicBus!);
     osc.start(at);
@@ -515,7 +518,7 @@ class Sound {
     osc.frequency.exponentialRampToValueAtTime(48, at + 0.1);
     const g = ctx.createGain();
     g.gain.setValueAtTime(0.0001, at);
-    g.gain.exponentialRampToValueAtTime(0.12, at + 0.004);
+    g.gain.exponentialRampToValueAtTime(0.08, at + 0.004);
     g.gain.exponentialRampToValueAtTime(0.0001, at + 0.14);
     osc.connect(g).connect(this.musicBus!);
     osc.start(at);
@@ -523,7 +526,7 @@ class Sound {
   }
 
   private snare(at: number) {
-    this.noise(90, { freq: 1900, q: 0.7, gain: 0.045, at: at - this.ctx!.currentTime, bus: this.musicBus });
+    this.noise(90, { freq: 1900, q: 0.7, gain: 0.03, at: at - this.ctx!.currentTime, bus: this.musicBus });
     this.tone(190, 70, { type: 'triangle', to: 120, gain: 0.03, at: at - this.ctx!.currentTime, bus: this.musicBus });
   }
 
