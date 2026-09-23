@@ -108,6 +108,9 @@ export interface HudState {
   /** whose igloo we are standing in, if any */
   inside: string | null;
   ownHome: boolean;
+  /** for the tutorial: how far we have walked, and what we have crafted */
+  moved: number;
+  crafts: Record<string, number>;
 }
 
 export interface ChatLine {
@@ -258,6 +261,32 @@ export class PogGame {
   private fishing: { node: WorldNode; nextBite: number } | null = null;
   /** somewhere off the snow that is not an igloo — the arena, for now */
   private away: string | null = null;
+  /** for the tutorial */
+  private movedTotal = 0;
+  private crafts: Record<string, number> = {};
+  /** where the tutorial's arrow points, if anywhere */
+  private guideKind: 'tree' | 'craft' | 'hole' | 'fire' | null = null;
+
+  /** Point the on-ice arrow at the nearest node of a kind, or clear it. */
+  setGuide(kind: 'tree' | 'craft' | 'hole' | 'fire' | null) {
+    this.guideKind = kind;
+  }
+
+  /** The nearest node of a kind that is not on cooldown, from where we stand. */
+  private nearestNode(kind: string): WorldNode | null {
+    let best: WorldNode | null = null;
+    let bestD = Infinity;
+    for (const n of this.nodes) {
+      if (n.type !== kind) continue;
+      if ((this.depleted.get(n.id) ?? 0) > Date.now()) continue;
+      const d = Math.hypot(n.x - this.me.x, n.y - this.me.y);
+      if (d < bestD) {
+        bestD = d;
+        best = n;
+      }
+    }
+    return best;
+  }
 
   /** Off the map (in the arena) or back on it; others stop drawing us meanwhile. */
   setAway(where: string | null) {
@@ -765,6 +794,72 @@ export class PogGame {
     };
   }
 
+  private drawGuide(target: WorldNode, now: number) {
+    const ctx = this.ctx;
+    const tx = this.sx(target.x);
+    const ty = this.sy(target.y);
+    const lift = ({ tree: 118, ice: 52, hole: 62 }[target.type] ?? SIGN_HEIGHT[target.type] ?? 60) * ZOOM;
+    const margin = 44;
+    const onScreen = tx > margin && tx < this.w - margin && ty > margin + 60 && ty < this.h - margin;
+    ctx.save();
+    ctx.fillStyle = '#ff5c17';
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 2.5;
+    ctx.lineJoin = 'round';
+    if (onScreen) {
+      const bob = Math.sin(now / 220) * 6;
+      const y = ty - lift - 28 + bob;
+      ctx.beginPath();
+      ctx.moveTo(tx, y + 14);
+      ctx.lineTo(tx - 13, y - 4);
+      ctx.lineTo(tx - 5, y - 4);
+      ctx.lineTo(tx - 5, y - 18);
+      ctx.lineTo(tx + 5, y - 18);
+      ctx.lineTo(tx + 5, y - 4);
+      ctx.lineTo(tx + 13, y - 4);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      // a soft ring on the ground
+      ctx.globalAlpha = 0.35 + Math.sin(now / 300) * 0.15;
+      ctx.beginPath();
+      ctx.ellipse(tx, ty + 4, 30 * ZOOM, 12 * ZOOM, 0, 0, Math.PI * 2);
+      ctx.stroke();
+    } else {
+      // clamp to the edge, along the line from the centre
+      const cx = this.w / 2;
+      const cy = this.h / 2;
+      const dx = tx - cx;
+      const dy = ty - cy;
+      const k = Math.min((this.w / 2 - margin) / Math.abs(dx || 1), (this.h / 2 - margin - 40) / Math.abs(dy || 1));
+      const ex = cx + dx * k;
+      const ey = cy + dy * k;
+      const ang = Math.atan2(dy, dx);
+      ctx.translate(ex, ey);
+      ctx.rotate(ang);
+      ctx.beginPath();
+      ctx.moveTo(18, 0);
+      ctx.lineTo(-10, -12);
+      ctx.lineTo(-4, 0);
+      ctx.lineTo(-10, 12);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      ctx.rotate(-ang);
+      const dist = Math.round(Math.hypot(target.x - this.me.x, target.y - this.me.y));
+      ctx.font = '700 12px "Baloo 2", system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = '#0f2f38';
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 3;
+      const label = dist > 999 ? (dist / 1000).toFixed(1) + ' km' : dist + ' m';
+      ctx.strokeText(label, 0, 26);
+      ctx.fillText(label, 0, 26);
+    }
+    ctx.restore();
+  }
+
   /** From the rod tip down to the water, with a bobber where it lands. */
   private drawFishingLine(tip: { x: number; y: number }, hole: WorldNode, phase: number, now: number, wait = -1) {
     const ctx = this.ctx;
@@ -832,6 +927,7 @@ export class PogGame {
     try {
       const { profile } = await api.craft(recipe);
       this.applyProfile(profile);
+      this.crafts[recipe] = (this.crafts[recipe] || 0) + 1;
       if (recipe === 'cookout' || recipe === 'feast') sound.cook();
       else sound.craft();
       this.pokeQuests();
@@ -1328,6 +1424,7 @@ export class PogGame {
 
     const moved = Math.hypot(this.me.vx, this.me.vy);
     this.me.moving = moved > 12;
+    if (!this.interior && !this.away) this.movedTotal += moved * dt;
     this.tendLine(performance.now());
 
     if (Math.abs(ax) > 0.15 || Math.abs(ay) > 0.15) {
@@ -1472,6 +1569,8 @@ export class PogGame {
         placing: this.placing?.id ?? null,
         inside: this.interior?.igloo.wallet ?? null,
         ownHome: this.interior?.igloo.wallet === this.selfId,
+        moved: this.movedTotal,
+        crafts: this.crafts,
         status: presenceConnected() ? 'open' : 'connecting',
         x: Math.round(this.me.x),
         y: Math.round(this.me.y),
@@ -1785,6 +1884,13 @@ export class PogGame {
 
     items.sort((a, b) => a.y - b.y);
     for (const item of items) item.draw();
+
+    // The tutorial's arrow: a bouncing chevron over the target when it is
+    // on screen, otherwise a pointer at the edge with the distance.
+    if (this.guideKind && !this.interior && !this.away) {
+      const target = this.nearestNode(this.guideKind);
+      if (target) this.drawGuide(target, now);
+    }
 
     // Building names, drawn after the sort so nothing can cover them —
     // a sign you cannot read is worse than no sign.

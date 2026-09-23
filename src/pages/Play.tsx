@@ -12,6 +12,7 @@ import { SeasonPanel } from '../components/SeasonPanel';
 import { HomePanel } from '../components/HomePanel';
 import { ArenaPanel } from '../components/ArenaPanel';
 import { DuelScene } from '../components/DuelScene';
+import { Onboarding } from '../components/Onboarding';
 import { Icon } from '../components/Icon';
 import { sound } from '../game/audio';
 import { skinById } from '../../shared/world.js';
@@ -32,6 +33,8 @@ const EMPTY_HUD: HudState = {
   placing: null,
   inside: null,
   ownHome: false,
+  moved: 0,
+  crafts: {},
 };
 
 export function Play({ navigate }: { navigate: (r: Route) => void }) {
@@ -76,6 +79,10 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
   }, [canPlay]);
   const [fatal, setFatal] = useState('');
   const [booting, setBooting] = useState(true);
+
+  const guideTo = useCallback((target: 'tree' | 'craft' | 'hole' | 'fire' | null) => {
+    gameRef.current?.setGuide(target);
+  }, []);
 
   const pushLine = useCallback((line: ChatLine) => {
     setLines((prev) => [...prev.slice(-59), line]);
@@ -492,6 +499,15 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
           </button>
         </div>
 
+
+        {identity && !booting && (
+          <Onboarding
+            identityId={identity.id}
+            guest={!!identity.guest}
+            hud={hud}
+            guide={guideTo}
+          />
+        )}
 
         {duelId && (
           <DuelScene
