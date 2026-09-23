@@ -11,11 +11,12 @@
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-import { actionOf, bearer, json } from '../_shared.js';
+import { CLOSED, actionOf, bearer, closed, json } from '../_shared.js';
 import { closeDay, dayRecord, recentDays } from '../../src/server/airdrop.js';
 import { dayOf } from '../../shared/season.js';
 
 export default async function handler(req: any, res: any) {
+  if (closed()) return json(res, 503, CLOSED);
   if (actionOf(req, 'cron') !== 'daily') return json(res, 404, { error: 'Unknown cron.' });
   const secret = (process.env.CRON_SECRET || '').trim();
   if (!secret || bearer(req) !== secret) return json(res, 401, { error: 'Not the cron.' });

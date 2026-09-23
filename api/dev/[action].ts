@@ -22,7 +22,7 @@
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-import { actionOf, body, bearer, json } from '../_shared.js';
+import { CLOSED, actionOf, bearer, body, closed, json } from '../_shared.js';
 import { devGrant, walletForToken } from '../../src/server/game.js';
 import { closeDay } from '../../src/server/airdrop.js';
 
@@ -37,6 +37,7 @@ const DEV_KEY = (process.env.POG_DEV_KEY || '').trim();
 const IS_DEPLOYED = !!process.env.VERCEL || process.env.VERCEL_ENV === 'production';
 
 export default async function handler(req: any, res: any) {
+  if (closed()) return json(res, 503, CLOSED);
   if (IS_DEPLOYED) return json(res, 404, { error: 'Not found.' });
   if (!DEV_KEY) {
     return json(res, 404, { error: 'Dev routes are off. Set POG_DEV_KEY to enable them locally.' });

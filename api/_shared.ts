@@ -48,3 +48,12 @@ export function json(res: any, code: number, payload: unknown) {
   res.setHeader('cache-control', 'no-store');
   return res.status(code).json(payload);
 }
+
+/**
+ * The kill switch. With POG_CLOSED set in the environment every handler
+ * answers 503 before touching Redis, the chain or anything else, so a
+ * closed project costs nothing to leave deployed. Unset it (and redeploy)
+ * to open the ice again.
+ */
+export const closed = () => /^(1|true|yes|on)$/i.test(String(process.env.POG_CLOSED || '').trim());
+export const CLOSED = { error: 'The ice has closed — this project has ended.', closed: true };

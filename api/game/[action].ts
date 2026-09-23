@@ -19,7 +19,7 @@
 import { BusyError } from '../../src/server/lock.js';
 import { gateError } from '../../src/server/access.js';
 import { ensureClosed, settleOwed } from '../../src/server/airdrop.js';
-import { actionOf, bearer, body, json } from '../_shared.js';
+import { CLOSED, actionOf, bearer, body, closed, json } from '../_shared.js';
 import { RECIPES, SKINS } from '../../shared/world.js';
 import {
   buildIgloo,
@@ -37,6 +37,7 @@ import {
 } from '../../src/server/game.js';
 
 export default async function handler(req: any, res: any) {
+  if (closed()) return json(res, 503, CLOSED);
   const action = actionOf(req, 'game');
 
   try {

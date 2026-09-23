@@ -18,7 +18,7 @@
 
 import { BusyError } from '../../src/server/lock.js';
 import { gateError } from '../../src/server/access.js';
-import { actionOf, bearer, body, json } from '../_shared.js';
+import { CLOSED, actionOf, bearer, body, closed, json } from '../_shared.js';
 import {
   FROST,
   GATE,
@@ -43,6 +43,7 @@ function clientIp(req: any): string | undefined {
 }
 
 export default async function handler(req: any, res: any) {
+  if (closed()) return json(res, 503, CLOSED);
   const action = actionOf(req, 'season');
 
   try {

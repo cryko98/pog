@@ -12,7 +12,7 @@
 
 import { BusyError } from '../../src/server/lock.js';
 import { playGate } from '../../src/server/access.js';
-import { actionOf, bearer, body, json, query } from '../_shared.js';
+import { CLOSED, actionOf, bearer, body, closed, json, query } from '../_shared.js';
 import {
   getProfile,
   leaderboard,
@@ -23,6 +23,7 @@ import {
 } from '../../src/server/game.js';
 
 export default async function handler(req: any, res: any) {
+  if (closed()) return json(res, 503, CLOSED);
   const action = actionOf(req, 'profile');
 
   try {

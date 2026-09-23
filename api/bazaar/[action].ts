@@ -12,7 +12,7 @@
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-import { actionOf, bearer, body, json } from '../_shared.js';
+import { CLOSED, actionOf, bearer, body, closed, json } from '../_shared.js';
 import { BusyError } from '../../src/server/lock.js';
 import { gateError } from '../../src/server/access.js';
 import { walletForToken } from '../../src/server/game.js';
@@ -20,6 +20,7 @@ import { qualified } from '../../src/server/season-gate.js';
 import { BAZAAR, buyLot, listLot, lots, unlistLot } from '../../src/server/bazaar.js';
 
 export default async function handler(req: any, res: any) {
+  if (closed()) return json(res, 503, CLOSED);
   const action = actionOf(req, 'bazaar');
 
   try {

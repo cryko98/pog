@@ -11,13 +11,14 @@
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-import { actionOf, bearer, body, json, query } from '../_shared.js';
+import { CLOSED, actionOf, bearer, body, closed, json, query } from '../_shared.js';
 import { BusyError } from '../../src/server/lock.js';
 import { gateError } from '../../src/server/access.js';
 import { walletForToken } from '../../src/server/game.js';
 import { casinoState, placeBet, revealSeed } from '../../src/server/casino.js';
 
 export default async function handler(req: any, res: any) {
+  if (closed()) return json(res, 503, CLOSED);
   const action = actionOf(req, 'casino');
 
   try {

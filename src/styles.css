@@ -3688,3 +3688,38 @@ html::-webkit-scrollbar-thumb:hover {
   padding: 5px 9px;
   font-size: 0.72rem;
 }
+
+/* ------------------------------------------------------------------ *
+ * The ice has closed
+ * ------------------------------------------------------------------ */
+
+.closed {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px 16px;
+  background: linear-gradient(160deg, var(--teal-200), var(--teal-050));
+  color: var(--ink);
+}
+
+.closed-card {
+  display: grid;
+  justify-items: center;
+  gap: 16px;
+  max-width: 52ch;
+  padding: 36px 28px;
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: 0 20px 60px rgba(14, 47, 56, 0.12);
+  text-align: center;
+}
+
+.closed-card h1 {
+  font-size: clamp(2rem, 6vw, 3rem);
+  margin: 0;
+}
+
+.closed-card p {
+  color: var(--ink-soft);
+  line-height: 1.55;
+}

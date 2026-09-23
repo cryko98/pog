@@ -1,4 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
+import { Closed } from './pages/Closed';
 import { Landing } from './pages/Landing';
 
 // The game pulls in the canvas engine and the MQTT client — several hundred
@@ -32,6 +33,7 @@ export function App() {
     document.body.style.overflow = route === 'play' ? 'hidden' : '';
   }, [route]);
 
+  if (import.meta.env.VITE_POG_CLOSED) return <Closed />;
   if (route !== 'play') return <Landing navigate={navigate} />;
 
   return (
