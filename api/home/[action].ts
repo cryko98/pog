@@ -8,6 +8,8 @@
  *   POST list     { price, currency } -> put the igloo up for sale
  *   POST unlist                       -> take it back off
  *   POST purchase { seller }          -> buy somebody else's, in soft $POG
+ *   POST deposit  { wood, ice, fish, pog, gold, items, x, y } -> from the pack into the igloo
+ *   POST withdraw { ...same }         -> and back
  *
  * The on-chain market, live once POG_MINT is set:
  *
@@ -30,7 +32,9 @@ import { BusyError } from '../../src/server/lock.js';
 import {
   buyFurniture,
   buyIgloo,
+  depositToIgloo,
   homeState,
+  withdrawFromIgloo,
   listIgloo,
   placeFurniture,
   removeFurniture,
@@ -90,6 +94,13 @@ export default async function handler(req: any, res: any) {
       if (!gate.ok) return json(res, 409, { error: `Not eligible to trade — ${gate.missing}.` });
 
       const result = await listIgloo(wallet, price, currency);
+      if (result.error) return json(res, 409, { error: result.error });
+      return json(res, 200, result);
+    }
+
+    if (action === 'deposit' || action === 'withdraw') {
+      const { x, y, ...bundle } = body(req);
+      const result = await (action === 'deposit' ? depositToIgloo : withdrawFromIgloo)(wallet, bundle, x, y);
       if (result.error) return json(res, 409, { error: result.error });
       return json(res, 200, result);
     }

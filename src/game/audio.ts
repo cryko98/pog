@@ -375,6 +375,29 @@ class Sound {
     this.noise(120, { type: 'highpass', freq: 2800, gain: 0.12, at: 0.02 });
   }
 
+  /* ---------------- the caves ---------------- */
+
+  growl() {
+    this.noise(420, { type: 'lowpass', freq: 220, to: 120, q: 2, gain: 0.32, attack: 0.05 });
+    this.tone(this.vary(70), 380, { type: 'sawtooth', to: 48, gain: 0.07 });
+  }
+
+  hurt() {
+    this.tone(440, 90, { type: 'square', to: 180, gain: 0.12 });
+    this.noise(140, { type: 'bandpass', freq: 900, gain: 0.2 });
+  }
+
+  bearDown() {
+    this.noise(300, { type: 'lowpass', freq: 400, gain: 0.35 });
+    this.tone(880, 120, { type: 'triangle', to: 1320, gain: 0.1, at: 0.08 });
+    this.tone(1320, 160, { type: 'triangle', to: 1760, gain: 0.1, at: 0.2 });
+  }
+
+  gold() {
+    this.tone(1568, 80, { type: 'square', gain: 0.06 });
+    this.tone(2093, 140, { type: 'square', gain: 0.06, at: 0.07 });
+  }
+
   countdown(last: boolean) {
     this.tone(last ? 1047 : 660, last ? 500 : 140, { type: 'square', gain: last ? 0.12 : 0.06 });
   }

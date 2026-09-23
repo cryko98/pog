@@ -37,7 +37,8 @@ import {
   yieldOwed,
 } from '../../shared/world.js';
 import { SALE_FEE, SALE_MAX, SALE_MIN } from '../../shared/sale.js';
-import { K, getProfile, putProfile, type Igloo, type Profile } from './game.js';
+import { K, emptyStore, getProfile, holdCap, putProfile, trackMovement, type Igloo, type Profile, type Store } from './game.js';
+import { IGLOO } from '../../shared/world.js';
 import { isReserved, reservationOf } from './sale.js';
 
 /** Taken out of every soft sale and burned — the cost of a wash trade. */
@@ -366,6 +367,112 @@ export async function buyIgloo(
 }
 
 /* ------------------------------------------------------------------ *
+ * Storage
+ *
+ * Things go from the pack into the igloo and back, in whole amounts, only
+ * while the owner is standing at it. The pack cap counts both, so the
+ * igloo is a safe place rather than a bigger pack; a listed igloo is
+ * frozen, because a buyer is paying for what is in it.
+ * ------------------------------------------------------------------ */
+
+const STORE_KEYS = ['wood', 'ice', 'fish', 'pog', 'gold'] as const;
+type StoreKey = (typeof STORE_KEYS)[number];
+
+/** Whole non-negative amounts of the five resources and any items named. */
+function bundleOf(raw: unknown): { res: Record<StoreKey, number>; items: Record<string, number>; any: boolean } {
+  const res = { wood: 0, ice: 0, fish: 0, pog: 0, gold: 0 };
+  const items: Record<string, number> = {};
+  let any = false;
+  const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+  for (const k of STORE_KEYS) {
+    const n = Math.floor(Number(r[k]) || 0);
+    if (n > 0) {
+      res[k] = n;
+      any = true;
+    }
+  }
+  if (r.items && typeof r.items === 'object') {
+    for (const [id, v] of Object.entries(r.items as Record<string, unknown>)) {
+      const n = Math.floor(Number(v) || 0);
+      if (n > 0 && /^[a-zA-Z_][\w]{0,24}$/.test(id)) {
+        items[id] = n;
+        any = true;
+      }
+    }
+  }
+  return { res, items, any };
+}
+
+const storeTotal = (s: Store) => s.wood + s.ice + s.fish;
+
+/** Standing at your own igloo, and it is not on the market. */
+async function atOwnIgloo(wallet: string, x: unknown, y: unknown): Promise<{ igloo?: Igloo; error?: string }> {
+  const igloo = await iglooOf(wallet);
+  if (!igloo) return { error: 'You have no igloo.' };
+  if (await isListed(wallet)) return { error: 'Take it off the market first.' };
+  const px = Number(x);
+  const py = Number(y);
+  if (!Number.isFinite(px) || !Number.isFinite(py)) return { error: 'Where are you?' };
+  if (Math.hypot(px - igloo.x, py - igloo.y) > IGLOO.clearance + 40) return { error: 'Go home first.' };
+  const moved = await trackMovement(wallet, px, py);
+  if (moved) return { error: moved };
+  return { igloo };
+}
+
+export const depositToIgloo = (wallet: string, bundle: unknown, x: unknown, y: unknown) =>
+  withWallet(wallet, () => moveStock(wallet, bundle, x, y, 'in'));
+
+export const withdrawFromIgloo = (wallet: string, bundle: unknown, x: unknown, y: unknown) =>
+  withWallet(wallet, () => moveStock(wallet, bundle, x, y, 'out'));
+
+async function moveStock(
+  wallet: string,
+  bundle: unknown,
+  x: unknown,
+  y: unknown,
+  dir: 'in' | 'out'
+): Promise<{ igloo?: Igloo; profile?: Profile; error?: string }> {
+  const b = bundleOf(bundle);
+  if (!b.any) return { error: 'Nothing to move.' };
+  const at = await atOwnIgloo(wallet, x, y);
+  if (at.error || !at.igloo) return { error: at.error };
+  const igloo = at.igloo;
+  const store = igloo.store ?? emptyStore();
+  const profile = await getProfile(wallet);
+  if (!profile) return { error: 'Pick a username first.' };
+
+  const from = dir === 'in' ? profile : store;
+  const to = dir === 'in' ? store : profile;
+  for (const k of STORE_KEYS) {
+    if (b.res[k] && (from[k] || 0) < b.res[k]) return { error: `You do not have ${b.res[k]} ${k} ${dir === 'in' ? 'in your pack' : 'put away'}.` };
+  }
+  for (const [id, n] of Object.entries(b.items)) {
+    if ((from.items[id] || 0) < n) return { error: `You do not have that many ${id} ${dir === 'in' ? 'in your pack' : 'put away'}.` };
+  }
+  // the cap covers pack and store together, so a stash cannot outgrow playtime
+  if (dir === 'in') {
+    const held = profile.wood + profile.ice + profile.fish + storeTotal(store);
+    if (held > holdCap(profile)) return { error: 'Your pack and store together are as full as your playtime allows.' };
+  }
+
+  for (const k of STORE_KEYS) {
+    if (!b.res[k]) continue;
+    from[k] -= b.res[k];
+    to[k] = (to[k] || 0) + b.res[k];
+  }
+  for (const [id, n] of Object.entries(b.items)) {
+    from.items[id] -= n;
+    if (from.items[id] <= 0) delete from.items[id];
+    to.items[id] = (to.items[id] || 0) + n;
+  }
+  igloo.store = store;
+  await saveIgloo(igloo);
+  const saved = await putProfile(profile);
+  if (b.res.pog) await (await kv()).zadd(K.leaderboard, saved.pog, wallet);
+  return { igloo, profile: saved };
+}
+
+/* ------------------------------------------------------------------ *
  * Reading it back
  * ------------------------------------------------------------------ */
 
@@ -387,6 +494,8 @@ export async function homeState(wallet: string) {
     listed: market.some((l) => l.wallet === wallet),
     /** a buyer is mid-payment on your listing */
     reserved,
+    /** what is put away in the igloo */
+    store: igloo?.store ?? emptyStore(),
     pending: igloo ? yieldOwed(pieces, igloo.lastYield ?? igloo.builtAt) : 0,
     catalogue: Object.values(FURNITURE),
     market,

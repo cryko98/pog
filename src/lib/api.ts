@@ -6,6 +6,7 @@ export interface Profile {
   wood: number;
   ice: number;
   fish: number;
+  gold?: number;
   items: Record<string, number>;
   skins: string[];
   skin: string;
@@ -113,6 +114,16 @@ export interface Igloo {
   builtAt: number;
   furniture?: FurniturePiece[];
   lastYield?: number;
+  store?: IglooStore;
+}
+
+export interface IglooStore {
+  wood: number;
+  ice: number;
+  fish: number;
+  pog: number;
+  gold: number;
+  items: Record<string, number>;
 }
 
 export interface Furnishing {
@@ -147,6 +158,8 @@ export interface HomeState {
   listed: boolean;
   /** a buyer is mid-payment on your on-chain listing */
   reserved: boolean;
+  /** what is put away in the igloo */
+  store: IglooStore;
   pending: number;
   collected: number;
   catalogue: Furnishing[];
@@ -242,6 +255,35 @@ export interface OpenChallenge {
   host: { wallet: string; name: string; color: string };
   stake: DuelStake;
   createdAt: number;
+}
+
+/* --- the bear caves --- */
+
+/** One thing the player did in the caves, stamped by the server. */
+export interface RunInput {
+  seq: number;
+  t: number;
+  type: 'move' | 'jump' | 'throw' | 'leave';
+  dir?: number;
+  n?: string;
+}
+
+export interface RunSettled {
+  why: 'dead' | 'left' | 'closed';
+  gold: number;
+  kills: number;
+  wave: number;
+  at: number;
+  lost?: Record<string, number>;
+}
+
+export interface RunView {
+  id: string;
+  seed: number;
+  startAt: number;
+  serverNow: number;
+  settled: RunSettled | null;
+  rules: Record<string, number>;
 }
 
 export interface LeaderboardEntry {
@@ -426,6 +468,12 @@ export const api = {
 
   unlistIgloo: () => request<{ ok: boolean }>('/home/unlist', post()),
 
+  depositIgloo: (bundle: Record<string, number | Record<string, number>>, x: number, y: number) =>
+    request<{ igloo: Igloo; profile: Profile }>('/home/deposit', post({ ...bundle, x: Math.round(x), y: Math.round(y) })),
+
+  withdrawIgloo: (bundle: Record<string, number | Record<string, number>>, x: number, y: number) =>
+    request<{ igloo: Igloo; profile: Profile }>('/home/withdraw', post({ ...bundle, x: Math.round(x), y: Math.round(y) })),
+
   purchaseIgloo: (seller: string) =>
     request<{ igloo: Igloo; profile: Profile; paid: number; burned: number }>(
       '/home/purchase',
@@ -469,6 +517,18 @@ export const api = {
 
   duelDeposit: (id: string, signature: string) =>
     request<{ match?: DuelView; pending?: boolean }>('/arena/deposit', post({ id, signature })),
+
+  /* --- the bear caves --- */
+
+  cave: (id?: string) => request<{ run: RunView | null; profile?: Profile }>('/dungeon/state' + (id ? '?id=' + id : '')),
+
+  enterCave: (x: number, y: number) => request<{ run: RunView }>('/dungeon/enter', post({ x: Math.round(x), y: Math.round(y) })),
+
+  caveInput: (id: string, input: ({ type: 'move'; dir: number } | { type: 'jump' } | { type: 'throw' } | { type: 'leave' }) & { n?: string }) =>
+    request<{ seq: number; t: number }>('/dungeon/input', post({ id, ...input })),
+
+  caveInputs: (id: string, since: number) =>
+    request<{ inputs: RunInput[]; serverNow: number }>(`/dungeon/inputs?id=${id}&since=${since}`),
 
   buySkin: (skin: string) => request<{ profile: Profile }>('/game/buy', post({ skin })),
 

@@ -49,7 +49,7 @@ export function ProfileModal({ onClose, onSaved, required }: Props) {
           {isGuest ? (
             <>
               Guest penguins live in this browser only. Connect a wallet to reserve the name and
-              start earning $POG.
+              start earning P coins.
             </>
           ) : (
             <>

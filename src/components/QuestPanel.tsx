@@ -38,7 +38,7 @@ export function QuestPanel({ board, guest, onClaim, onClose }: Props) {
       </div>
 
       {guest ? (
-        <p className="bp-note">Quests pay out in $POG, so they need a wallet. Guests can still explore.</p>
+        <p className="bp-note">Quests pay out in P coins, so they need a wallet. Guests can still explore.</p>
       ) : !board ? (
         <p className="bp-note">Reading the board…</p>
       ) : (
@@ -49,8 +49,8 @@ export function QuestPanel({ board, guest, onClaim, onClose }: Props) {
               <b>{board.streak} day streak</b>
               <small>
                 {board.streak === 0
-                  ? `Clear all three to start one — worth +${board.streakBonus} $POG.`
-                  : `Clear all three again for +${board.streakBonus} $POG on top.`}
+                  ? `Clear all three to start one — worth +${board.streakBonus} P coins.`
+                  : `Clear all three again for +${board.streakBonus} P coins on top.`}
               </small>
             </div>
           </div>
@@ -67,7 +67,7 @@ export function QuestPanel({ board, guest, onClaim, onClose }: Props) {
                     <i style={{ width: `${pct}%` }} />
                   </div>
                   <small>
-                    {Math.min(q.progress, q.target)} / {q.target} · {q.reward} $POG
+                    {Math.min(q.progress, q.target)} / {q.target} · {q.reward} P coins
                   </small>
                 </div>
                 {q.claimed ? (

@@ -267,7 +267,7 @@ export async function indexFrost(wallet: string, total: number, delta: number): 
  * Offerings at the cairn
  * ------------------------------------------------------------------ */
 
-export type Stock = { wood: number; ice: number; fish: number };
+export type Stock = { wood: number; ice: number; fish: number; gold: number };
 
 /**
  * Burn resources for Frost. Bounded twice — by its own daily cap and by

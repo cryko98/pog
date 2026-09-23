@@ -44,7 +44,8 @@ const RESOURCES: Array<{ key: keyof Inventory; icon: IconName; label: string }> 
   { key: 'wood', icon: 'wood', label: 'Wood' },
   { key: 'ice', icon: 'ice', label: 'Ice' },
   { key: 'fish', icon: 'fish', label: 'Fish' },
-  { key: 'pog', icon: 'coin', label: '$POG' },
+  { key: 'pog', icon: 'coin', label: 'P coins' },
+  { key: 'gold', icon: 'gold', label: 'Gold' },
 ];
 
 const ITEMS: Record<string, { icon: IconName; label: string }> = {
@@ -224,7 +225,7 @@ export function BackpackPanel({
                     .filter(([res]) => RESOURCE_KEYS.includes(res))
                     .map(([res, amount]) => (
                       <span key={res} className="gain">
-                        +{amount} {res === 'pog' ? '$POG' : res}
+                        +{amount} {res === 'pog' ? 'P coins' : res}
                       </span>
                     ))}
                 </div>
@@ -242,7 +243,7 @@ export function BackpackPanel({
 
       {tab === 'shop' && (
         <>
-          <p className="bp-note">$POG only buys looks — never an advantage.</p>
+          <p className="bp-note">P coins only buy looks — never an advantage.</p>
           {catalogue.map((s) => {
             const owned = skins.includes(s.id);
             return (

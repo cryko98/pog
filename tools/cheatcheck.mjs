@@ -392,25 +392,22 @@ console.log('\n--- the plaza is not a teleporter ---');
   const spawn = WORLD.spawn;
   const dist = (n) => Math.hypot(n.x - spawn.x, n.y - spawn.y);
   const far = trees.reduce((a, b) => (dist(b) > dist(a) ? b : a));
-  const plazaCoin = getCoins().reduce((a, b) => (dist(b) < dist(a) ? b : a));
-  // the nearest coin sits just outside the plaza ring, so stand on the ring
-  // within pickup range of it — a real rejoin acts from the plaza too
-  const towards = Math.max(0, dist(plazaCoin) - WORLD.spawnRadius + 8);
+  // Coins keep well clear of the plaza now, so the plaza-side action is a
+  // swing at the pine that stands just outside the ring: a real rejoin
+  // acts from the plaza too, and the swing is taken from just inside it.
+  const plazaTree = trees.filter((t) => dist(t) - 40 <= WORLD.spawnRadius).reduce((a, b) => (dist(b) < dist(a) ? b : a));
+  const towards = Math.max(0, dist(plazaTree) - WORLD.spawnRadius + 8);
   const at = {
-    x: plazaCoin.x + ((spawn.x - plazaCoin.x) / dist(plazaCoin)) * towards,
-    y: plazaCoin.y + ((spawn.y - plazaCoin.y) / dist(plazaCoin)) * towards,
+    x: plazaTree.x + ((spawn.x - plazaTree.x) / dist(plazaTree)) * towards,
+    y: plazaTree.y + ((spawn.y - plazaTree.y) / dist(plazaTree)) * towards,
   };
   check('the far tree really is far from the plaza', dist(far) > 1500, `${Math.round(dist(far))}`);
-  check('there is a coin reachable from the plaza ring', dist(at) <= WORLD.spawnRadius && Math.hypot(at.x - plazaCoin.x, at.y - plazaCoin.y) <= 100, `${Math.round(dist(at))}`);
+  check('there is a pine reachable from the plaza ring', dist(at) <= WORLD.spawnRadius && Math.hypot(at.x - plazaTree.x, at.y - plazaTree.y) <= 86, `${Math.round(dist(at))}`);
 
   let r = await call('/api/game/gather', { method: 'POST', token: w.token, body: { node: far.id, x: far.x, y: far.y } });
   check('a fresh wallet can start at a far tree', r.status === 200, r.json.error);
   await sleep(1100);
-  r = await call('/api/world/claim', {
-    method: 'POST',
-    token: w.token,
-    body: { id: plazaCoin.id, x: at.x, y: at.y },
-  });
+  r = await call('/api/game/gather', { method: 'POST', token: w.token, body: { node: plazaTree.id, x: at.x, y: at.y } });
   check(
     'one jump to the plaza (a rejoin) is allowed',
     r.status === 200 || (r.status === 409 && !/two places/.test(r.json.error)),
@@ -526,6 +523,26 @@ console.log('\n--- concurrency (needs POG_DEV_KEY=localtest on the server) ---')
         (home.profile?.items?.f_rug || 0) + (home.pieces || []).length === 1,
         `pack=${home.profile?.items?.f_rug || 0} placed=${(home.pieces || []).length}`
       );
+
+      // The igloo's store: only at home, only what you hold, never past the cap.
+      {
+        await grant(c.token, { wood: 10 });
+        const away = await call('/api/home/deposit', { method: 'POST', token: c.token, body: { wood: 5, x: spot.x + 900, y: spot.y } });
+        check('putting things away from far off is refused', away.status === 409 && /home/i.test(away.json.error), away.json.error);
+        await sleep(1100);
+        const before = await call('/api/game/state', { token: c.token });
+        const much = await call('/api/home/deposit', { method: 'POST', token: c.token, body: { wood: before.json.profile.wood + 1, x: spot.x, y: spot.y } });
+        check('putting away more than you hold is refused', much.status === 409 && /do not have/.test(much.json.error), much.json.error);
+        await sleep(1100);
+        const inn = await call('/api/home/deposit', { method: 'POST', token: c.token, body: { wood: 3, x: spot.x, y: spot.y } });
+        check('three wood go into the igloo', inn.status === 200 && inn.json.igloo.store.wood === 3 && inn.json.profile.wood === before.json.profile.wood - 3, inn.json.error || `store=${inn.json.igloo?.store?.wood} pack=${inn.json.profile?.wood}`);
+        await sleep(1100);
+        const out = await call('/api/home/withdraw', { method: 'POST', token: c.token, body: { wood: 3, x: spot.x, y: spot.y } });
+        check('and come back out whole', out.status === 200 && out.json.igloo.store.wood === 0 && out.json.profile.wood === before.json.profile.wood, out.json.error || `pack=${out.json.profile?.wood}`);
+        await sleep(1100);
+        const more = await call('/api/home/withdraw', { method: 'POST', token: c.token, body: { wood: 1, x: spot.x, y: spot.y } });
+        check('taking out what is not there is refused', more.status === 409, more.json.error);
+      }
 
       // A second kit no longer replaces the igloo and everything in it.
       await call('/api/home/place', { method: 'POST', token: c.token, body: { id: 'rug', x: 0, y: -40 } });

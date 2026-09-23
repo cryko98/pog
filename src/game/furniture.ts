@@ -468,3 +468,114 @@ export function drawArenaRink(ctx: CanvasRenderingContext2D, h: number, time: nu
   ctx.textBaseline = 'middle';
   ctx.fillText('0 : 0', 0, -h * 0.89);
 }
+
+/**
+ * The bear caves: a snowy hill with a black mouth in it, icicles along the
+ * lip, a warning post and a few paw prints leading in. Drawn with its
+ * footprint at the origin, `h` tall.
+ */
+export function drawCaveMouth(ctx: CanvasRenderingContext2D, h: number, time: number) {
+  const w = h * 1.9;
+
+  // the hill: rock under snow
+  ctx.fillStyle = '#5b6b7a';
+  ctx.beginPath();
+  ctx.moveTo(-w * 0.5, 0);
+  ctx.quadraticCurveTo(-w * 0.42, -h * 0.72, -w * 0.12, -h * 0.9);
+  ctx.quadraticCurveTo(0, -h, w * 0.14, -h * 0.9);
+  ctx.quadraticCurveTo(w * 0.44, -h * 0.7, w * 0.5, 0);
+  ctx.closePath();
+  ctx.fill();
+  // snow on top
+  ctx.fillStyle = '#f2f8fd';
+  ctx.beginPath();
+  ctx.moveTo(-w * 0.44, -h * 0.34);
+  ctx.quadraticCurveTo(-w * 0.4, -h * 0.72, -w * 0.12, -h * 0.9);
+  ctx.quadraticCurveTo(0, -h, w * 0.14, -h * 0.9);
+  ctx.quadraticCurveTo(w * 0.42, -h * 0.7, w * 0.44, -h * 0.36);
+  ctx.quadraticCurveTo(w * 0.2, -h * 0.5, 0, -h * 0.44);
+  ctx.quadraticCurveTo(-w * 0.2, -h * 0.5, -w * 0.44, -h * 0.34);
+  ctx.closePath();
+  ctx.fill();
+  // rock cracks
+  ctx.strokeStyle = 'rgba(30,40,52,0.5)';
+  ctx.lineWidth = 1.5;
+  for (const [x0, y0, x1, y1] of [
+    [-w * 0.36, -h * 0.2, -w * 0.3, -h * 0.05],
+    [w * 0.33, -h * 0.24, w * 0.38, -h * 0.08],
+    [-w * 0.25, -h * 0.3, -w * 0.28, -h * 0.18],
+  ]) {
+    ctx.beginPath();
+    ctx.moveTo(x0, y0);
+    ctx.lineTo(x1, y1);
+    ctx.stroke();
+  }
+
+  // the mouth
+  const mw = w * 0.3;
+  const mh = h * 0.62;
+  const grad = ctx.createLinearGradient(0, -mh, 0, 0);
+  grad.addColorStop(0, '#05080c');
+  grad.addColorStop(1, '#141c26');
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.moveTo(-mw * 0.5, 0);
+  ctx.quadraticCurveTo(-mw * 0.55, -mh, 0, -mh);
+  ctx.quadraticCurveTo(mw * 0.55, -mh, mw * 0.5, 0);
+  ctx.closePath();
+  ctx.fill();
+  // a pair of eyes in the dark, blinking now and then
+  const blink = Math.sin(time / 900) > 0.92;
+  if (!blink) {
+    ctx.fillStyle = '#ffd44d';
+    ctx.beginPath();
+    ctx.ellipse(-7, -mh * 0.42, 3, 2, 0, 0, Math.PI * 2);
+    ctx.ellipse(7, -mh * 0.42, 3, 2, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  // icicles along the lip
+  ctx.fillStyle = '#cfeafc';
+  for (let i = -3; i <= 3; i++) {
+    const ix = i * mw * 0.13;
+    const iy = -mh * (1 - (i * i) / 60) + 2;
+    const len = 8 + ((i * 7 + 13) % 9);
+    ctx.beginPath();
+    ctx.moveTo(ix - 3, iy);
+    ctx.lineTo(ix + 3, iy);
+    ctx.lineTo(ix, iy + len);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  // paw prints leading in
+  ctx.fillStyle = 'rgba(80,100,120,0.55)';
+  for (let i = 0; i < 4; i++) {
+    const px = w * 0.42 - i * 18;
+    const py = 14 - i * 2 + (i % 2) * 6;
+    ctx.beginPath();
+    ctx.ellipse(px, py, 4, 3, 0, 0, Math.PI * 2);
+    ctx.fill();
+    for (let k = -1; k <= 1; k++) {
+      ctx.beginPath();
+      ctx.arc(px + k * 3.2, py - 4.5, 1.4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  // the warning post
+  const sx = -w * 0.4;
+  ctx.fillStyle = '#4e321c';
+  ctx.fillRect(sx - 2.5, -h * 0.5, 5, h * 0.5);
+  ctx.fillStyle = '#e8dcc3';
+  ctx.beginPath();
+  ctx.roundRect(sx - 24, -h * 0.58, 48, h * 0.16, 3);
+  ctx.fill();
+  ctx.strokeStyle = '#4e321c';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+  ctx.fillStyle = '#7a1f1f';
+  ctx.font = `800 ${Math.max(7, h * 0.09)}px "Baloo 2", system-ui, sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('BEARS', sx, -h * 0.5);
+}

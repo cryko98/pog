@@ -99,7 +99,7 @@ export const STEPS: Step[] = [
   {
     id: 'cook',
     title: 'Cook your catch',
-    hint: `The fire on the plaza turns ${COOK_FISH} fish into $POG. That is the coin that buys hats, furniture and igloos.`,
+    hint: `The fire on the plaza turns ${COOK_FISH} fish into P coins. That is the in-game coin that buys hats, furniture and igloos — not the real $POG token.`,
     target: 'fire',
     done: (s) => (s.crafts.cookout || 0) + (s.crafts.feast || 0) > 0,
   },

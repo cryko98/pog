@@ -19,7 +19,7 @@ interface Props {
   initialTab?: Tab;
 }
 
-export type Tab = 'home' | 'shop' | 'market';
+export type Tab = 'home' | 'store' | 'shop' | 'market';
 
 const big = (n: number) => n.toLocaleString('en-US');
 
@@ -36,7 +36,7 @@ type Checkout =
  * The igloo panel: what yours is worth, what you can buy for it, and the
  * market where furnished ones change hands.
  *
- * Two kinds of listing. Soft ones settle here in in-game $POG. On-chain
+ * Two kinds of listing. Soft ones settle here in P coins. On-chain
  * ones settle in the real token, and the panel's whole job for those is
  * to walk the buyer through reserve -> sign -> settle without ever
  * touching a key: the server builds the payment, the wallet signs it, the
@@ -157,9 +157,9 @@ export function HomePanel({ guest, refresh, hud, onPlace, onTakeNearest, onChang
       ) : (
         <>
           <div className="bp-tabs">
-            {(['home', 'shop', 'market'] as Tab[]).map((t) => (
+            {(['home', 'store', 'shop', 'market'] as Tab[]).map((t) => (
               <button key={t} className={`bp-tab${tab === t ? ' active' : ''}`} onClick={() => setTab(t)}>
-                {t === 'home' ? 'Home' : t === 'shop' ? 'Shop' : 'Market'}
+                {t === 'home' ? 'Home' : t === 'store' ? 'Store' : t === 'shop' ? 'Shop' : 'Market'}
               </button>
             ))}
           </div>
@@ -200,7 +200,7 @@ export function HomePanel({ guest, refresh, hud, onPlace, onTakeNearest, onChang
                   <div className="hm-yield">
                     <Icon name="coin" size={18} />
                     <div>
-                      <b>{state.level.daily} $POG a day</b>
+                      <b>{state.level.daily} P coins a day</b>
                       <small>
                         {state.collected > 0
                           ? `Just collected ${state.collected}.`
@@ -287,7 +287,7 @@ export function HomePanel({ guest, refresh, hud, onPlace, onTakeNearest, onChang
                             className={`hm-cur-btn${currency === 'soft' ? ' active' : ''}`}
                             onClick={() => setCurrency('soft')}
                           >
-                            <Icon name="coin" size={12} /> In-game $POG
+                            <Icon name="coin" size={12} /> P coins
                           </button>
                           <button
                             className={`hm-cur-btn${currency === 'pog' ? ' active' : ''}`}
@@ -302,7 +302,7 @@ export function HomePanel({ guest, refresh, hud, onPlace, onTakeNearest, onChang
                           value={asking}
                           inputMode="numeric"
                           onChange={(e) => setAsking(e.target.value.replace(/[^0-9]/g, ''))}
-                          aria-label="Asking price in $POG"
+                          aria-label="Asking price"
                         />
                         <button
                           className="btn btn-primary btn-sm"
@@ -316,7 +316,7 @@ export function HomePanel({ guest, refresh, hud, onPlace, onTakeNearest, onChang
                         {Math.round(fee * 100)}% of the sale is burned
                         {currency === 'pog' ? ' on chain by the buyer' : ''}. You keep{' '}
                         {big(Math.max(0, Math.round(askNumber * (1 - fee))))}{' '}
-                        {currency === 'pog' ? 'real' : ''} $POG.
+                        {currency === 'pog' ? 'real $POG' : 'P coins'}.
                       </small>
                       {currency === 'pog' && (
                         <small className="bp-note">
@@ -331,11 +331,92 @@ export function HomePanel({ guest, refresh, hud, onPlace, onTakeNearest, onChang
             </>
           )}
 
+          {/* ---------------- the store ---------------- */}
+          {tab === 'store' && (
+            <>
+              {!state.igloo ? (
+                <p className="bp-note">Raise an igloo first — then anything you put away in it is safe from the caves.</p>
+              ) : (
+                <>
+                  <p className="bp-note">
+                    What is put away here stays here if a run in the caves goes wrong. Pack and store
+                    share the same cap, so this is a safe place, not a bigger pack.
+                    {hud.inside !== state.igloo.wallet && ' Step inside to move things.'}
+                  </p>
+                  {(['wood', 'ice', 'fish', 'pog', 'gold'] as const).map((k) => {
+                    const inPack = hud.inventory[k] as number;
+                    const put = state.store?.[k] ?? 0;
+                    const label = k === 'pog' ? 'P coins' : k;
+                    const move = (dir: 'in' | 'out', n: number) => {
+                      if (n <= 0 || !state.igloo) return;
+                      const p = { x: state.igloo.x, y: state.igloo.y };
+                      run(
+                        k + dir,
+                        () => (dir === 'in' ? api.depositIgloo({ [k]: n }, p.x, p.y) : api.withdrawIgloo({ [k]: n }, p.x, p.y)),
+                        dir === 'in' ? `${n} ${label} put away.` : `${n} ${label} back in the pack.`
+                      );
+                    };
+                    return (
+                      <div className="st-row" key={k}>
+                        <span className="with-icon st-name">
+                          <Icon name={k === 'pog' ? 'coin' : k} size={15} /> {label}
+                        </span>
+                        <span className="st-nums">
+                          pack <b>{inPack}</b> · igloo <b>{put}</b>
+                        </span>
+                        <span className="st-btns">
+                          <button className="duel-btn" disabled={inPack <= 0 || busy === k + 'in'} onClick={() => move('in', inPack)} title="Put all of it away">
+                            all in
+                          </button>
+                          <button className="duel-btn" disabled={put <= 0 || busy === k + 'out'} onClick={() => move('out', put)} title="Take all of it back">
+                            all out
+                          </button>
+                        </span>
+                      </div>
+                    );
+                  })}
+                  <h5>Items</h5>
+                  {(() => {
+                    const ids = new Set([...Object.keys(hud.inventory.items), ...Object.keys(state.store?.items ?? {})]);
+                    const rows = [...ids].filter((id) => (hud.inventory.items[id] || 0) + (state.store?.items[id] || 0) > 0);
+                    if (!rows.length) return <p className="bp-note">Nothing crafted or bought yet.</p>;
+                    return rows.map((id) => {
+                      const inPack = hud.inventory.items[id] || 0;
+                      const put = state.store?.items[id] || 0;
+                      const name = id.startsWith('f_') ? (state.catalogue.find((f) => 'f_' + f.id === id)?.label ?? id.slice(2)) : id === 'iglooKit' ? 'Igloo kit' : id === 'pick' ? 'Ice pick' : id.charAt(0).toUpperCase() + id.slice(1);
+                      const move = (dir: 'in' | 'out', n: number) => {
+                        if (n <= 0 || !state.igloo) return;
+                        const p = { x: state.igloo.x, y: state.igloo.y };
+                        run(id + dir, () => (dir === 'in' ? api.depositIgloo({ items: { [id]: n } }, p.x, p.y) : api.withdrawIgloo({ items: { [id]: n } }, p.x, p.y)), dir === 'in' ? `${name} put away.` : `${name} back in the pack.`);
+                      };
+                      return (
+                        <div className="st-row" key={id}>
+                          <span className="st-name">{name}</span>
+                          <span className="st-nums">
+                            pack <b>{inPack}</b> · igloo <b>{put}</b>
+                          </span>
+                          <span className="st-btns">
+                            <button className="duel-btn" disabled={inPack <= 0 || busy === id + 'in'} onClick={() => move('in', inPack)}>
+                              all in
+                            </button>
+                            <button className="duel-btn" disabled={put <= 0 || busy === id + 'out'} onClick={() => move('out', put)}>
+                              all out
+                            </button>
+                          </span>
+                        </div>
+                      );
+                    });
+                  })()}
+                </>
+              )}
+            </>
+          )}
+
           {/* ---------------- the stall ---------------- */}
           {tab === 'shop' && (
             <>
               <p className="bp-note">
-                Bought with $POG, placed inside, and worth <em>value</em> toward your level.
+                Bought with P coins, placed inside, and worth <em>value</em> toward your level.
               </p>
               {state.catalogue.map((f) => (
                 <div className="hm-row" key={f.id}>

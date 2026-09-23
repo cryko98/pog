@@ -84,6 +84,7 @@ const MINIMAP_COLOURS: Record<string, string> = {
   furnish: '#a78bfa',
   market: '#0f766e',
   arena: '#ef4444',
+  cave: '#facc15',
 };
 /** the item each node needs in the pack, and how to ask for it */
 const NEEDS: Record<string, { item: string; label: string }> = {
@@ -100,6 +101,7 @@ export interface Inventory {
   wood: number;
   ice: number;
   fish: number;
+  gold: number;
   items: Record<string, number>;
   /** every species landed, by count */
   fishLog?: Record<string, number>;
@@ -172,9 +174,9 @@ interface Options {
   onHome: () => void;
 }
 
-export type StationKind = 'craft' | 'shop' | 'fire' | 'cairn' | 'furnish' | 'market' | 'arena';
+export type StationKind = 'craft' | 'shop' | 'fire' | 'cairn' | 'furnish' | 'market' | 'arena' | 'cave';
 
-const STATION_KINDS: StationKind[] = ['craft', 'shop', 'fire', 'cairn', 'furnish', 'market', 'arena'];
+const STATION_KINDS: StationKind[] = ['craft', 'shop', 'fire', 'cairn', 'furnish', 'market', 'arena', 'cave'];
 const isStation = (type: string): type is StationKind => STATION_KINDS.includes(type as StationKind);
 
 const STATION_PROMPT: Record<StationKind, string> = {
@@ -185,6 +187,7 @@ const STATION_PROMPT: Record<StationKind, string> = {
   furnish: 'Press E to browse furnishings',
   market: 'Press E to open the igloo market',
   arena: 'Press E to enter the snowball arena',
+  cave: 'Press E to go into the bear caves',
 };
 
 /** How high each building stands, so its sign clears the roof. */
@@ -196,6 +199,7 @@ const SIGN_HEIGHT: Record<string, number> = {
   cairn: 84,
   furnish: 126,
   arena: 124,
+  cave: 118,
 };
 
 const DIR_KEYS: Record<string, [number, number]> = {
@@ -280,7 +284,7 @@ export class PogGame {
   private igloos = new Map<string, IglooMsg>();
   private nearNode: WorldNode | null = null;
   private busy = false;
-  private inventory: Inventory = { pog: 0, wood: 0, ice: 0, fish: 0, items: {} };
+  private inventory: Inventory = { pog: 0, wood: 0, ice: 0, fish: 0, gold: 0, items: {} };
   private hat: string | null = null;
   /** swings landed on the node under us, as the API counts them */
   private hits = new Map<string, { hits: number; needed: number; at: number }>();
@@ -591,6 +595,7 @@ export class PogGame {
     wood: number;
     ice: number;
     fish: number;
+    gold?: number;
     items: Record<string, number>;
     skills?: Record<string, number>;
     fishLog?: Record<string, number>;
@@ -603,6 +608,7 @@ export class PogGame {
       wood: profile.wood,
       ice: profile.ice,
       fish: profile.fish,
+      gold: profile.gold || 0,
       items: profile.items || {},
       fishLog: profile.fishLog || {},
       wear: profile.wear || {},
@@ -1217,7 +1223,7 @@ export class PogGame {
     this.guestCoinNoticeShown = true;
     this.pushChat({
       id: crypto.randomUUID(),
-      text: 'Connect a Solana wallet to gather, craft and collect $POG — guests can explore, but not earn.',
+      text: 'Connect a Solana wallet to gather, craft and collect P coins — guests can explore, but not earn.',
       system: true,
     });
   }
@@ -1262,7 +1268,7 @@ export class PogGame {
       .then(({ pog }) => {
         this.me.pog = pog;
         const c = this.coins[coinId];
-        if (c) this.pickupFx.push({ x: c.x, y: c.y, t: performance.now(), label: "+1 $POG" });
+        if (c) this.pickupFx.push({ x: c.x, y: c.y, t: performance.now(), label: "+1 P coin" });
         sound.coin();
         announceCoin(coinId);
         this.pokeQuests();

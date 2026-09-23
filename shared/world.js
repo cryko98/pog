@@ -239,7 +239,7 @@ export const RECIPES = {
   cookout: {
     id: 'cookout',
     label: 'Cookout',
-    blurb: 'Smoke five fish over the plaza fire and the crowd tips you in $POG.',
+    blurb: 'Smoke five fish over the plaza fire and the crowd tips you in P coins.',
     station: 'fire',
     cost: { fish: 5 },
     gives: { pog: 1 },
@@ -255,7 +255,7 @@ export const RECIPES = {
 };
 
 /** Which profile fields a recipe may pay out into; anything else is an item. */
-export const RESOURCE_KEYS = ['pog', 'wood', 'ice', 'fish'];
+export const RESOURCE_KEYS = ['pog', 'wood', 'ice', 'fish', 'gold'];
 
 /** What each plaza building calls itself, on the sign over its roof. */
 export const STATION_SIGNS = {
@@ -266,6 +266,7 @@ export const STATION_SIGNS = {
   furnish: 'Furnishings',
   market: 'Igloo market',
   arena: 'Snowball arena',
+  cave: 'Bear caves',
 };
 
 /* ------------------------------------------------------------------ *
@@ -281,7 +282,7 @@ export const QUEST_POOL = [
   { id: 'chop', track: 'tree', icon: 'wood', label: 'Fell {n} pine{s}', targets: [8, 12, 16], reward: 3 },
   { id: 'cut', track: 'ice', icon: 'ice', label: 'Cut {n} block{s} of ice', targets: [6, 10, 14], reward: 3 },
   { id: 'fish', track: 'hole', icon: 'fish', label: 'Land {n} fish', targets: [3, 5, 7], reward: 4 },
-  { id: 'coins', track: 'coin', icon: 'coin', label: 'Pocket {n} $POG coin{s}', targets: [2, 4, 6], reward: 2 },
+  { id: 'coins', track: 'coin', icon: 'coin', label: 'Pocket {n} P coin{s}', targets: [2, 4, 6], reward: 2 },
   { id: 'craft', track: 'craft', icon: 'rod', label: 'Craft {n} item{s}', targets: [1, 2], reward: 3 },
 ];
 
@@ -850,6 +851,9 @@ export function getProps() {
     // last pines: somewhere you go to, not a shop you pass. Its rink is
     // walkable — the collision radius is just the scoreboard post.
     { type: 'arena', x: sx + 940, y: sy - 280, r: 12, scale: 1, variant: 0 },
+    // The bear caves are the other way, further still: a hill with a
+    // black mouth in it, well past the last lantern. Nobody wanders in.
+    { type: 'cave', x: sx - 1050, y: sy + 60, r: 44, scale: 1, variant: 0 },
     { type: 'banner', x: sx, y: sy - 150, r: 16, scale: 1, variant: 0 },
     { type: 'snowman', x: sx - 150, y: sy + 140, r: 16, scale: 1.2, variant: 3 },
     { type: 'snowman', x: sx + 158, y: sy + 142, r: 16, scale: 1.1, variant: 7 },
@@ -1049,6 +1053,7 @@ export function getNodes() {
     furnishop: 'furnish',
     market: 'market',
     arena: 'arena',
+    cave: 'cave',
   };
   for (const prop of getProps()) {
     const kind = stationOf[prop.type];
@@ -1111,7 +1116,7 @@ export function nodesNear(x, y, radius) {
 }
 
 /** Coins keep this far from each other so two never render as one blob. */
-const COIN_GAP = 150;
+const COIN_GAP = 620;
 
 export function getCoins() {
   if (_coins) return _coins;
@@ -1137,7 +1142,8 @@ export function getCoins() {
   while (coins.length < COIN.count && guard++ < COIN.count * 120) {
     const x = 220 + rnd() * (WORLD.width - 440);
     const y = 220 + rnd() * (WORLD.height - 440);
-    if (Math.hypot(x - WORLD.spawn.x, y - WORLD.spawn.y) < 220) continue;
+    // nowhere near the plaza: a coin is something you go looking for
+    if (Math.hypot(x - WORLD.spawn.x, y - WORLD.spawn.y) < 900) continue;
 
     // clear of props, and never straddling a shoreline
     let blocked = isOnIce(x, y) !== isOnIce(x, y + 30);

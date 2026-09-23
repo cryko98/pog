@@ -99,7 +99,7 @@ export function simulate(inputs, startAt, until) {
   const b = fighter(FIGHT.startB, -1);
   const balls = [];
   const events = [];
-  const sorted = [...inputs].filter((i) => i && Number.isFinite(i.t)).sort((p, q) => p.t - q.t);
+  const sorted = [...inputs].filter((i) => i && Number.isFinite(i.t)).sort((p, q) => p.t - q.t || (p.seq ?? Infinity) - (q.seq ?? Infinity));
   let next = 0;
   const dt = FIGHT.tickMs / 1000;
 

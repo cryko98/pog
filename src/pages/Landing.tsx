@@ -29,12 +29,12 @@ const FEATURES = [
   {
     icon: 'coin' as IconName,
     title: 'Sell the whole thing',
-    body: 'The igloo market sells the plot, the level and everything inside in one go — for in-game $POG, or for the real token once it is live, paid wallet to wallet with 8% burned on chain. The game never holds a key or a coin.',
+    body: 'The igloo market sells the plot, the level and everything inside in one go — for P coins, or for the real $POG token once it is live, paid wallet to wallet with 8% burned on chain. The game never holds a key or a coin.',
   },
   {
     icon: 'snowflake' as IconName,
     title: 'The snowball arena',
-    body: 'Off the plaza, past the lanterns: two penguins face off across a rink, a stake each, winner takes the pot. Real time — throw straight balls and lobs, jump the straight ones, step out from under the lobs, first to five hits. Stake wood, ice, fish or $POG, or the real token into the arena pool once it is live. Every move is stamped by the server as it arrives and the fight is replayed from that log, so nobody can claim a hit or dodge after the fact.',
+    body: 'Off the plaza, past the lanterns: two penguins face off across a rink, a stake each, winner takes the pot. Real time — throw straight balls and lobs, jump the straight ones, step out from under the lobs, first to five hits. Stake wood, ice, fish or P coins, or the real $POG token into the arena pool once it is live. Every move is stamped by the server as it arrives and the fight is replayed from that log, so nobody can claim a hit or dodge after the fact.',
   },
   {
     icon: 'quest' as IconName,
@@ -44,7 +44,7 @@ const FEATURES = [
   {
     icon: 'snowflake' as IconName,
     title: 'Two currencies, two jobs',
-    body: '$POG is the soft one: it buys hats, furniture and other people’s igloos, and nothing it buys makes you gather faster. Frost is the airdrop ledger — earned by quests, playtime, your igloo and offerings at the season cairn, never spendable, never reduced — and at the end of the season a fixed budget is split by share: your Frost over everyone’s.',
+    body: 'P coins are the in-game money: found on the ice, paid by the cookout and the quests, they buy hats, furniture and other people’s igloos, and nothing they buy makes you gather faster. They are not the $POG token. Frost is the airdrop ledger — earned by quests, playtime, your igloo and offerings at the season cairn, never spendable, never reduced — and at the end of the season a fixed budget is split by share: your Frost over everyone’s.',
   },
   {
     icon: 'lock' as IconName,
@@ -68,7 +68,7 @@ const STEPS = [
   },
   {
     title: 'Craft, cook, build, furnish',
-    body: 'Six named shops ring the plaza: the workbench turns wood into a rod and a season of logging into an igloo kit; the cookout turns fish into $POG; the furnishing stall fills the igloo; the market sells it. Raise the igloo on clear snow and you will wake up at its door from then on.',
+    body: 'Six named shops ring the plaza: the workbench turns wood into a rod and a season of logging into an igloo kit; the cookout turns fish into P coins; the furnishing stall fills the igloo; the market sells it. Raise the igloo on clear snow and you will wake up at its door from then on.',
   },
 ];
 
@@ -89,7 +89,7 @@ const ROADMAP = [
       'Wallet login & guest play',
       'Spawn plaza, shared world, live chat',
       'Username bound to wallet',
-      '$POG pickups & leaderboard',
+      'P coin pickups & leaderboard',
     ],
   },
   {
@@ -107,7 +107,7 @@ const ROADMAP = [
     done: true,
     items: [
       'Daily quests & streaks',
-      'The plaza cookout: fish into $POG',
+      'The plaza cookout: fish into P coins',
       'Respawn at your own igloo',
       'Playable on a phone',
     ],
@@ -128,7 +128,7 @@ const ROADMAP = [
     items: [
       'Igloo furniture, interiors & levels',
       'Skills: fish, chop and cut better',
-      'The igloo market — in-game or real $POG',
+      'The igloo market — P coins or real $POG',
       'The snowball arena — duels for stakes',
     ],
   },
@@ -300,8 +300,8 @@ export function Landing({ navigate }: { navigate: (r: Route) => void }) {
 
             <p className="cta-note">
               {guest
-                ? 'You are exploring as a guest. Connect a wallet to keep your name and start earning $POG.'
-                : 'No wallet? Jump straight in as a guest — you can roam and chat, but $POG is only credited to a wallet.'}
+                ? 'You are exploring as a guest. Connect a wallet to keep your name and start earning P coins.'
+                : 'No wallet? Jump straight in as a guest — you can roam and chat, but P coins are only credited to a wallet.'}
             </p>
 
             <div className="hero-stats">
@@ -319,7 +319,7 @@ export function Landing({ navigate }: { navigate: (r: Route) => void }) {
               </div>
               <div className="stat">
                 <b>{stats.coins}</b>
-                <span>$POG coins to find</span>
+                <span>P coins to find</span>
               </div>
             </div>
           </div>
@@ -392,15 +392,15 @@ export function Landing({ navigate }: { navigate: (r: Route) => void }) {
             <div className="card">
               <h3 style={{ marginBottom: 12 }}>Play to earn, honestly explained</h3>
               <p>
-                Two currencies, two jobs. <strong>$POG</strong> is the soft one — found on the ice,
+                Two currencies, two jobs. <strong>P coins</strong> are the in-game money — found on the ice,
                 cooked at the fire, paid out by quests and by a furnished igloo — and it buys hats,
-                furniture and other players’ igloos. <strong>Frost</strong> is the airdrop ledger:
+                furniture and other players’ igloos, and they are not the $POG token. <strong>Frost</strong> is the airdrop ledger:
                 it is never spendable, never goes down, and is the only thing the season pays out
                 against. Nothing you can buy, sell or own moves Frost.
               </p>
               <p style={{ marginTop: 14 }}>
                 The <strong>igloo market</strong> is where real value enters. An igloo sells with its
-                level and everything inside, for in-game $POG today and for the real token once it
+                level and everything inside, for P coins today and for the real $POG token once it
                 is live. Real sales settle wallet to wallet: the buyer pays the seller directly and
                 burns 8% in the same transaction, the game reads the finalised transaction back from
                 the chain before the igloo changes hands, and it never holds a key or a coin.
@@ -486,7 +486,7 @@ export function Landing({ navigate }: { navigate: (r: Route) => void }) {
 
       <p className="disclaimer">
         $POG is a memecoin created for entertainment. It has no intrinsic value, no expectation of
-        financial return, and no formal team or roadmap obligation. In-game $POG points are not a
+        financial return, and no formal team or roadmap obligation. In-game P coins are not a
         security and are not redeemable today. Nothing here is financial advice — never spend more
         than you can afford to lose.
       </p>

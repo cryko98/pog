@@ -2728,6 +2728,69 @@ section.band {
 }
 
 /* ------------------------------------------------------------------ *
+ * The bear caves
+ * ------------------------------------------------------------------ */
+
+.cave-risk {
+  display: grid;
+  gap: 5px;
+  padding: 12px;
+  margin-bottom: 10px;
+  border-radius: 14px;
+  background: rgba(239, 68, 68, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(239, 68, 68, 0.45);
+}
+
+.cave-risk b {
+  font-size: 0.86rem;
+  color: #ffb4b4;
+}
+
+.cave-risk small {
+  font-size: 0.74rem;
+  color: #d9c3c3;
+}
+
+.cave-hearts {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.cave-hearts i {
+  width: 14px;
+  height: 14px;
+  background: rgba(255, 255, 255, 0.14);
+  clip-path: path('M7 13 L1.5 7.2 C-0.5 5 0.8 1.5 3.6 1.5 C5 1.5 6.2 2.3 7 3.4 C7.8 2.3 9 1.5 10.4 1.5 C13.2 1.5 14.5 5 12.5 7.2 Z');
+}
+
+.cave-hearts i.on {
+  background: #ff5c6c;
+  filter: drop-shadow(0 0 4px rgba(255, 92, 108, 0.8));
+}
+
+.cave-gold {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-weight: 800;
+  color: #ffd44d;
+}
+
+.cave-scene .duel-rink {
+  background: #05080d;
+}
+
+.duel-btn.leave {
+  background: rgba(255, 212, 77, 0.2);
+  box-shadow: inset 0 0 0 1px rgba(255, 212, 77, 0.6);
+  color: #ffd44d;
+}
+
+.bp-error {
+  color: #ffb4b4;
+}
+
+/* ------------------------------------------------------------------ *
  * Scrollbars: thin and tinted, never the raw grey default
  * ------------------------------------------------------------------ */
 
@@ -3042,4 +3105,42 @@ html::-webkit-scrollbar-thumb:hover {
 .mm-zoom button:disabled {
   opacity: 0.35;
   cursor: default;
+}
+
+
+/* the igloo store: pack on one side, igloo on the other */
+.st-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 8px;
+  align-items: center;
+  padding: 8px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.st-name {
+  font-size: 0.86rem;
+  text-transform: capitalize;
+}
+
+.st-nums {
+  grid-column: 1;
+  font-size: 0.72rem;
+  color: #a9cbd6;
+}
+
+.st-nums b {
+  color: var(--snow);
+}
+
+.st-btns {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  display: flex;
+  gap: 4px;
+}
+
+.st-btns .duel-btn {
+  padding: 5px 9px;
+  font-size: 0.72rem;
 }

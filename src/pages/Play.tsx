@@ -12,6 +12,8 @@ import { SeasonPanel } from '../components/SeasonPanel';
 import { HomePanel } from '../components/HomePanel';
 import { ArenaPanel } from '../components/ArenaPanel';
 import { DuelScene } from '../components/DuelScene';
+import { DungeonScene } from '../components/DungeonScene';
+import { CavePanel } from '../components/CavePanel';
 import { Onboarding } from '../components/Onboarding';
 import { SkillsPanel } from '../components/SkillsPanel';
 import { playerLevel } from '../../shared/world.js';
@@ -26,7 +28,7 @@ const EMPTY_HUD: HudState = {
   x: 0,
   y: 0,
   onIce: false,
-  inventory: { pog: 0, wood: 0, ice: 0, fish: 0, items: {} },
+  inventory: { pog: 0, wood: 0, ice: 0, fish: 0, gold: 0, items: {} },
   prompt: '',
   busy: false,
   building: false,
@@ -69,9 +71,11 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
   const [station, setStation] = useState<StationKind | null>(null);
   /** the match being fought on the duel screen, over the world */
   const [duelId, setDuelId] = useState<string | null>(null);
+  /** the run being fought in the bear caves, over the world */
+  const [caveId, setCaveId] = useState<string | null>(null);
   useEffect(() => {
-    gameRef.current?.setAway(duelId ? 'arena' : null);
-  }, [duelId]);
+    gameRef.current?.setAway(duelId ? 'arena' : caveId ? 'cave' : null);
+  }, [duelId, caveId]);
   /** bumped when the igloo, its furniture or its level changed */
   const [homeTick, setHomeTick] = useState(0);
   /** bumped whenever something may have moved the Frost ledger */
@@ -227,8 +231,8 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
         id: crypto.randomUUID(),
         system: true,
         text: bonus
-          ? `Quest cleared: +${reward} $POG, and +${bonus} for the streak.`
-          : `Quest cleared: +${reward} $POG.`,
+          ? `Quest cleared: +${reward} P coins, and +${bonus} for the streak.`
+          : `Quest cleared: +${reward} P coins.`,
       });
       return null;
     } catch (err) {
@@ -342,7 +346,7 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
             <button
               className="pog-counter locked"
               onClick={() => navigate('home')}
-              title="Connect a Solana wallet to collect $POG"
+              title="Connect a Solana wallet to collect P coins"
             >
               {/* the label is a span so it can be dropped on a phone,
                   where the lock alone has to carry it */}
@@ -350,7 +354,7 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
               <span>connect to earn</span>
             </button>
           ) : (
-            <div className="pog-counter" title="$POG collected">
+            <div className="pog-counter" title="P coins collected">
               <Icon name="coin" size={17} /> {hud.pog}
             </div>
           )}
@@ -398,6 +402,11 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
             <span title="Fish">
               <Icon name="fish" size={15} /> {hud.inventory.fish}
             </span>
+            {hud.inventory.gold > 0 && (
+              <span title="Gold">
+                <Icon name="gold" size={15} /> {hud.inventory.gold}
+              </span>
+            )}
             {hud.inventory.items.rod > 0 && (
               <span title="Fishing rod">
                 <Icon name="rod" size={15} /> {hud.inventory.items.rod}
@@ -529,6 +538,18 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
           />
         )}
 
+        {caveId && (
+          <DungeonScene
+            id={caveId}
+            onLeave={() => {
+              setCaveId(null);
+              // the gold (or the empty pack) is the truth now; show it
+              void gameRef.current?.syncProfile();
+              setHomeTick((n) => n + 1);
+            }}
+          />
+        )}
+
         {duelId && (
           <DuelScene
             id={duelId}
@@ -584,6 +605,18 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
                 onEnter={(id) => {
                   setStation(null);
                   setDuelId(id);
+                }}
+                onClose={() => setStation(null)}
+              />
+            )}
+            {station === 'cave' && (
+              <CavePanel
+                guest={!!identity?.guest}
+                inventory={hud.inventory}
+                position={() => gameRef.current?.position() ?? { x: 0, y: 0 }}
+                onEnter={(id) => {
+                  setStation(null);
+                  setCaveId(id);
                 }}
                 onClose={() => setStation(null)}
               />

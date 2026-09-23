@@ -21,7 +21,7 @@ const big = (n: number) => n.toLocaleString('en-US');
 export function describeStake(s: DuelStake): string {
   if (s.kind === 'pog') return `${big(s.amount)} real $POG`;
   return Object.entries(s.items)
-    .map(([k, n]) => `${big(n)} ${k === 'pog' ? '$POG' : k}`)
+    .map(([k, n]) => `${big(n)} ${k === 'pog' ? 'P coins' : k}`)
     .join(' + ');
 }
 
@@ -148,7 +148,7 @@ export function ArenaPanel({ guest, inventory, position, onEnter, onClose }: Pro
                   {STAKE_KEYS.map((k) => (
                     <label key={k}>
                       <span>
-                        <Icon name={k === 'pog' ? 'coin' : (k as 'wood' | 'ice' | 'fish')} size={13} /> {k === 'pog' ? '$POG' : k}
+                        <Icon name={k === 'pog' ? 'coin' : (k as 'wood' | 'ice' | 'fish')} size={13} /> {k === 'pog' ? 'P coins' : k}
                       </span>
                       <input
                         inputMode="numeric"
@@ -168,12 +168,12 @@ export function ArenaPanel({ guest, inventory, position, onEnter, onClose }: Pro
                     onChange={(e) => setTokens(e.target.value.replace(/[^0-9]/g, ''))}
                     aria-label="Stake in real $POG"
                   />
-                  <span className="ar-unit">$POG</span>
+                  <span className="ar-unit">P coins</span>
                 </div>
               )}
               <small className="bp-note">
                 {kind === 'soft'
-                  ? `Winner takes both stakes; ${Math.round(DUEL.rake * 100)}% of any $POG in the pot is burned. Your stake leaves your pack now and comes back if nobody takes it.`
+                  ? `Winner takes both stakes; ${Math.round(DUEL.rake * 100)}% of any P coins in the pot are burned. Your stake leaves your pack now and comes back if nobody takes it.`
                   : 'Both players pay their stake into the arena pool wallet on chain once the challenge is taken; the winner is paid the whole pool.'}
               </small>
               <button
