@@ -43,7 +43,8 @@ export const GATHER = {
   /** how long a swing takes, and how many land before the node gives way */
   swingMs: 420,
   /** `bonusEvery` levels of the matching skill add one more to the yield */
-  tree: { yields: { wood: 2 }, respawnMs: 300000, hits: 5, label: 'Chop', verb: 'chopping', needs: 'axe', bonusEvery: 3 },
+  // an axe makes it five swings; without one, fifteen with bare flippers
+  tree: { yields: { wood: 2 }, respawnMs: 300000, hits: 5, bareHits: 15, tool: 'axe', label: 'Chop', verb: 'chopping', bonusEvery: 3 },
   ice: { yields: { ice: 2 }, respawnMs: 240000, hits: 3, label: 'Cut ice', verb: 'cutting ice', needs: 'pick', bonusEvery: 3 },
   /**
    * Fishing is not swung. Cast once and a bite comes every `biteMs`; each
@@ -198,9 +199,17 @@ export const SWINGS_PER_MIN = 110;
  */
 /**
  * Tools wear out: this many completed gathers per tool, then it is gone
- * and the workbench makes another. A new wallet is handed one axe so the
- * loop can start; everything after that is earned.
+ * and the workbench makes another. Nobody starts with an axe: the first
+ * pines come down by hand, slowly, and pay for one.
  */
+/** Swings a node takes for a pack like this one: a tree is quicker with an axe. */
+export function hitsFor(type, items = {}) {
+  const rule = GATHER[type];
+  if (!rule) return 1;
+  if (rule.tool && rule.bareHits && !(items[rule.tool] > 0)) return rule.bareHits;
+  return rule.hits || 1;
+}
+
 export const TOOL_LIFE = { axe: 25, pick: 20 };
 
 export const RECIPES = {

@@ -16,7 +16,7 @@ game server to keep alive.
 | **Username** | Bound to the wallet address, unique across players, editable any time. Scarf colour too. |
 | **The world** | 6400 × 6400 units of pine forest, frozen lakes and lantern-lit plazas, generated deterministically from one seed. Shelters are deliberately absent — players will build those. |
 | **Multiplayer** | Everyone shares one map over a public MQTT broker — positions, chat and name tags in real time. |
-| **Survival loop** | Chop wood, cut ice, fish. Craft a rod, then an igloo kit, then raise the igloo — all validated server-side. |
+| **Survival loop** | Chop wood — fifteen swings a pine by hand, five with an axe — cut ice with a pick, fish with a rod. Tools come from the workbench and wear out. Then an igloo kit, then raise the igloo — all validated server-side. |
 | **Daily quests** | Three a day, derived from your wallet address and the UTC date. Clear all three and a streak bonus stacks on top. |
 | **Play to earn** | A few dozen scarce P coins on the ice — none near the plaza, and well apart — the plaza cookout, and quest rewards. P coins are the in-game money, not the $POG token; the token only ever moves wallet to wallet. Balances are banked per wallet on a live leaderboard. |
 | **The season** | **Frost**, a separate ledger that only goes up. A fixed token budget is split by share at the end of each season. Gated, capped, and snapshot to a merkle root. |
@@ -168,14 +168,16 @@ $POG) leaves the host's pack when the challenge goes up and the challenger's
 when it is taken; the winner gets both, with 5% of any $POG burned. A stake is
 refused if winning it would overfill the winner's playtime-bound pack, so the
 arena cannot launder resources past the cap. A real-token stake is paid by each
-side into the **arena pool wallet** (`POG_ARENA_POOL`) on chain, with a memo
+side into the **airdrop wallet** (`POG_AIRDROP_WALLET`, or a separate
+`POG_ARENA_POOL` if one is set) on chain, with a memo
 naming the match and the player, and verified at finalized commitment the same
 way an igloo sale is. Nothing starts until both are in; if one side never pays,
 the other is refunded.
 
-**Paying the winner.** With `POG_ARENA_POOL_KEYPAIR` set, the pool signs the
-payout the moment the match ends. That hot key is the one real trade-off in the
-feature: keep the pool wallet holding stakes and nothing else. Without the key,
+**Paying the winner.** With the wallet's key set (`POG_AIRDROP_KEYPAIR`, or
+`POG_ARENA_POOL_KEYPAIR` for a separate pool), it signs the payout the moment
+the match ends — both verified deposits to the winner, each side its own on a
+draw, never more than came in. Without the key,
 payouts queue in Redis (`pog:payouts`) and the operator sends them from a
 keypair file with `tools/payout.mjs`, dry run by default — the same shape as
 `send.mjs`. Either way every payout is created only by a settled match, for the

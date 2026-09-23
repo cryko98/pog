@@ -23,7 +23,7 @@ import {
   STATION_SIGNS,
   canPlaceFurniture,
   furnitureById,
-  GATHER,
+  GATHER, hitsFor,
   IGLOO,
   RECIPES,
   canBuildAt,
@@ -89,7 +89,6 @@ const MINIMAP_COLOURS: Record<string, string> = {
 };
 /** the item each node needs in the pack, and how to ask for it */
 const NEEDS: Record<string, { item: string; label: string }> = {
-  tree: { item: 'axe', label: 'an axe' },
   ice: { item: 'pick', label: 'an ice pick' },
   hole: { item: 'rod', label: 'a fishing rod' },
 };
@@ -433,7 +432,7 @@ export class PogGame {
         // coordinates, which is exactly what they are.
         inside: this.away ?? this.interior?.igloo.wallet,
         level: playerLevel(this.skills),
-        ...(this.toolNode && (this.fishing || performance.now() - this.toolAt < TOOL_HOLD_MS)
+        ...(this.toolNode && (this.fishing || performance.now() - this.toolAt < TOOL_HOLD_MS) && !(this.toolNode.type === 'tree' && !(this.inventory.items.axe > 0))
           ? { tool: TOOL_FOR[this.toolNode.type], swing: Math.round(performance.now() - this.toolAt), node: this.toolNode.id }
           : {}),
       })),
@@ -654,7 +653,9 @@ export class PogGame {
     }
     const progress = this.hits.get(node.id);
     if (progress) return `${rule.label} — ${progress.hits}/${progress.needed}`;
-    return `Press E to ${rule.label.toLowerCase()} (${rule.hits} hits)`;
+    const need = hitsFor(node.type, this.inventory.items);
+    if (node.type === 'tree' && !(this.inventory.items.axe > 0)) return `Press E to chop by hand (${need} hits) — an axe makes it ${rule.hits}`;
+    return `Press E to ${rule.label.toLowerCase()} (${need} hits)`;
   }
 
   /** Work the node the player is standing at. */
@@ -831,6 +832,7 @@ export class PogGame {
   private selfTool(now: number): { pose: ToolPose; node: WorldNode } | null {
     if (this.fishing) return { pose: this.poseFor(this.fishing.node, this.me.x, now - this.toolAt), node: this.fishing.node };
     if (!this.toolNode || now - this.toolAt > TOOL_HOLD_MS) return null;
+    if (this.toolNode.type === 'tree' && !(this.inventory.items.axe > 0)) return null;
     return { pose: this.poseFor(this.toolNode, this.me.x, now - this.toolAt), node: this.toolNode };
   }
 

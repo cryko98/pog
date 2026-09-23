@@ -110,7 +110,7 @@ async function travelTo(x, y) {
 /** Work a node to completion, walking there first. Returns what it gave. */
 async function work(node) {
   await travelTo(node.x, node.y);
-  for (let swing = 0; swing < 12; swing++) {
+  for (let swing = 0; swing < 24; swing++) {
     const r = await call('/api/game/gather', {
       method: 'POST',
       token,

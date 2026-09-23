@@ -172,7 +172,7 @@ console.log('\n--- winning ---');
   check('the run settles as left, with the coins', settled?.why === 'left' && settled.coins === expected.coins && settled.coins >= 1, JSON.stringify(settled));
   const p = await profile(hunter.token);
   check('the coins are in the pack', p.pog === 15 + (settled?.coins ?? 0), `pog=${p.pog} expected ${15 + (settled?.coins ?? 0)}`);
-  check('nothing else in the pack moved', p.wood === 7 && p.fish === 2 && p.items.axe === 1, `wood=${p.wood} fish=${p.fish} items=${JSON.stringify(p.items)}`);
+  check('nothing else in the pack moved', p.wood === 7 && p.fish === 2 && !p.items.axe, `wood=${p.wood} fish=${p.fish} items=${JSON.stringify(p.items)}`);
 }
 
 console.log('\n--- dying ---');

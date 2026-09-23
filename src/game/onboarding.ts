@@ -59,8 +59,8 @@ export const STEPS: Step[] = [
   {
     id: 'chop',
     title: 'Fell a pine',
-    hint: 'You start with one axe. Walk up to a pine and hold E — five swings and it comes down. Axes wear out after 25 pines; the workbench makes more.',
-    touchHint: 'You start with one axe. Walk up to a pine and hold the ACT button — five swings and it comes down. Axes wear out after 25 pines; the workbench makes more.',
+    hint: 'Walk up to a pine and hold E. Bare flippers take fifteen swings — an axe from the workbench (8 wood) makes it five, and wears out after 25 pines.',
+    touchHint: 'Walk up to a pine and hold the ACT button. Bare flippers take fifteen swings — an axe from the workbench (8 wood) makes it five, and wears out after 25 pines.',
     target: 'tree',
     done: (s) => s.wood >= 2,
   },

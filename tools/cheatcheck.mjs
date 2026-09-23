@@ -108,6 +108,7 @@ console.log('\n--- gathering ---');
     r.status === 200 && !r.json.gained && r.json.needed > 1,
     `hits ${r.json.hits}/${r.json.needed}`
   );
+  check('without an axe a pine takes fifteen swings', r.json.needed === 15, `needed ${r.json.needed}`);
 }
 {
   // a burst cannot skip the remaining swings: the minimum gap between
@@ -128,7 +129,7 @@ console.log('\n--- gathering ---');
 {
   // ...but swinging at a human pace does
   let gained = null;
-  for (let i = 0; i < 8 && !gained; i++) {
+  for (let i = 0; i < 20 && !gained; i++) {
     await sleep(320);
     const r = await call('/api/game/gather', {
       method: 'POST',
@@ -183,7 +184,7 @@ console.log('\n--- gathering ---');
 console.log('\n--- tools ---');
 {
   const { json } = await call('/api/game/state', { token: me.token });
-  check('a fresh wallet holds exactly one starter axe', json.profile.items.axe === 1, JSON.stringify(json.profile.items));
+  check('a fresh wallet starts with no axe', !json.profile.items.axe, JSON.stringify(json.profile.items));
   const ice = getNodes().find((n) => n.type === 'ice');
   const w = await signIn('Pick' + Math.floor(Math.random() * 9000 + 1000));
   const r = await call('/api/game/gather', { method: 'POST', token: w.token, body: { node: ice.id, x: ice.x, y: ice.y } });

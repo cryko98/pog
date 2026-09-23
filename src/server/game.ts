@@ -37,7 +37,7 @@ import {
   RECIPES,
   RESOURCE_KEYS,
   SKINS,
-  TOOL_LIFE,
+  TOOL_LIFE, hitsFor,
   STREAK_BONUS_CAP,
   WORLD,
   canBuildAt,
@@ -662,11 +662,6 @@ export async function getProfile(wallet: string): Promise<Profile | null> {
   const raw = await store.get<Partial<Profile>>(K.profile(wallet));
   if (!raw) return null;
   const p = normalize({ ...raw, wallet });
-  if (!p.starterAxe) {
-    // the one tool nobody has to earn, or wood could never be had
-    p.starterAxe = true;
-    p.items.axe = (p.items.axe || 0) + 1;
-  }
   await store.set(K.profile(wallet), p, { ex: PROFILE_TTL }); // sliding expiry
   return p;
 }
@@ -833,7 +828,7 @@ async function gatherNow(
 
   // one shape for all three node kinds; only fishing carries a `needs`
   const rule = (Object.hasOwn(GATHER, node.type) ? GATHER[node.type as 'tree' | 'ice' | 'hole'] : undefined) as
-    | { yields: Record<string, number>; respawnMs: number; hits: number; needs?: string; biteMs?: number }
+    | { yields: Record<string, number>; respawnMs: number; hits: number; needs?: string; tool?: string; bareHits?: number; biteMs?: number }
     | undefined;
   if (!rule) return { error: 'Nothing to do here.' };
 
@@ -873,7 +868,7 @@ async function gatherNow(
 
   // Count the blow. Half-finished work expires, so you cannot chip a tree
   // now and come back in an hour to collect it.
-  const needed = Math.max(1, rule.hits || 1);
+  const needed = Math.max(1, hitsFor(node.type, profile.items));
   const landed = needed > 1 ? await store.incrWithTtl(K.hits(wallet, node.id), 90) : 1;
   if (landed < needed) return { hits: landed, needed };
 
@@ -928,7 +923,7 @@ async function gatherNow(
   // The tool wears with every completed gather. When it is spent it goes,
   // and the next one in the pack (if any) starts fresh.
   let broke: string | undefined;
-  const tool = rule.needs;
+  const tool = rule.needs ?? (rule.tool && profile.items[rule.tool] > 0 ? rule.tool : undefined);
   if (tool && Object.hasOwn(TOOL_LIFE, tool)) {
     const left = (profile.wear[tool] || TOOL_LIFE[tool as keyof typeof TOOL_LIFE]) - 1;
     if (left <= 0) {

@@ -242,7 +242,7 @@ async function travelTo(x, y) {
 
 async function work(node) {
   await travelTo(node.x, node.y);
-  for (let i = 0; i < 12; i++) {
+  for (let i = 0; i < 24; i++) {
     const r = await call('/api/game/gather', {
       method: 'POST',
       token,

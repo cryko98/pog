@@ -19,12 +19,12 @@ const FEATURES = [
   {
     icon: 'wood' as IconName,
     title: 'Chop, cut, fish — and get better at it',
-    body: 'Five swings to fell a pine, three to saw a block of ice. Fishing is patience: cast, wait five seconds for the bite, cast again — six species from Arctic smelt to the Frost King, rolled by rarity, and sometimes it gets away. Every catch and every felling is a point of skill, and higher levels haul more.',
+    body: 'Fifteen swings to fell a pine with bare flippers, five once the workbench has made you an axe; an ice pick saws a block of ice in three. Tools wear out and the workbench makes more. Fishing is patience: cast, wait five seconds for the bite, cast again — six species from Arctic smelt to the Frost King, rolled by rarity, and sometimes it gets away. Every catch and every felling is a point of skill, and higher levels haul more.',
   },
   {
     icon: 'igloo' as IconName,
     title: 'Build it, then furnish it',
-    body: 'Spend 300 wood and 120 ice on an igloo and raise it wherever the snow is clear. Step inside, and anything from the furnishing stall goes wherever you put it. Furniture is worth value; value earns a level — Shelter, Den, Lodge, Hall, Palace — and from Den up the igloo pays a little $POG a day.',
+    body: 'Spend 300 wood and 120 ice on an igloo and raise it wherever the snow is clear. Step inside, and anything from the furnishing stall goes wherever you put it. Furniture is worth value; value earns a level — Shelter, Den, Lodge, Hall, Palace — and from Den up the igloo pays a few P coins a day — and a furnished igloo takes a slice of every day’s airdrop while you play.',
   },
   {
     icon: 'coin' as IconName,
@@ -34,7 +34,7 @@ const FEATURES = [
   {
     icon: 'snowflake' as IconName,
     title: 'The snowball arena',
-    body: 'Off the plaza, past the lanterns: two penguins face off across a rink, a stake each, winner takes the pot. Real time — throw straight balls and lobs, jump the straight ones, step out from under the lobs, first to five hits. Stake wood, ice, fish or P coins, or the real $POG token into the arena pool once it is live. Every move is stamped by the server as it arrives and the fight is replayed from that log, so nobody can claim a hit or dodge after the fact.',
+    body: 'Off the plaza, past the lanterns: two penguins face off across a rink, a stake each, winner takes the pot. Real time — throw straight balls and lobs, jump the straight ones, step out from under the lobs, first to five hits. Stake wood, ice, fish or P coins — or the real $POG token once it is live, paid into the airdrop wallet and paid back out of it: the winner gets both stakes, never more than came in. Every move is stamped by the server as it arrives and the fight is replayed from that log, so nobody can claim a hit or dodge after the fact.',
   },
   {
     icon: 'coin' as IconName,
@@ -49,12 +49,12 @@ const FEATURES = [
   {
     icon: 'quest' as IconName,
     title: 'A reason to come back tomorrow',
-    body: 'Three quests a day, drawn from your own wallet address so nobody can reroll into easy ones. Clear all three and the streak bonus grows — miss a day and it starts over. And a raw fish is worth nothing until you smoke five over the plaza fire for $POG.',
+    body: 'Three quests a day, drawn from your own wallet address so nobody can reroll into easy ones. Clear all three and the streak bonus grows — miss a day and it starts over. And a raw fish is worth nothing until you smoke five over the plaza fire for P coins.',
   },
   {
     icon: 'snowflake' as IconName,
     title: 'Two currencies, two jobs',
-    body: 'P coins are the in-game money: found on the ice, paid by the cookout and the quests, they buy hats, furniture and other people’s igloos, and nothing they buy makes you gather faster. They are not the $POG token. Frost is the airdrop ledger — earned by quests, playtime, your igloo and offerings at the season cairn, never spendable, never reduced — and at the end of the season a fixed budget is split by share: your Frost over everyone’s.',
+    body: 'P coins are the in-game money: found on the ice, paid by the cookout and the quests, they buy hats, furniture and other people’s igloos, and nothing they buy makes you gather faster. They are not the $POG token. Frost is your score toward the airdrop — earned by quests, playtime, your igloo and offerings at the season cairn, never spendable, never reduced — and every day the airdrop wallet pays out by share: your Frost that day over everyone’s.',
   },
   {
     icon: 'lock' as IconName,
@@ -66,7 +66,7 @@ const FEATURES = [
 const STEPS = [
   {
     title: 'Connect or guest',
-    body: 'Phantom, Solflare, Backpack — any Solana wallet, one signature to log in and never a transaction unless you choose to buy an igloo for real $POG. Or skip it and play as a guest.',
+    body: 'Phantom, Solflare, Backpack — any Solana wallet, one signature to log in and never a transaction unless you choose to — buy an igloo or stake an arena match for real $POG. Airdrop payouts arrive on their own. Or skip it and play as a guest.',
   },
   {
     title: 'Name your penguin',
@@ -78,7 +78,7 @@ const STEPS = [
   },
   {
     title: 'Craft, cook, build, furnish',
-    body: 'Six named shops ring the plaza: the workbench turns wood into a rod and a season of logging into an igloo kit; the cookout turns fish into P coins; the furnishing stall fills the igloo; the market sells it. Raise the igloo on clear snow and you will wake up at its door from then on.',
+    body: 'Six named shops ring the plaza: the workbench turns wood into an axe, an ice pick, a rod and, after a season of logging, an igloo kit; the cookout turns fish into P coins; the furnishing stall fills the igloo; the market trades goods and sells igloos. Further out: the snowball arena, the casino tent and the bear caves. Raise the igloo on clear snow and you will wake up at its door from then on.',
   },
 ];
 
@@ -144,6 +144,7 @@ const ROADMAP = [
       'The snowball arena — duels for stakes',
       'The bear caves, and a store in every igloo',
       'The goods market and the casino',
+      'Daily airdrop payouts from the 50M wallet',
     ],
   },
   {
