@@ -17,6 +17,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { BusyError } from '../../src/server/lock.js';
+import { gateError } from '../../src/server/access.js';
 import { actionOf, bearer, body, json } from '../_shared.js';
 import {
   FROST,
@@ -94,6 +95,8 @@ export default async function handler(req: any, res: any) {
     }
 
     if (action === 'offer') {
+      const shut = await gateError(wallet);
+      if (shut) return json(res, 403, shut);
       const { id, x, y } = body(req);
       const result = await offerAtCairn(wallet, id, x, y);
       if (result.error) return json(res, 409, { error: result.error });

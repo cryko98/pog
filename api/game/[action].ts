@@ -17,6 +17,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { BusyError } from '../../src/server/lock.js';
+import { gateError } from '../../src/server/access.js';
 import { ensureClosed, settleOwed } from '../../src/server/airdrop.js';
 import { actionOf, bearer, body, json } from '../_shared.js';
 import { RECIPES, SKINS } from '../../shared/world.js';
@@ -49,6 +50,8 @@ export default async function handler(req: any, res: any) {
 
     const wallet = await walletForToken(bearer(req) || body(req).token);
     if (!wallet) return json(res, 401, { error: 'No valid session.' });
+    const shut = await gateError(wallet);
+    if (shut) return json(res, 403, shut);
 
     if (action === 'state') {
       // the first read of the day closes yesterday's airdrop; any read pays

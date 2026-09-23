@@ -11,6 +11,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { BusyError } from '../../src/server/lock.js';
+import { playGate } from '../../src/server/access.js';
 import { actionOf, bearer, body, json, query } from '../_shared.js';
 import {
   getProfile,
@@ -42,7 +43,7 @@ export default async function handler(req: any, res: any) {
     if (!wallet) return json(res, 401, { error: 'No valid session — connect your wallet again.' });
 
     if (action === 'me') {
-      return json(res, 200, { wallet, profile: await getProfile(wallet) });
+      return json(res, 200, { wallet, profile: await getProfile(wallet), gate: await playGate(wallet) });
     }
 
     if (action === 'set') {

@@ -20,6 +20,7 @@
 
 import { actionOf, bearer, body, json, query } from '../_shared.js';
 import { BusyError } from '../../src/server/lock.js';
+import { gateError } from '../../src/server/access.js';
 import { walletForToken } from '../../src/server/game.js';
 import { poolReady } from '../../src/server/pool.js';
 import {
@@ -56,6 +57,8 @@ export default async function handler(req: any, res: any) {
 
     const wallet = await walletForToken(bearer(req) || body(req).token);
     if (!wallet) return json(res, 401, { error: 'No valid session.' });
+    const shut = await gateError(wallet);
+    if (shut) return json(res, 403, shut);
 
     if (action === 'state') {
       const result = await matchState(wallet, query(req, 'id') || undefined);

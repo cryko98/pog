@@ -82,6 +82,15 @@ export const CHAT = {
   always: ['2QM2EWyLhwiFSmQv1whR3twumY6J63DCBrsgWUYbKizF'],
 };
 
+/**
+ * Playing at all takes a stake in the token: this much $POG on chain.
+ * Before the token is live there is nothing to hold, and everyone plays.
+ */
+export const PLAY = { hold: 1000, holdLabel: '1,000 $POG' };
+
+/** Whether a wallet may play: holds enough, or is the team's, or the token is not live yet. */
+export const mayPlay = (wallet, balance, live) => !live || CHAT.always.includes(wallet) || balance >= PLAY.hold;
+
 /** Everyone may read the chat; this says who may write. */
 export const mayChat = (wallet, balance, live) => CHAT.always.includes(wallet) || (live && balance >= CHAT.hold);
 

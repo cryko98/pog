@@ -10,6 +10,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { BusyError } from '../../src/server/lock.js';
+import { gateError } from '../../src/server/access.js';
 import { actionOf, bearer, body, json } from '../_shared.js';
 import { COIN } from '../../shared/world.js';
 import { claimCoin, onlineCount, takenCoins, walletCount, walletForToken } from '../../src/server/game.js';
@@ -31,6 +32,8 @@ export default async function handler(req: any, res: any) {
     if (action === 'claim') {
       const wallet = await walletForToken(bearer(req) || body(req).token);
       if (!wallet) return json(res, 401, { error: 'No valid session.' });
+      const shut = await gateError(wallet);
+      if (shut) return json(res, 403, shut);
 
       const b = body(req);
       const result = await claimCoin(wallet, Number(b.id), b.x, b.y);

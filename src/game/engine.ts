@@ -1309,7 +1309,7 @@ export class PogGame {
       })
       .catch((err: Error) => {
         // a session that no longer works needs a fresh wallet login
-        if (/session/i.test(err.message)) this.opts.onFatal(err.message);
+        if (/session|to play/i.test(err.message)) this.opts.onFatal(err.message);
       })
       .finally(() => this.claiming.delete(coinId));
   }

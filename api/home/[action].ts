@@ -29,6 +29,7 @@ import { getProfile, walletForToken } from '../../src/server/game.js';
 import { qualified } from '../../src/server/season-gate.js';
 import { chainLive } from '../../src/server/chain.js';
 import { BusyError } from '../../src/server/lock.js';
+import { gateError } from '../../src/server/access.js';
 import {
   buyFurniture,
   buyIgloo,
@@ -53,6 +54,8 @@ export default async function handler(req: any, res: any) {
 
     const wallet = await walletForToken(bearer(req) || body(req).token);
     if (!wallet) return json(res, 401, { error: 'No valid session.' });
+    const shut = await gateError(wallet);
+    if (shut) return json(res, 403, shut);
 
     if (action === 'state') {
       // Reading your own state is what settles the yield, so from the

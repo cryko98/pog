@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { PLAY } from '../../shared/season.js';
 import type { Route } from '../App';
 import { useSession } from '../state/session';
 import { shortAddress } from '../lib/wallet';
@@ -14,7 +15,7 @@ const FEATURES = [
   {
     icon: 'world' as IconName,
     title: 'One frozen open world',
-    body: 'A 6.4 × 6.4 km snowfield of pine forest, frozen lakes and a lantern-lit plaza — no lobbies, no instances. Everyone online waddles the same map in real time, and the trees you fell stay felled for everyone. Jump in as a guest to roam, slide and chat; connect a wallet when you want what you do to count.',
+    body: 'A 6.4 × 6.4 km snowfield of pine forest, frozen lakes and a lantern-lit plaza — no lobbies, no instances. Everyone online waddles the same map in real time, and the trees you fell stay felled for everyone. The ice is for holders: a wallet with at least 1,000 $POG gets in.',
   },
   {
     icon: 'wood' as IconName,
@@ -65,8 +66,8 @@ const FEATURES = [
 
 const STEPS = [
   {
-    title: 'Connect or guest',
-    body: 'Phantom, Solflare, Backpack — any Solana wallet, one signature to log in and never a transaction unless you choose to — buy an igloo or stake an arena match for real $POG. Airdrop payouts arrive on their own. Or skip it and play as a guest.',
+    title: 'Connect a wallet that holds $POG',
+    body: 'Phantom, Solflare, Backpack — any Solana wallet holding at least 1,000 $POG, one signature to log in and never a transaction unless you choose to — buy an igloo or stake an arena match for real $POG. Airdrop payouts arrive on their own.',
   },
   {
     title: 'Name your penguin',
@@ -98,7 +99,7 @@ const ROADMAP = [
     phase: 'Phase 1 — Ice break',
     done: true,
     items: [
-      'Wallet login & guest play',
+      'Wallet login',
       'Spawn plaza, shared world, live chat',
       'Username bound to wallet',
       'P coin pickups & leaderboard',
@@ -154,7 +155,7 @@ const ROADMAP = [
 ];
 
 export function Landing({ navigate }: { navigate: (r: Route) => void }) {
-  const { status, profile, guest, identity, address, canPlay, playAsGuest, logout, restoring } = useSession();
+  const { status, profile, identity, address, canPlay, gate, logout, restoring } = useSession();
   const [walletOpen, setWalletOpen] = useState(false);
   const [profileMode, setProfileMode] = useState<'setup' | 'edit' | null>(null);
   const [stats, setStats] = useState({ online: 0, wallets: 0, coins: 0 });
@@ -202,11 +203,6 @@ export function Landing({ navigate }: { navigate: (r: Route) => void }) {
     if (canPlay) navigate('play');
     else if (status === 'ready') setProfileMode('setup');
     else setWalletOpen(true);
-  };
-
-  const playGuest = () => {
-    playAsGuest();
-    navigate('play');
   };
 
   const copyContract = async () => {
@@ -308,23 +304,18 @@ export function Landing({ navigate }: { navigate: (r: Route) => void }) {
             </p>
 
             <div className="hero-cta">
-              <button className="btn btn-play" onClick={play} disabled={restoring}>
+              <button className="btn btn-play" onClick={play} disabled={restoring || (status === 'ready' && gate?.ok === false)}>
                 <Icon name="play" size={20} /> PLAY
               </button>
-              {!canPlay && (
-                <button className="btn btn-ghost" onClick={playGuest} disabled={restoring}>
-                  Play as guest
-                </button>
-              )}
               <a className="btn btn-ghost" href="#how">
                 How it works
               </a>
             </div>
 
             <p className="cta-note">
-              {guest
-                ? 'You are exploring as a guest. Connect a wallet to keep your name and start earning P coins.'
-                : 'No wallet? Jump straight in as a guest — you can roam and chat, but P coins are only credited to a wallet.'}
+              {status === 'ready' && gate?.ok === false
+                ? `This wallet holds ${gate.have.toLocaleString('en-US')} $POG — ${gate.holdLabel} is needed to play. Top up, then come back.`
+                : `The ice is for holders: connect a Solana wallet holding at least ${PLAY.holdLabel} to play.`}
             </p>
 
             <div className="hero-stats">

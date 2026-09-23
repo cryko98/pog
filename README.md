@@ -90,8 +90,11 @@ table in `shared/world.js` — six species by rarity, or nothing at all — and 
 fishing holes can only produce so much fish
 per minute no matter how many players work them.
 
-Guests can walk, slide and chat, but nothing they do is recorded: $POG is
-credited to a wallet address, and a guest has none.
+**The ice is for holders.** Once the token is live, a wallet has to hold at
+least 1,000 $POG on chain to play at all — every world endpoint answers 403
+otherwise (`src/server/access.ts`), the heartbeat credits it no playtime, and
+the landing page says how short it is. There is no guest mode. The team's
+wallets (`CHAT.always`) always get in; before the token is live, everyone does.
 
 ## Igloos, furniture and the market
 

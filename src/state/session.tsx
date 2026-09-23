@@ -10,8 +10,8 @@ import {
   type ConnectedWallet,
   type WalletInfo,
 } from '../lib/wallet';
-import { api, clearSession, saveSession, storedToken, storedWallet, type Profile } from '../lib/api';
-import { clearGuest, createGuest, loadGuest, saveGuest, type Guest } from '../lib/guest';
+import { api, clearSession, saveSession, storedToken, storedWallet, type Profile, type PlayGate } from '../lib/api';
+import { clearGuest, type Guest } from '../lib/guest';
 
 type Status = 'idle' | 'connecting' | 'signing' | 'ready';
 
@@ -34,11 +34,12 @@ interface SessionValue {
   identity: Identity | null;
   status: Status;
   error: string;
-  /** true once there is someone to play as — wallet profile or guest */
+  /** where the wallet stands at the door: holds enough to play, or not */
+  gate: PlayGate | null;
+  /** true once there is someone to play as: a named wallet that may pass the door */
   canPlay: boolean;
   restoring: boolean;
   connect: (info: WalletInfo) => Promise<void>;
-  playAsGuest: () => void;
   logout: () => Promise<void>;
   saveProfile: (name: string, color: string) => Promise<void>;
   clearError: () => void;
@@ -51,7 +52,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [connected, setConnected] = useState<ConnectedWallet | null>(null);
   const [address, setAddress] = useState<string>(() => storedWallet());
   const [profile, setProfile] = useState<Profile | null>(null);
-  const [guest, setGuest] = useState<Guest | null>(null);
+  // guests are gone: the ice is for holders. Anyone still carrying a guest
+  // penguin from before is shown the door on their next visit.
+  const [guest] = useState<Guest | null>(null);
+  const [gate, setGate] = useState<PlayGate | null>(null);
   const [status, setStatus] = useState<Status>('idle');
   const [error, setError] = useState('');
   const [restoring, setRestoring] = useState(true);
@@ -63,24 +67,21 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let alive = true;
     (async () => {
+      clearGuest();
       if (!storedToken()) {
-        // no wallet session, but a guest penguin may be waiting
-        if (alive) setGuest(loadGuest());
         setRestoring(false);
         return;
       }
       try {
-        const { wallet, profile: p } = await api.me();
+        const { wallet, profile: p, gate: g } = await api.me();
         if (!alive) return;
         setAddress(wallet);
         setProfile(p);
+        setGate(g ?? null);
         setStatus('ready');
       } catch {
         clearSession();
-        if (alive) {
-          setAddress('');
-          setGuest(loadGuest());
-        }
+        if (alive) setAddress('');
       } finally {
         if (alive) setRestoring(false);
       }
@@ -99,7 +100,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setConnected(null);
     setAddress('');
     setProfile(null);
-    setGuest(null);
+    setGate(null);
     setStatus('idle');
   }, [connected]);
 
@@ -119,7 +120,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
         saveSession(token, link.address);
         setProfile(p);
-        setGuest(null); // a real wallet supersedes the guest penguin
+        // where this wallet stands at the door
+        try {
+          const me = await api.me();
+          setGate(me.gate ?? null);
+        } catch {
+          setGate(null);
+        }
         setStatus('ready');
 
         unsubAccount.current();
@@ -138,25 +145,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     [logout]
   );
 
-  const playAsGuest = useCallback(() => {
-    setError('');
-    setGuest(loadGuest() ?? createGuest());
+  const saveProfile = useCallback(async (name: string, color: string) => {
+    const { profile: p } = await api.saveProfile(name, color);
+    setProfile(p);
   }, []);
-
-  /** Wallet profiles go to the server; guest penguins stay in this browser. */
-  const saveProfile = useCallback(
-    async (name: string, color: string) => {
-      if (status === 'ready') {
-        const { profile: p } = await api.saveProfile(name, color);
-        setProfile(p);
-        return;
-      }
-      const next: Guest = { id: (guest ?? createGuest()).id, name, color };
-      saveGuest(next);
-      setGuest(next);
-    },
-    [status, guest]
-  );
 
   // Stable identity on purpose: consumers put this in effect deps, and a new
   // function on every error would re-run their cleanup and wipe the message.
@@ -166,9 +158,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     if (status === 'ready' && profile?.name) {
       return { id: profile.wallet, name: profile.name, color: profile.color, pog: profile.pog ?? 0, guest: false };
     }
-    if (guest) return { id: guest.id, name: guest.name, color: guest.color, pog: 0, guest: true };
     return null;
-  }, [status, profile, guest]);
+  }, [status, profile]);
 
   const value = useMemo<SessionValue>(
     () => ({
@@ -178,12 +169,12 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       profile,
       guest,
       identity,
+      gate,
       status,
       error,
       restoring,
-      canPlay: !!identity,
+      canPlay: !!identity && gate?.ok !== false,
       connect,
-      playAsGuest,
       logout,
       saveProfile,
       clearError,
@@ -199,7 +190,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       error,
       restoring,
       connect,
-      playAsGuest,
       logout,
       saveProfile,
       clearError,

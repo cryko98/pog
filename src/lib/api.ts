@@ -368,6 +368,15 @@ export interface CasinoState {
   today: { wagered: number; paid: number };
 }
 
+/** whether this wallet may play at all: the token is live and it holds enough */
+export interface PlayGate {
+  ok: boolean;
+  live: boolean;
+  hold: number;
+  holdLabel: string;
+  have: number;
+}
+
 /** whether this wallet may chat: the token is live and it holds enough */
 export interface ChatStatus {
   allowed: boolean;
@@ -451,7 +460,7 @@ export const api = {
 
   logout: () => request<{ ok: boolean }>('/auth/logout', post()).catch(() => ({ ok: false })),
 
-  me: () => request<{ wallet: string; profile: Profile | null }>('/profile/me'),
+  me: () => request<{ wallet: string; profile: Profile | null; gate: PlayGate }>('/profile/me'),
 
   saveProfile: (name: string, color: string) =>
     request<{ profile: Profile }>('/profile/set', post({ name, color })),

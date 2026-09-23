@@ -11,6 +11,7 @@
 
 import { actionOf, bearer, body, json } from '../_shared.js';
 import { heartbeat, onlineCount, onlineHolders, walletForToken } from '../../src/server/game.js';
+import { gateError } from '../../src/server/access.js';
 
 export default async function handler(req: any, res: any) {
   const action = actionOf(req, 'online');
@@ -23,7 +24,9 @@ export default async function handler(req: any, res: any) {
       if (!id) return json(res, 400, { error: 'Missing id.' });
       // a signed-in player also accrues playtime, which is what their
       // carrying capacity is tied to
-      const wallet = await walletForToken(bearer(req));
+      const signedIn = await walletForToken(bearer(req));
+      // a wallet that may not play is just a visitor here: no playtime, no Frost
+      const wallet = signedIn && !(await gateError(signedIn)) ? signedIn : null;
       // Anyone can invent ids, so one address can only add so many
       // penguins a minute. Honest clients beat twice a minute; a shared
       // office NAT still fits under this.
