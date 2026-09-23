@@ -29,7 +29,7 @@ import {
 import { kv } from './kv.js';
 import { withWallet } from './lock.js';
 import { POG_MINT, finalizedTransaction, latestBlockhash, mintInfo } from './chain.js';
-import { canPayAutomatically, payFromPool, poolAddress, poolReady } from './pool.js';
+import { ESCROW_KEY, canPayAutomatically, payFromPool, poolAddress, poolReady } from './pool.js';
 import { K, getProfile, holdCap, putProfile, trackMovement, type Profile } from './game.js';
 import { GATHER, getNode } from '../../shared/world.js';
 import { MEMO_PROGRAM, toBaseUnits } from '../../shared/sale.js';
@@ -436,9 +436,11 @@ async function finish(m: Match, winner: string | null, reason: string): Promise<
       for (const s of sides) await withWallet(s.wallet, () => giveStake(s.wallet, items));
     }
   } else {
+    // never more than came in: each side's verified deposit, and only those
     const amount = m.stake.amount;
-    if (winner) await queuePayout(m, winner, amount * 2, 'win');
-    else for (const s of sides) await queuePayout(m, s.wallet, amount, 'refund');
+    const received = sides.filter((s) => s.funded).length * amount;
+    if (winner) await queuePayout(m, winner, Math.min(amount * 2, received), 'win');
+    else for (const s of sides) if (s.funded) await queuePayout(m, s.wallet, amount, 'refund');
   }
 }
 
@@ -451,12 +453,15 @@ async function queuePayout(m: Match, to: string, amount: number, kind: 'win' | '
   const store = await kv();
   m.payouts = m.payouts ?? [];
   if (m.payouts.some((p) => p.to === to && p.kind === kind)) return; // never twice
+  if (!(amount > 0)) return;
   const entry: Payout = { to, amount, kind, status: 'queued', at: Date.now() };
   if (canPayAutomatically()) {
     const sig = await payFromPool(to, amount);
     if (sig) {
       entry.status = 'paid';
       entry.signature = sig;
+      // out of the pool: no longer held for anyone
+      await store.incrBy(ESCROW_KEY, -amount);
     }
   }
   m.payouts.push(entry);
@@ -632,6 +637,8 @@ export async function confirmDeposit(wallet: string, id: unknown, signature: unk
     const s = side === 'host' ? m.host : m.challenger!;
     s.funded = true;
     s.depositSig = signature;
+    // held for this match until it pays out; the airdrop's budget leaves it alone
+    if (m.stake.kind === 'pog') await store.incrBy(ESCROW_KEY, m.stake.amount);
     await advance(m);
     await save(m);
     return { match: viewFor(m, wallet) };

@@ -38,7 +38,7 @@ import { AIRDROP, dailyBudget, splitDay } from '../../shared/airdrop.js';
 import { dayOf } from '../../shared/season.js';
 import { iglooLevel } from '../../shared/world.js';
 import { chainLive, heldBalance } from './chain.js';
-import { airdropAddress, airdropReady, canPayAirdrop, payFromAirdrop } from './pool.js';
+import { ESCROW_KEY, airdropAddress, airdropReady, canPayAirdrop, payFromAirdrop, poolIsAirdrop } from './pool.js';
 import { K, type Igloo } from './game.js';
 import { SEASON_KEYS } from './season.js';
 
@@ -59,6 +59,8 @@ const KEY = {
   virtual: 'pog:airdrop:virtual',
   /** running totals */
   paidTotal: 'pog:airdrop:paidtotal',
+  /** closed-day shares not yet sent: still in the wallet, but already spoken for */
+  owedTotal: 'pog:airdrop:owedtotal',
   closedList: 'pog:airdrop:closed',
 };
 
@@ -84,12 +86,21 @@ export interface Payout {
   at: number;
 }
 
-/** What the airdrop wallet holds: on chain once live, the virtual ledger before. */
+/**
+ * What the airdrop wallet has to give: on chain once live, the virtual
+ * ledger before. On chain, the wallet also holds tokens that are not the
+ * allocation's to spend — shares already owed but not yet sent, and arena
+ * stakes in escrow — so those come off before the budget is worked out.
+ */
 export async function remainingSupply(): Promise<{ remaining: number; source: 'chain' | 'virtual' }> {
   const store = await kv();
   if (airdropReady()) {
     const held = await heldBalance(airdropAddress());
-    if (held > 0) return { remaining: Math.floor(held), source: 'chain' };
+    if (held > 0) {
+      const owed = Math.max(0, Number(await store.get<number>(KEY.owedTotal)) || 0);
+      const escrow = poolIsAirdrop() ? Math.max(0, Number(await store.get<number>(ESCROW_KEY)) || 0) : 0;
+      return { remaining: Math.max(0, Math.floor(held) - owed - escrow), source: 'chain' };
+    }
   }
   const v = await store.get<number>(KEY.virtual);
   return { remaining: v == null ? AIRDROP.supply : Math.max(0, Math.floor(Number(v) || 0)), source: 'virtual' };
@@ -145,6 +156,7 @@ export async function closeDay(day: string, force = false): Promise<DayRecord | 
     await store.set(KEY.dayShare(s.wallet, day), { players: s.players, igloo: s.igloo, total: s.total, frost: s.frost }, { ex: DAY_TTL });
   }
   if (source === 'virtual') await store.set(KEY.virtual, Math.max(0, remaining - paid));
+  if (paid > 0) await store.incrBy(KEY.owedTotal, paid);
 
   const record: DayRecord = {
     day,
@@ -212,6 +224,7 @@ export async function settleOwed(wallet: string): Promise<{ paid: number; signat
     const entry: Payout = { amount: owed, signature, at: Date.now() };
     await store.rpushCapped(KEY.history(wallet), entry, 60);
     await store.incrBy(KEY.paidTotal, owed);
+    await store.incrBy(KEY.owedTotal, -owed);
     return { paid: owed, signature, pending: 0 };
   });
 }

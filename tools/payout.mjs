@@ -34,11 +34,13 @@ const url = process.env.POG_KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_UR
 const token = process.env.POG_KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN;
 const MINT = (process.env.POG_MINT || '').trim();
 const RPC = process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com';
-const POOL = (process.env.POG_ARENA_POOL || '').trim();
+// arena stakes land in the airdrop wallet unless a separate pool is set
+const OWN_POOL = (process.env.POG_ARENA_POOL || '').trim();
+const POOL = OWN_POOL.length >= 32 ? OWN_POOL : (process.env.POG_AIRDROP_WALLET || '').trim();
 
 if (!url || !token) throw new Error('No Redis credentials in the environment.');
 if (!MINT) throw new Error('POG_MINT is not set.');
-if (!POOL) throw new Error('POG_ARENA_POOL is not set.');
+if (POOL.length < 32) throw new Error('Neither POG_ARENA_POOL nor POG_AIRDROP_WALLET is set.');
 
 const redis = new Redis({ url, token });
 const rows = (await redis.lrange('pog:payouts', 0, -1)).map((r) => (typeof r === 'string' ? JSON.parse(r) : r));
@@ -77,6 +79,8 @@ for (const p of queued) {
   await conn.confirmTransaction(sig, 'finalized');
   // mark it paid in place, so a re-run skips it
   await redis.lset('pog:payouts', p.index, { ...p, index: undefined, status: 'paid', signature: sig });
+  // no longer held for the match, so the airdrop budget may count it again
+  await redis.incrby('pog:escrow', -Math.floor(p.amount));
   console.log(`  paid ${p.amount} -> ${p.to}  ${sig}`);
 }
 console.log('done');

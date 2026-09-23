@@ -32,11 +32,23 @@ import {
 import { POG_MINT, chainLive, latestBlockhash, mintInfo, sendRawTransaction } from './chain.js';
 import { toBaseUnits } from '../../shared/sale.js';
 
-const POOL = (process.env.POG_ARENA_POOL || '').trim();
 /** the play-to-earn allocation: where the daily payouts come from */
 const AIRDROP_WALLET = (process.env.POG_AIRDROP_WALLET || '').trim();
+/**
+ * Where real-token arena stakes go. By default the airdrop wallet itself:
+ * a stake sits there as escrow (counted in `pog:escrow`, never in the
+ * airdrop's budget) until the match pays it back out. A separate pool
+ * wallet can still be set with POG_ARENA_POOL + POG_ARENA_POOL_KEYPAIR.
+ */
+const OWN_POOL = (process.env.POG_ARENA_POOL || '').trim();
+const POOL = OWN_POOL.length >= 32 ? OWN_POOL : AIRDROP_WALLET;
+
+/** whole tokens sitting in the pool for arena matches, not yet paid back out */
+export const ESCROW_KEY = 'pog:escrow';
 
 export const poolAddress = () => POOL;
+/** true when arena stakes land in the airdrop wallet, so its budget must leave them out */
+export const poolIsAirdrop = () => POOL.length >= 32 && POOL === AIRDROP_WALLET;
 /** Real-token duels need the mint AND somewhere for the stakes to go. */
 export const poolReady = () => chainLive() && POOL.length >= 32;
 
@@ -58,7 +70,7 @@ function keypairFrom(envName: string, expected: string): Keypair | null {
   }
 }
 
-const signer = () => keypairFrom('POG_ARENA_POOL_KEYPAIR', POOL);
+const signer = () => (POOL === AIRDROP_WALLET ? keypairFrom('POG_AIRDROP_KEYPAIR', AIRDROP_WALLET) : keypairFrom('POG_ARENA_POOL_KEYPAIR', POOL));
 const airdropSigner = () => keypairFrom('POG_AIRDROP_KEYPAIR', AIRDROP_WALLET);
 
 export const canPayAutomatically = () => signer() !== null;

@@ -315,6 +315,16 @@ The environment needs three things for automatic payment:
 | `POG_AIRDROP_KEYPAIR` | its secret key — either the JSON byte array from the Solana CLI (`[12,34,...]`) or the base58 string Phantom/Solflare export. The hot key: keep this wallet holding the allocation and nothing else, and mark the variable Sensitive in Vercel |
 | `CRON_SECRET` | any secret; Vercel sends it with the daily cron so nobody else can call it |
 
+**Arena stakes use the same wallet.** A real-token duel's stakes are paid into
+the airdrop wallet and paid back out of it — to the winner both deposits, on
+a draw or a cancelled match each side its own — and never more than the
+verified deposits for that match. While a stake sits there it is counted in
+`pog:escrow`, and the airdrop's daily budget is worked out from the balance
+**less** that escrow and less every closed-day share not yet sent, so the
+budget never hands out tokens that belong to a match or to a player who has
+not collected. (A separate arena wallet can still be set with
+`POG_ARENA_POOL` + `POG_ARENA_POOL_KEYPAIR`.)
+
 Before `POG_MINT` is set the wallet runs as a ledger: days close, shares are
 recorded and owed, nothing is sent. Once the token is live and the wallet is
 funded, the budget is read from its on-chain balance and the owed amounts go
