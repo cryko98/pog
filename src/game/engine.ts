@@ -30,6 +30,7 @@ import {
 } from '../../shared/world.js';
 import { drawFurniture, drawFurnitureGhost } from './furniture';
 import { blitPenguin, drawPenguinWithTool, type Dir, type ToolKind, type ToolPose } from './penguin';
+import { sound } from './audio';
 import {
   CHUNK,
   drawCoin,
@@ -608,6 +609,7 @@ export class PogGame {
     if (!node || this.busy) return;
 
     if (isStation(node.type)) {
+      sound.open();
       this.opts.onStation(node.type);
       return;
     }
@@ -642,6 +644,7 @@ export class PogGame {
       this.fishing = { node, nextBite: performance.now() + GATHER.hole.biteMs };
       this.toolAt = performance.now() - GATHER.swingMs; // rod out, no tug yet
       this.toolNode = node;
+      sound.cast();
       this.pushChat({ id: crypto.randomUUID(), text: 'Line in. Stay put — something will bite.', system: true });
       return;
     }
@@ -656,6 +659,8 @@ export class PogGame {
     window.setTimeout(() => {
       this.shake.set(node.id, performance.now());
       this.throwChips(node);
+      if (node.type === 'ice') sound.iceHit();
+      else sound.chop();
     }, GATHER.swingMs * 0.5);
 
     api
@@ -668,6 +673,8 @@ export class PogGame {
           announceNode(node.id, respawnAt);
           const parts = Object.entries(gained).map(([k, v]) => `+${v} ${k}`);
           this.pickupFx.push({ x: node.x, y: node.y, t: performance.now(), label: parts.join(' ') });
+          if (node.type === 'ice') sound.iceBreak();
+          else sound.felled();
           this.pokeQuests();
         } else if (typeof hits === 'number' && typeof needed === 'number') {
           this.hits.set(node.id, { hits, needed, at: performance.now() });
@@ -825,6 +832,8 @@ export class PogGame {
     try {
       const { profile } = await api.craft(recipe);
       this.applyProfile(profile);
+      if (recipe === 'cookout' || recipe === 'feast') sound.cook();
+      else sound.craft();
       this.pokeQuests();
       return null;
     } catch (err) {
@@ -843,6 +852,7 @@ export class PogGame {
       const cairn = this.nodes.find((n) => n.id === 'station-cairn');
       if (cairn) {
         this.pickupFx.push({ x: cairn.x, y: cairn.y, t: performance.now(), label: `+${frost} Frost` });
+        sound.offer();
       }
       this.opts.onSeason();
       return null;
@@ -925,6 +935,7 @@ export class PogGame {
       this.igloos.set(igloo.wallet, igloo);
       this.pieces = igloo.furniture ?? [];
       this.placing = null;
+      sound.place();
       this.opts.onHome();
     } catch (err) {
       this.pushChat({
@@ -975,6 +986,7 @@ export class PogGame {
   private enterIgloo(igloo: IglooMsg) {
     if (this.interior || this.building) return;
     this.doorLock = performance.now() + 400;
+    sound.door();
     this.interior = { igloo, returnTo: { x: this.me.x, y: this.me.y } };
     this.pieces = igloo.furniture ?? [];
 
@@ -1002,6 +1014,7 @@ export class PogGame {
   leaveIgloo() {
     if (!this.interior) return;
     this.doorLock = performance.now() + 400;
+    sound.door();
     this.placing = null;
     this.pieces = [];
     const { igloo, returnTo } = this.interior;
@@ -1043,6 +1056,7 @@ export class PogGame {
       // Placing it leaves you standing in the doorway. Without the lock the
       // key that raised it would carry straight on into the entrance.
       this.doorLock = performance.now() + 600;
+      sound.build();
       this.pushChat({ id: crypto.randomUUID(), text: 'Your igloo is up. Welcome home.', system: true });
       this.opts.onSeason(); // raising one is worth Frost, once a season
       return null;
@@ -1102,6 +1116,7 @@ export class PogGame {
         this.me.pog = pog;
         const c = this.coins[coinId];
         if (c) this.pickupFx.push({ x: c.x, y: c.y, t: performance.now(), label: "+1 $POG" });
+        sound.coin();
         announceCoin(coinId);
         this.pokeQuests();
       })
@@ -1176,6 +1191,7 @@ export class PogGame {
     window.setTimeout(() => {
       this.shake.set(node.id, performance.now());
       this.throwChips(node);
+      sound.bite();
     }, GATHER.swingMs * 0.35);
 
     api
@@ -1183,6 +1199,7 @@ export class PogGame {
       .then(({ profile, gained, catch: landed, escaped }) => {
         if (escaped) {
           this.pickupFx.push({ x: node.x, y: node.y, t: performance.now(), label: 'It got away…', color: '#9fb8c8' });
+          sound.escape();
           return;
         }
         if (profile && gained && landed) {
@@ -1195,6 +1212,7 @@ export class PogGame {
             label: landed.label + '! +' + gained.fish + ' fish',
             color: tone?.color ?? '#ffd44d',
           });
+          sound.catchFish(landed.rarity);
           if (landed.rarity !== 'common') {
             this.pushChat({
               id: crypto.randomUUID(),
@@ -1343,7 +1361,10 @@ export class PogGame {
 
     // waddle animation
     this.me.anim += dt * (this.me.moving ? 9 * (moved / PLAYER.speed) : 0);
-    this.me.frame = Math.floor(this.me.anim) % 4;
+    const frame = Math.floor(this.me.anim) % 4;
+    // a crunch on every other frame of the waddle, a hiss on the ice
+    if (this.me.moving && frame !== this.me.frame && frame % 2 === 0 && !this.away) sound.step(onIce);
+    this.me.frame = frame;
 
     // ice spray: a little crystal kick-up behind a sliding penguin, so the
     // speed boost is something you can see and not just feel

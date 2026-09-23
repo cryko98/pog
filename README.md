@@ -21,6 +21,7 @@ game server to keep alive.
 | **Play to earn** | 70 scarce $POG coins on the ice, the plaza cookout, and quest rewards — spendable only on hats. Balances are banked per wallet on a live leaderboard. |
 | **The season** | **Frost**, a separate ledger that only goes up. A fixed token budget is split by share at the end of each season. Gated, capped, and snapshot to a merkle root. |
 | **Phone support** | An on-screen action button next to the virtual stick, so gathering, the stations and building all work without a keyboard. |
+| **Sound** | Every effect and the music are synthesised with the Web Audio API (`src/game/audio.ts`) — an axe biting, ice shattering, a cast and a splash, coins, the workbench, doors, snowballs — over a slow procedural winter piece with a pulse in the arena. No audio files; two switches, remembered per browser. |
 
 Every visual is drawn procedurally with Canvas 2D — the penguin, the trees, the ice, the
 coins. No sprite sheets to ship and no third-party art licences to track.

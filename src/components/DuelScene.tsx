@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { FIGHT, simulate } from '../../shared/fight.js';
 import { blitPenguin, drawPenguinWithTool } from '../game/penguin';
+import { sound } from '../game/audio';
 import { publishFightInput, subscribeFight } from '../game/presence';
 import { api, type DuelView, type FightInput } from '../lib/api';
 import { canSendTransactions, signAndSendTransaction } from '../lib/wallet';
@@ -76,6 +77,8 @@ export function DuelScene({ id, onLeave }: Props) {
   const snow = useRef<Array<{ x: number; y: number; r: number; v: number; d: number }>>([]);
   const confetti = useRef<Particle[]>([]);
   const celebrated = useRef(false);
+  const lastCount = useRef(-1);
+  const ended = useRef(false);
 
   const serverNow = () => Date.now() + skew.current;
 
@@ -113,6 +116,11 @@ export function DuelScene({ id, onLeave }: Props) {
       /* the next poll will catch up */
     }
   }, [id]);
+
+  useEffect(() => {
+    sound.setTense(true);
+    return () => sound.setTense(false);
+  }, []);
 
   useEffect(() => {
     void refreshState();
@@ -397,8 +405,13 @@ export function DuelScene({ id, onLeave }: Props) {
           const key = `${e.type}:${e.side}:${Math.round(e.t / 40)}`;
           if (seenEvents.current.has(key) || now - e.t > 900) continue;
           seenEvents.current.add(key);
-          if (e.type === 'throw') throwAnim.current[e.side as 'a' | 'b'] = pnow;
+          if (e.type === 'throw') {
+            throwAnim.current[e.side as 'a' | 'b'] = pnow;
+            sound.throwBall(e.kind === 'lob');
+          }
+          if (e.type === 'jump') sound.jump();
           if (e.type === 'hit') {
+            sound.splat();
             const hx = sx(e.x);
             const hy = ground - (e.y ?? 0) * yUnit - pengH * 0.5;
             burst(hx, hy, 26, 260 * scale);
@@ -416,7 +429,10 @@ export function DuelScene({ id, onLeave }: Props) {
           const x = sx(f.x);
           const y = ground - f.y * yUnit;
           // landing puff
-          if (wasAirborne.current[sideKey] && !f.airborne) burst(x, ground - 4, 8, 90 * scale, '#f4faff');
+          if (wasAirborne.current[sideKey] && !f.airborne) {
+            burst(x, ground - 4, 8, 90 * scale, '#f4faff');
+            sound.land();
+          }
           wasAirborne.current[sideKey] = f.airborne;
 
           ctx.fillStyle = 'rgba(56,92,120,0.25)';
@@ -507,6 +523,10 @@ export function DuelScene({ id, onLeave }: Props) {
         if (now < v.startAt) {
           const left = (v.startAt - now) / 1000;
           const n = Math.ceil(left);
+          if (n !== lastCount.current) {
+            lastCount.current = n;
+            sound.countdown(false);
+          }
           const frac = left - Math.floor(left);
           ctx.fillStyle = '#0f2f38';
           ctx.font = `800 ${Math.round((60 + frac * 40) * scale)}px "Baloo 2", system-ui, sans-serif`;
@@ -516,6 +536,10 @@ export function DuelScene({ id, onLeave }: Props) {
           ctx.fillText(String(n), w / 2, h * 0.36);
           ctx.globalAlpha = 1;
         } else if (now - v.startAt < 900) {
+          if (lastCount.current !== 0) {
+            lastCount.current = 0;
+            sound.countdown(true);
+          }
           const k = (now - v.startAt) / 900;
           ctx.fillStyle = '#ff5c17';
           ctx.font = `800 ${Math.round((64 + k * 30) * scale)}px "Baloo 2", system-ui, sans-serif`;
@@ -558,6 +582,12 @@ export function DuelScene({ id, onLeave }: Props) {
         ctx.fillText(p.text, p.x, p.y - k * 30 * scale);
       }
       ctx.globalAlpha = 1;
+
+      if (v?.state === 'done' && !ended.current) {
+        ended.current = true;
+        if (v.won) sound.win();
+        else if (v.winner) sound.lose();
+      }
 
       // confetti for a winner
       if (v?.state === 'done' && v.won && !celebrated.current) {

@@ -20,6 +20,8 @@ export type IconName =
   | 'close'
   | 'lock'
   | 'x'
+  | 'sound'
+  | 'music'
   | 'power'
   | 'play'
   | 'penguin'
@@ -44,6 +46,19 @@ interface Props {
 
 /** Each entry draws inside a 24×24 box. */
 const PATHS: Record<IconName, React.ReactNode> = {
+  sound: (
+    <>
+      <path d="M4 9.5v5h3.2L12 18.8V5.2L7.2 9.5H4Z" fill="currentColor" stroke="currentColor" strokeWidth="1.4" />
+      <path d="M15.5 9a4.2 4.2 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11" stroke="currentColor" strokeWidth="1.7" />
+    </>
+  ),
+  music: (
+    <>
+      <path d="M9 18.5V6.8l10-2.3v11.3" stroke="currentColor" strokeWidth="1.8" />
+      <circle cx="6.5" cy="18.5" r="2.5" fill="currentColor" />
+      <circle cx="16.5" cy="15.8" r="2.5" fill="currentColor" />
+    </>
+  ),
   // the X mark, filled rather than stroked like the rest
   x: (
     <path

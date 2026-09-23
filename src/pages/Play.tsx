@@ -13,6 +13,7 @@ import { HomePanel } from '../components/HomePanel';
 import { ArenaPanel } from '../components/ArenaPanel';
 import { DuelScene } from '../components/DuelScene';
 import { Icon } from '../components/Icon';
+import { sound } from '../game/audio';
 import { skinById } from '../../shared/world.js';
 
 const EMPTY_HUD: HudState = {
@@ -68,6 +69,11 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
   /** bumped whenever something may have moved the Frost ledger */
   const [seasonTick, setSeasonTick] = useState(0);
   const [editing, setEditing] = useState(false);
+  const [audioPrefs, setAudioPrefs] = useState({ sfx: sound.sfxOn, music: sound.musicOn });
+  useEffect(() => sound.onChange(() => setAudioPrefs({ sfx: sound.sfxOn, music: sound.musicOn })), []);
+  useEffect(() => {
+    if (canPlay) sound.begin();
+  }, [canPlay]);
   const [fatal, setFatal] = useState('');
   const [booting, setBooting] = useState(true);
 
@@ -189,6 +195,7 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
   const buySkin = async (skin: string): Promise<string | null> => {
     try {
       const { profile } = await api.buySkin(skin);
+      sound.buy();
       setProfileSkins(profile.skins);
       setEquippedSkin(profile.skin);
       gameRef.current?.applyProfile(profile);
@@ -201,6 +208,7 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
   const claimQuest = async (id: string): Promise<string | null> => {
     try {
       const { profile, reward, bonus } = await api.claimQuest(id);
+      sound.fanfare();
       gameRef.current?.applyProfile(profile);
       setQuests(await api.quests());
       pushLine({
@@ -253,6 +261,7 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
     const text = draft.trim();
     if (!text) return;
     gameRef.current?.say(text.slice(0, 140));
+    sound.chat();
     setDraft('');
     chatInputRef.current?.blur();
   };
@@ -440,6 +449,20 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
             }}
           >
             <Icon name="igloo" size={17} />
+          </button>
+          <button
+            className={`icon-btn${audioPrefs.sfx ? ' active' : ''}`}
+            title={audioPrefs.sfx ? 'Sound effects on' : 'Sound effects off'}
+            onClick={() => sound.toggle('sfx')}
+          >
+            <Icon name="sound" size={17} />
+          </button>
+          <button
+            className={`icon-btn${audioPrefs.music ? ' active' : ''}`}
+            title={audioPrefs.music ? 'Music on' : 'Music off'}
+            onClick={() => sound.toggle('music')}
+          >
+            <Icon name="music" size={17} />
           </button>
           <button
             className={`icon-btn${showSeason ? ' active' : ''}`}
