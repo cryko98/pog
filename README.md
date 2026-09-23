@@ -415,6 +415,10 @@ node tools/send.mjs                                        # DRY RUN — reports
 node tools/send.mjs --send --limit 25                      # a small first batch
 ```
 
+For the team's own demo penguin there is `tools/gift.mjs <wallet> --item iglooKit --apply`:
+it writes the live store under the wallet's lock, dry-runs by default, and
+never touches Frost, playtime or anything the airdrop pays on.
+
 `send.mjs` moves real money, so it is built to be boring about it. Dry run is
 the default. It reads the treasury key only from the path in `TREASURY_KEYPAIR`
 — never a prompt, an argument or a config file. It preflights the token
