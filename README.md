@@ -312,7 +312,7 @@ The environment needs three things for automatic payment:
 | Variable | What it is |
 |---|---|
 | `POG_AIRDROP_WALLET` | the airdrop wallet's public key |
-| `POG_AIRDROP_KEYPAIR` | its secret key as a JSON byte array — the hot key; keep this wallet holding the allocation and nothing else |
+| `POG_AIRDROP_KEYPAIR` | its secret key — either the JSON byte array from the Solana CLI (`[12,34,...]`) or the base58 string Phantom/Solflare export. The hot key: keep this wallet holding the allocation and nothing else, and mark the variable Sensitive in Vercel |
 | `CRON_SECRET` | any secret; Vercel sends it with the daily cron so nobody else can call it |
 
 Before `POG_MINT` is set the wallet runs as a ledger: days close, shares are

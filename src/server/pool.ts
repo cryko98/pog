@@ -20,6 +20,7 @@
  * nothing here takes an amount or a recipient from a request.
  */
 
+import bs58 from 'bs58';
 import { Keypair, PublicKey, Transaction } from '@solana/web3.js';
 import {
   TOKEN_2022_PROGRAM_ID,
@@ -39,11 +40,16 @@ export const poolAddress = () => POOL;
 /** Real-token duels need the mint AND somewhere for the stakes to go. */
 export const poolReady = () => chainLive() && POOL.length >= 32;
 
+/**
+ * A secret key from the environment, in either shape a wallet hands out:
+ * the Solana CLI's JSON byte array (`[12,34,...]`, the contents of
+ * `id.json`) or the base58 string Phantom and Solflare export.
+ */
 function keypairFrom(envName: string, expected: string): Keypair | null {
   const raw = (process.env[envName] || '').trim();
   if (!raw || !expected) return null;
   try {
-    const bytes = JSON.parse(raw) as number[];
+    const bytes = raw.startsWith('[') ? (JSON.parse(raw) as number[]) : Array.from(bs58.decode(raw));
     const kp = Keypair.fromSecretKey(Uint8Array.from(bytes));
     // the key must be THAT wallet's key, not some other wallet's
     return kp.publicKey.toBase58() === expected ? kp : null;
