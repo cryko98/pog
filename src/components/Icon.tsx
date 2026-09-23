@@ -22,6 +22,8 @@ export type IconName =
   | 'x'
   | 'sound'
   | 'music'
+  | 'axe'
+  | 'pick'
   | 'power'
   | 'play'
   | 'penguin'
@@ -46,6 +48,18 @@ interface Props {
 
 /** Each entry draws inside a 24×24 box. */
 const PATHS: Record<IconName, React.ReactNode> = {
+  axe: (
+    <>
+      <path d="M5 20 14.5 10.5" stroke="#8a5f3c" strokeWidth="2.4" strokeLinecap="round" />
+      <path d="M12.4 8.4 15.6 5.2c1.6 1.2 3.2 1.4 4.8 1l-1.2 4.8c-1.6.2-3-.2-4.2-1.4l-1.6 1.6Z" fill="#c3ced8" stroke="#6f7d8a" strokeWidth="1.3" strokeLinejoin="round" />
+    </>
+  ),
+  pick: (
+    <>
+      <path d="M5 20 13.5 11.5" stroke="#8a5f3c" strokeWidth="2.4" strokeLinecap="round" />
+      <path d="M9.5 6.5c3.2-1.6 6.6-1.4 9.4 1 .6.6.4 1.2-.2 1.6-2.4 1.6-4.8 3.6-6.6 6.2-.5.6-1.1.5-1.5-.1-1.9-2.9-2.5-5.4-1.1-8.7Z" fill="#9aa7b3" stroke="#6f7d8a" strokeWidth="1.3" strokeLinejoin="round" />
+    </>
+  ),
   sound: (
     <>
       <path d="M4 9.5v5h3.2L12 18.8V5.2L7.2 9.5H4Z" fill="currentColor" stroke="currentColor" strokeWidth="1.4" />

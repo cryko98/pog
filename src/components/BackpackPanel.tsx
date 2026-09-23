@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { FISH, GATHER, IGLOO, RARITY, RECIPES, RESOURCE_KEYS, SKINS } from '../../shared/world.js';
+import { FISH, GATHER, IGLOO, RARITY, RECIPES, RESOURCE_KEYS, SKINS, TOOL_LIFE } from '../../shared/world.js';
 import type { Inventory } from '../game/engine';
 import { Icon, type IconName } from './Icon';
 import { PenguinPreview } from './PenguinPreview';
@@ -48,6 +48,8 @@ const RESOURCES: Array<{ key: keyof Inventory; icon: IconName; label: string }> 
 ];
 
 const ITEMS: Record<string, { icon: IconName; label: string }> = {
+  axe: { icon: 'axe', label: 'Axe' },
+  pick: { icon: 'pick', label: 'Ice pick' },
   rod: { icon: 'rod', label: 'Fishing rod' },
   iglooKit: { icon: 'igloo', label: 'Igloo kit' },
 };
@@ -131,6 +133,11 @@ export function BackpackPanel({
                   <span className="with-icon">
                     <Icon name={ITEMS[id]?.icon ?? 'backpack'} size={16} />
                     {ITEMS[id]?.label ?? id}
+                    {Object.hasOwn(TOOL_LIFE, id) && (
+                      <small className="fish-rarity">
+                        {inventory.wear?.[id] ?? TOOL_LIFE[id as keyof typeof TOOL_LIFE]} uses left
+                      </small>
+                    )}
                   </span>
                   <b>×{n}</b>
                 </div>
@@ -138,8 +145,8 @@ export function BackpackPanel({
           )}
           <h5>Tackle box</h5>
           <p className="bp-note">
-            Cast at a hole and a bite comes every {GATHER.hole.biteMs / 1000} seconds. What bites is
-            luck — and a little skill.
+            Cast at a hole and a bite comes in {GATHER.hole.biteMs / 1000} seconds; cast again after
+            each one. What bites is luck — and a little skill.
           </p>
           {Object.values(FISH).map((f) => {
             const n = inventory.fishLog?.[f.id] || 0;

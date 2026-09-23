@@ -37,6 +37,7 @@ import {
   RECIPES,
   RESOURCE_KEYS,
   SKINS,
+  TOOL_LIFE,
   STREAK_BONUS_CAP,
   WORLD,
   canBuildAt,
@@ -228,6 +229,10 @@ export interface Profile extends FrostFields {
   skills: Record<string, number>;
   /** every species landed, by count — the tackle box */
   fishLog: Record<string, number>;
+  /** gathers left on the tool currently in hand, per tool */
+  wear: Record<string, number>;
+  /** the one free axe, handed out once */
+  starterAxe: boolean;
   /** consecutive days on which all three daily quests were cleared */
   streak: number;
   /** the last day that streak was extended, so it can lapse */
@@ -288,6 +293,17 @@ function sanitizeFishLog(raw: unknown): Record<string, number> {
   return out;
 }
 
+/** Uses left per tool that wears, whole and within the tool's life. */
+function sanitizeWear(raw: unknown): Record<string, number> {
+  const out: Record<string, number> = {};
+  if (!raw || typeof raw !== 'object') return out;
+  for (const [tool, life] of Object.entries(TOOL_LIFE)) {
+    const n = Math.floor(Number((raw as Record<string, unknown>)[tool]) || 0);
+    if (n > 0) out[tool] = Math.min(life, n);
+  }
+  return out;
+}
+
 /** Only the three known skills, only whole non-negative counts. */
 function sanitizeSkills(raw: unknown): Record<string, number> {
   const out: Record<string, number> = { tree: 0, ice: 0, hole: 0 };
@@ -316,6 +332,8 @@ function normalize(p: Partial<Profile> & { wallet: string }): Profile {
     playMinutes: Math.max(0, Math.floor(Number(p.playMinutes) || 0)),
     skills: sanitizeSkills(p.skills),
     fishLog: sanitizeFishLog(p.fishLog),
+    wear: sanitizeWear(p.wear),
+    starterAxe: !!p.starterAxe,
     streak: Math.max(0, Math.floor(Number(p.streak) || 0)),
     lastQuestDay: typeof p.lastQuestDay === 'string' ? p.lastQuestDay : '',
     ...normalizeFrost(p),
@@ -628,6 +646,11 @@ export async function getProfile(wallet: string): Promise<Profile | null> {
   const raw = await store.get<Partial<Profile>>(K.profile(wallet));
   if (!raw) return null;
   const p = normalize({ ...raw, wallet });
+  if (!p.starterAxe) {
+    // the one tool nobody has to earn, or wood could never be had
+    p.starterAxe = true;
+    p.items.axe = (p.items.axe || 0) + 1;
+  }
   await store.set(K.profile(wallet), p, { ex: PROFILE_TTL }); // sliding expiry
   return p;
 }
@@ -768,6 +791,8 @@ export interface GatherResult {
   /** fishing: what bit, or that it got away */
   catch?: { id: string; label: string; rarity: string };
   escaped?: boolean;
+  /** the tool that just wore out on this gather, if one did */
+  broke?: string;
   error?: string;
 }
 
@@ -800,7 +825,8 @@ async function gatherNow(
   if (!profile) return { error: 'Pick a username first.' };
 
   if (rule.needs && !(profile.items[rule.needs] > 0)) {
-    return { error: `You need a ${rule.needs} for that.` };
+    const name = rule.needs === 'rod' ? 'fishing rod' : rule.needs === 'pick' ? 'ice pick' : rule.needs;
+    return { error: `You need an ${name} for that.`.replace('an fishing', 'a fishing') };
   }
 
   const store = await kv();
@@ -883,9 +909,25 @@ async function gatherNow(
   }
   profile.skills[node.type] = (profile.skills[node.type] || 0) + 1;
 
+  // The tool wears with every completed gather. When it is spent it goes,
+  // and the next one in the pack (if any) starts fresh.
+  let broke: string | undefined;
+  const tool = rule.needs;
+  if (tool && Object.hasOwn(TOOL_LIFE, tool)) {
+    const left = (profile.wear[tool] || TOOL_LIFE[tool as keyof typeof TOOL_LIFE]) - 1;
+    if (left <= 0) {
+      profile.items[tool] -= 1;
+      if (profile.items[tool] <= 0) delete profile.items[tool];
+      delete profile.wear[tool];
+      broke = tool;
+    } else {
+      profile.wear[tool] = left;
+    }
+  }
+
   const saved = await putProfile(profile);
   await bumpQuest(wallet, node.type, 1);
-  return { profile: saved, gained, respawnAt, hits: needed, needed, catch: landedFish };
+  return { profile: saved, gained, respawnAt, hits: needed, needed, catch: landedFish, broke };
 }
 
 /** Node ids currently on cooldown, so a joining client hides them too. */

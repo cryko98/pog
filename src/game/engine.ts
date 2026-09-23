@@ -75,6 +75,13 @@ const ZOOM = 0.82;
 /** The tool stays in hand this long after the last swing. */
 const TOOL_HOLD_MS = 1800;
 const TOOL_FOR: Record<string, ToolKind> = { tree: 'axe', ice: 'pick', hole: 'rod' };
+/** the item each node needs in the pack, and how to ask for it */
+const NEEDS: Record<string, { item: string; label: string }> = {
+  tree: { item: 'axe', label: 'an axe' },
+  ice: { item: 'pick', label: 'an ice pick' },
+  hole: { item: 'rod', label: 'a fishing rod' },
+};
+const hasTool = (items: Record<string, number>, type: string) => !NEEDS[type] || items[NEEDS[type].item] > 0;
 const PENGUIN_WORLD_HEIGHT = 78;
 const HEARTBEAT_MS = 25_000;
 
@@ -86,6 +93,8 @@ export interface Inventory {
   items: Record<string, number>;
   /** every species landed, by count */
   fishLog?: Record<string, number>;
+  /** gathers left on the tool in hand, per tool */
+  wear?: Record<string, number>;
 }
 
 export interface HudState {
@@ -111,6 +120,8 @@ export interface HudState {
   /** for the tutorial: how far we have walked, and what we have crafted */
   moved: number;
   crafts: Record<string, number>;
+  /** completed gathers per trade — the skill ladders */
+  skills: Record<string, number>;
 }
 
 export interface ChatLine {
@@ -174,7 +185,7 @@ const SIGN_HEIGHT: Record<string, number> = {
   fire: 58,
   cairn: 84,
   furnish: 92,
-  arena: 74,
+  arena: 124,
 };
 
 const DIR_KEYS: Record<string, [number, number]> = {
@@ -257,8 +268,9 @@ export class PogGame {
   /** the tool comes out on the first swing and goes away a moment after the last */
   private toolAt = -Infinity;
   private toolNode: WorldNode | null = null;
-  /** cast at a hole: bites come on the clock until you walk away */
+  /** cast at a hole: one bite comes on the clock, then it is cast again with E */
   private fishing: { node: WorldNode; nextBite: number } | null = null;
+  private castHinted = false;
   /** somewhere off the snow that is not an igloo — the arena, for now */
   private away: string | null = null;
   /** for the tutorial */
@@ -562,6 +574,7 @@ export class PogGame {
     items: Record<string, number>;
     skills?: Record<string, number>;
     fishLog?: Record<string, number>;
+    wear?: Record<string, number>;
   }) {
     this.me.pog = profile.pog;
     this.skills = profile.skills ?? this.skills;
@@ -572,6 +585,7 @@ export class PogGame {
       fish: profile.fish,
       items: profile.items || {},
       fishLog: profile.fishLog || {},
+      wear: profile.wear || {},
     };
   }
 
@@ -604,11 +618,11 @@ export class PogGame {
     const rule = GATHER[node.type as 'tree' | 'ice' | 'hole'];
     if (!rule) return '';
     if (this.opts.guest) return 'Connect a wallet to gather';
-    if (node.type === 'hole' && !(this.inventory.items.rod > 0)) return 'You need a fishing rod';
+    if (!hasTool(this.inventory.items, node.type)) return `You need ${NEEDS[node.type].label}`;
     if (node.type === 'hole') {
       if (this.fishing?.node.id === node.id) {
         const s = Math.max(0, Math.ceil((this.fishing.nextBite - performance.now()) / 1000));
-        return 'Fishing — next bite in ' + s + 's. Walk away to stop';
+        return 'Line in — a bite in ' + s + 's. Walk away to stop';
       }
       return 'Press E to cast';
     }
@@ -649,15 +663,18 @@ export class PogGame {
     }
     const until = this.depleted.get(node.id);
     if (until && until > Date.now()) return;
-    if (node.type === 'hole' && !(this.inventory.items.rod > 0)) {
+    if (!hasTool(this.inventory.items, node.type)) {
       // do not repeat this every time the key repeats
       if (performance.now() - this.lastRodNotice > 8000) {
         this.lastRodNotice = performance.now();
+        const recipe = RECIPES[NEEDS[node.type].item as keyof typeof RECIPES] as { label: string; cost: Record<string, number> };
+        const cost = Object.entries(recipe.cost).map(([k, v]) => `${v} ${k}`).join(' + ');
         this.pushChat({
           id: crypto.randomUUID(),
-          text: `Craft a fishing rod first — ${RECIPES.rod.cost.wood} wood at the workbench.`,
+          text: `Craft ${NEEDS[node.type].label} first — ${cost} at the workbench.`,
           system: true,
         });
+        sound.error();
       }
       return;
     }
@@ -674,7 +691,10 @@ export class PogGame {
       this.toolAt = performance.now() - GATHER.swingMs; // rod out, no tug yet
       this.toolNode = node;
       sound.cast();
-      this.pushChat({ id: crypto.randomUUID(), text: 'Line in. Stay put — something will bite.', system: true });
+      if (!this.castHinted) {
+        this.castHinted = true;
+        this.pushChat({ id: crypto.randomUUID(), text: 'Line in. Stay put — something will bite. Press E to cast again after.', system: true });
+      }
       return;
     }
 
@@ -694,7 +714,18 @@ export class PogGame {
 
     api
       .gather(node.id, this.me.x, this.me.y)
-      .then(({ hits, needed, profile, gained, respawnAt }) => {
+      .then(({ hits, needed, profile, gained, respawnAt, broke }) => {
+        if (broke) {
+          const recipe = RECIPES[broke as keyof typeof RECIPES] as { label: string; cost: Record<string, number> } | undefined;
+          const cost = recipe ? Object.entries(recipe.cost).map(([k, v]) => `${v} ${k}`).join(' + ') : '';
+          const left = profile?.items?.[broke] || 0;
+          this.pushChat({
+            id: crypto.randomUUID(),
+            text: left > 0 ? `Your ${recipe?.label.toLowerCase() ?? broke} broke — you have another.` : `Your ${recipe?.label.toLowerCase() ?? broke} broke. Craft a new one at the workbench (${cost}).`,
+            system: true,
+          });
+          sound.error();
+        }
         if (profile && gained && respawnAt) {
           this.hits.delete(node.id);
           this.applyProfile(profile);
@@ -765,7 +796,7 @@ export class PogGame {
     if (this.opts.guest) return false;
     const until = this.depleted.get(node.id);
     if (until && until > Date.now()) return false;
-    if (node.type === 'hole' && !(this.inventory.items.rod > 0)) return false;
+    if (!hasTool(this.inventory.items, node.type)) return false;
     return true;
   }
 
@@ -1276,7 +1307,8 @@ export class PogGame {
       return;
     }
     if (now < f.nextBite || this.busy) return;
-    f.nextBite = now + GATHER.hole.biteMs;
+    // one bite per cast: the line comes out with it, and E puts it back in
+    this.fishing = null;
     this.bite(f.node);
   }
 
@@ -1571,6 +1603,7 @@ export class PogGame {
         ownHome: this.interior?.igloo.wallet === this.selfId,
         moved: this.movedTotal,
         crafts: this.crafts,
+        skills: this.skills,
         status: presenceConnected() ? 'open' : 'connecting',
         x: Math.round(this.me.x),
         y: Math.round(this.me.y),

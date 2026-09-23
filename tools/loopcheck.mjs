@@ -124,6 +124,10 @@ console.log('\n3. fishing (needs the rod)');
 
 console.log('\n4. cutting ice (40 needed for a kit)');
 {
+  // ice needs a pick, and a pick needs wood
+  const pick = await call('/api/game/craft', { method: 'POST', token, body: { recipe: 'pick' } });
+  console.log(pick.status === 200 ? '   ice pick crafted' : `   pick refused: ${pick.json.error}`);
+  if (pick.status === 200) profile = pick.json.profile;
   const freshIce = iceNodes.filter((i) => !onCooldown.has(i.id));
   const near = chain(freshIce, at, 30);
   for (const node of near) {

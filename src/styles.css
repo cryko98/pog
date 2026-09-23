@@ -2946,3 +2946,67 @@ html::-webkit-scrollbar-thumb:hover {
     font-size: 0.76rem;
   }
 }
+
+
+/* ------------------------------------------------------------------ *
+ * The player's level and trades
+ * ------------------------------------------------------------------ */
+
+.hud-player .who {
+  text-align: left;
+  padding: 0;
+  cursor: pointer;
+  border-radius: 8px;
+}
+
+.hud-player .who:hover b {
+  color: #ffd44d;
+}
+
+.hud-player .who b .lvl {
+  display: inline-block;
+  margin-left: 7px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: rgba(255, 92, 23, 0.25);
+  box-shadow: inset 0 0 0 1px #ff5c17;
+  color: #ffd2bd;
+  font-size: 0.68rem;
+  font-weight: 800;
+  vertical-align: middle;
+  letter-spacing: 0.02em;
+}
+
+.sk-row {
+  padding: 10px 0 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.sk-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.sk-head b {
+  font-size: 0.9rem;
+}
+
+.sk-level {
+  font-family: var(--font-display);
+  font-weight: 800;
+  color: #ffd44d;
+}
+
+.sk-level small {
+  color: #a9cbd6;
+  font-weight: 600;
+}
+
+.sk-meta {
+  display: block;
+  margin-top: 5px;
+  font-size: 0.72rem;
+  color: #a9cbd6;
+}

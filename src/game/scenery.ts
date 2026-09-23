@@ -214,7 +214,7 @@ const PROP_HEIGHT: Record<string, number> = {
   cairn: 84,
   furnishop: 92,
   market: 96,
-  arena: 70,
+  arena: 120,
 };
 
 export const propHeight = (p: Prop) => (PROP_HEIGHT[p.type] ?? 40) * p.scale;

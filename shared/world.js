@@ -43,8 +43,8 @@ export const GATHER = {
   /** how long a swing takes, and how many land before the node gives way */
   swingMs: 420,
   /** `bonusEvery` levels of the matching skill add one more to the yield */
-  tree: { yields: { wood: 2 }, respawnMs: 300000, hits: 5, label: 'Chop', verb: 'chopping', bonusEvery: 3 },
-  ice: { yields: { ice: 2 }, respawnMs: 240000, hits: 3, label: 'Cut ice', verb: 'cutting ice', bonusEvery: 3 },
+  tree: { yields: { wood: 2 }, respawnMs: 300000, hits: 5, label: 'Chop', verb: 'chopping', needs: 'axe', bonusEvery: 3 },
+  ice: { yields: { ice: 2 }, respawnMs: 240000, hits: 3, label: 'Cut ice', verb: 'cutting ice', needs: 'pick', bonusEvery: 3 },
   /**
    * Fishing is not swung. Cast once and a bite comes every `biteMs`; each
    * bite is one server roll on the fish table below — or nothing, if it
@@ -196,7 +196,30 @@ export const SWINGS_PER_MIN = 110;
  * item (rod, iglooKit) or a resource the profile already tracks (pog); the
  * server tells them apart by key.
  */
+/**
+ * Tools wear out: this many completed gathers per tool, then it is gone
+ * and the workbench makes another. A new wallet is handed one axe so the
+ * loop can start; everything after that is earned.
+ */
+export const TOOL_LIFE = { axe: 25, pick: 20 };
+
 export const RECIPES = {
+  axe: {
+    id: 'axe',
+    label: 'Axe',
+    blurb: 'Fells pines. Good for ' + TOOL_LIFE.axe + ' of them, then it is firewood.',
+    station: 'craft',
+    cost: { wood: 8 },
+    gives: { axe: 1 },
+  },
+  pick: {
+    id: 'pick',
+    label: 'Ice pick',
+    blurb: 'Cuts blocks out of the lakes. Good for ' + TOOL_LIFE.pick + ' blocks.',
+    station: 'craft',
+    cost: { wood: 12 },
+    gives: { pick: 1 },
+  },
   rod: {
     id: 'rod',
     label: 'Fishing rod',
@@ -754,7 +777,7 @@ const FOOTPRINT = {
   campfire: 44,
   cairn: 40,
   furnishop: 54,
-  arena: 76,
+  arena: 150,
 };
 
 const footprintOf = (p) => (FOOTPRINT[p.type] ?? 24) * p.scale;
@@ -823,9 +846,10 @@ export function getProps() {
     { type: 'market', ...onRing(30), r: 32, scale: 1, variant: 0 },
     { type: 'campfire', ...onRing(90), r: 24, scale: 1, variant: 0 },
     { type: 'cairn', ...onRing(150), r: 22, scale: 1, variant: 0 },
-    // The arena sits off the ring, out past the lanterns: it is somewhere
-    // you go to, not a shop you pass.
-    { type: 'arena', x: sx + 690, y: sy + 20, r: 58, scale: 1, variant: 0 },
+    // The arena is a walk from the plaza, out past the lanterns and the
+    // last pines: somewhere you go to, not a shop you pass. Its rink is
+    // walkable — the collision radius is just the scoreboard post.
+    { type: 'arena', x: sx + 940, y: sy - 280, r: 12, scale: 1, variant: 0 },
     { type: 'banner', x: sx, y: sy - 150, r: 16, scale: 1, variant: 0 },
     { type: 'snowman', x: sx - 150, y: sy + 140, r: 16, scale: 1.2, variant: 3 },
     { type: 'snowman', x: sx + 158, y: sy + 142, r: 16, scale: 1.1, variant: 7 },

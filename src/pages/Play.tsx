@@ -13,6 +13,8 @@ import { HomePanel } from '../components/HomePanel';
 import { ArenaPanel } from '../components/ArenaPanel';
 import { DuelScene } from '../components/DuelScene';
 import { Onboarding } from '../components/Onboarding';
+import { SkillsPanel } from '../components/SkillsPanel';
+import { playerLevel } from '../../shared/world.js';
 import { Icon } from '../components/Icon';
 import { sound } from '../game/audio';
 import { skinById } from '../../shared/world.js';
@@ -35,6 +37,7 @@ const EMPTY_HUD: HudState = {
   ownHome: false,
   moved: 0,
   crafts: {},
+  skills: {},
 };
 
 export function Play({ navigate }: { navigate: (r: Route) => void }) {
@@ -56,6 +59,7 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
   const [showQuests, setShowQuests] = useState(false);
   const [showSeason, setShowSeason] = useState(false);
   const [showHome, setShowHome] = useState(false);
+  const [showSkills, setShowSkills] = useState(false);
   /**
    * Which plaza building is open, if any. Buildings get a window in the
    * middle of the screen rather than the side rail — you walked up to a
@@ -314,10 +318,25 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
       <div className="hud">
         <div className="panel hud-player">
           <PenguinMark scarf={identity!.color} size={34} />
-          <div className="who">
-            <b>{identity!.name}</b>
+          <button
+            className="who"
+            title="Your level and trades"
+            onClick={() => {
+              setShowSkills((v) => !v);
+              setShowSeason(false);
+              setShowQuests(false);
+              setShowBoard(false);
+              setShowHome(false);
+              setShowBag(false);
+              setBagPinned(false);
+            }}
+          >
+            <b>
+              {identity!.name}
+              {!identity!.guest && <span className="lvl">L{playerLevel(hud.skills)}</span>}
+            </b>
             <small>{identity!.guest ? 'playing as guest' : shortAddress(address, 4)}</small>
-          </div>
+          </button>
           {identity!.guest ? (
             <button
               className="pog-counter locked"
@@ -598,6 +617,10 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
             onChanged={() => setHomeTick((n) => n + 1)}
             onClose={() => setShowHome(false)}
           />
+        )}
+
+        {showSkills && !showBag && !showHome && !showSeason && (
+          <SkillsPanel skills={hud.skills} onClose={() => setShowSkills(false)} />
         )}
 
         {showSeason && !showBag && !showHome && (

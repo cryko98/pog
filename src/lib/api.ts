@@ -13,6 +13,8 @@ export interface Profile {
   skills?: Record<string, number>;
   /** every species landed, by count */
   fishLog?: Record<string, number>;
+  /** gathers left on the tool in hand, per tool */
+  wear?: Record<string, number>;
   streak?: number;
   lastQuestDay?: string;
   createdAt?: number;
@@ -366,6 +368,8 @@ export const api = {
       /** fishing: what bit, or that it got away */
       catch?: { id: string; label: string; rarity: string };
       escaped?: boolean;
+      /** the tool that just wore out, if one did */
+      broke?: string;
     }>('/game/gather', post({ node, x: Math.round(x), y: Math.round(y) })),
 
   craft: (recipe: string) => request<{ profile: Profile }>('/game/craft', post({ recipe })),
