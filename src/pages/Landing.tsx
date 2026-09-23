@@ -234,6 +234,16 @@ export function Landing({ navigate }: { navigate: (r: Route) => void }) {
             <a href="#roadmap">Roadmap</a>
           </nav>
           <div className="nav-actions">
+            <a
+              className="btn btn-ghost btn-sm nav-x"
+              href="https://x.com/playpogonsol"
+              target="_blank"
+              rel="noreferrer noopener"
+              title="$POG on X"
+              aria-label="$POG on X"
+            >
+              <Icon name="x" size={15} />
+            </a>
             {identity && (
               <button
                 className="btn btn-ghost btn-sm"
@@ -459,8 +469,8 @@ export function Landing({ navigate }: { navigate: (r: Route) => void }) {
           <span>$POG</span>
         </div>
         <div className="footer-links">
-          <a href="https://x.com" target="_blank" rel="noreferrer noopener">
-            X / Twitter
+          <a href="https://x.com/playpogonsol" target="_blank" rel="noreferrer noopener" className="with-icon">
+            <Icon name="x" size={14} /> @playpogonsol
           </a>
           <a href="https://t.me" target="_blank" rel="noreferrer noopener">
             Telegram

@@ -2833,3 +2833,13 @@ html::-webkit-scrollbar-thumb:hover {
     font-size: 0.8rem;
   }
 }
+
+/* the X link in the header: a square ghost button that stays on phones */
+.nav-x {
+  padding: 8px 11px;
+  flex: none;
+}
+
+.nav-x:hover {
+  color: var(--ink);
+}
