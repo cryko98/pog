@@ -85,6 +85,7 @@ const MINIMAP_COLOURS: Record<string, string> = {
   market: '#0f766e',
   arena: '#ef4444',
   cave: '#facc15',
+  casino: '#f472b6',
 };
 /** the item each node needs in the pack, and how to ask for it */
 const NEEDS: Record<string, { item: string; label: string }> = {
@@ -174,9 +175,9 @@ interface Options {
   onHome: () => void;
 }
 
-export type StationKind = 'craft' | 'shop' | 'fire' | 'cairn' | 'furnish' | 'market' | 'arena' | 'cave';
+export type StationKind = 'craft' | 'shop' | 'fire' | 'cairn' | 'furnish' | 'market' | 'arena' | 'cave' | 'casino';
 
-const STATION_KINDS: StationKind[] = ['craft', 'shop', 'fire', 'cairn', 'furnish', 'market', 'arena', 'cave'];
+const STATION_KINDS: StationKind[] = ['craft', 'shop', 'fire', 'cairn', 'furnish', 'market', 'arena', 'cave', 'casino'];
 const isStation = (type: string): type is StationKind => STATION_KINDS.includes(type as StationKind);
 
 const STATION_PROMPT: Record<StationKind, string> = {
@@ -185,9 +186,10 @@ const STATION_PROMPT: Record<StationKind, string> = {
   fire: 'Press E to cook at the fire',
   cairn: 'Press E to leave an offering',
   furnish: 'Press E to browse furnishings',
-  market: 'Press E to open the igloo market',
+  market: 'Press E to open the market',
   arena: 'Press E to enter the snowball arena',
   cave: 'Press E to go into the bear caves',
+  casino: 'Press E to step into the casino',
 };
 
 /** How high each building stands, so its sign clears the roof. */
@@ -200,6 +202,7 @@ const SIGN_HEIGHT: Record<string, number> = {
   furnish: 126,
   arena: 124,
   cave: 118,
+  casino: 120,
 };
 
 const DIR_KEYS: Record<string, [number, number]> = {

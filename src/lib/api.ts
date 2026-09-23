@@ -286,6 +286,56 @@ export interface RunView {
   rules: Record<string, number>;
 }
 
+/* --- the goods market --- */
+
+export type Good = 'wood' | 'ice' | 'fish' | 'gold';
+
+export interface Lot {
+  id: string;
+  wallet: string;
+  seller: string;
+  good: Good;
+  qty: number;
+  each: number;
+  listedAt: number;
+}
+
+export interface BazaarRules {
+  minEach: number;
+  maxEach: number;
+  minQty: number;
+  maxQty: number;
+  maxLots: number;
+  fee: number;
+}
+
+/* --- the casino --- */
+
+export interface CasinoBet {
+  game: 'flip' | 'dice' | 'race';
+  choice: string;
+  wager: number;
+  multiplier: number;
+  shown: string;
+  won: boolean;
+  paid: number;
+  nonce: number;
+  day: string;
+  clientSeed: string;
+  at: number;
+}
+
+export interface CasinoState {
+  day: string;
+  commit: string;
+  reveal: { day: string; seed: string } | null;
+  nonce: number;
+  rules: { minWager: number; maxWager: number; betsPerMin: number; edge: number };
+  games: Array<{ id: 'flip' | 'dice' | 'race'; label: string; blurb: string; choices: string[] | null }>;
+  recent: CasinoBet[];
+  today: { wagered: number; paid: number };
+}
+
 export interface LeaderboardEntry {
   rank: number;
   name: string;
@@ -529,6 +579,26 @@ export const api = {
 
   caveInputs: (id: string, since: number) =>
     request<{ inputs: RunInput[]; serverNow: number }>(`/dungeon/inputs?id=${id}&since=${since}`),
+
+  /* --- the goods market --- */
+
+  lots: () => request<{ lots: Lot[]; rules: BazaarRules }>('/bazaar/open'),
+
+  listLot: (good: Good, qty: number, each: number, x: number, y: number) =>
+    request<{ lot: Lot; profile: Profile }>('/bazaar/list', post({ good, qty, each, x: Math.round(x), y: Math.round(y) })),
+
+  unlistLot: (id: string, x: number, y: number) =>
+    request<{ profile: Profile }>('/bazaar/unlist', post({ id, x: Math.round(x), y: Math.round(y) })),
+
+  buyLot: (id: string, qty: number, x: number, y: number) =>
+    request<{ profile: Profile; bought: number; paid: number; burned: number }>('/bazaar/buy', post({ id, qty, x: Math.round(x), y: Math.round(y) })),
+
+  /* --- the casino --- */
+
+  casino: () => request<CasinoState>('/casino/state'),
+
+  bet: (game: string, choice: string, wager: number, clientSeed: string, x: number, y: number) =>
+    request<{ bet: CasinoBet; profile: Profile }>('/casino/bet', post({ game, choice, wager, clientSeed, x: Math.round(x), y: Math.round(y) })),
 
   buySkin: (skin: string) => request<{ profile: Profile }>('/game/buy', post({ skin })),
 

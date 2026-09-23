@@ -1242,7 +1242,7 @@ async function buySkinNow(wallet: string, skinId: unknown): Promise<{ profile?: 
   const profile = await getProfile(wallet);
   if (!profile) return { error: 'Pick a username first.' };
   if (profile.skins.includes(skin.id)) return { error: 'You already own that.' };
-  if (profile.pog < skin.price) return { error: `That costs ${skin.price} $POG.` };
+  if (profile.pog < skin.price) return { error: `That costs ${skin.price} P coins.` };
 
   profile.pog -= skin.price;
   profile.skins.push(skin.id);

@@ -579,3 +579,134 @@ export function drawCaveMouth(ctx: CanvasRenderingContext2D, h: number, time: nu
   ctx.textBaseline = 'middle';
   ctx.fillText('BEARS', sx, -h * 0.5);
 }
+
+/**
+ * The casino: a striped tent with a string of lights round the awning, a
+ * big die over the door and a chip-shaped sign. Drawn with its footprint
+ * at the origin, `h` tall.
+ */
+export function drawCasinoTent(ctx: CanvasRenderingContext2D, h: number, time: number) {
+  const w = h * 1.6;
+  const wallTop = -h * 0.5;
+
+  // the ground rug
+  ctx.fillStyle = '#7a1f3d';
+  ctx.beginPath();
+  ctx.ellipse(0, 4, w * 0.5, h * 0.14, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // walls: striped canvas
+  const stripes = 8;
+  for (let i = 0; i < stripes; i++) {
+    const x0 = -w * 0.44 + (i / stripes) * w * 0.88;
+    const x1 = x0 + (w * 0.88) / stripes;
+    ctx.fillStyle = i % 2 ? '#f6f1ea' : '#c2185b';
+    ctx.beginPath();
+    ctx.moveTo(x0, 0);
+    ctx.lineTo(x1, 0);
+    ctx.lineTo(x1, wallTop);
+    ctx.lineTo(x0, wallTop);
+    ctx.closePath();
+    ctx.fill();
+  }
+  // the door
+  const grad = ctx.createLinearGradient(0, wallTop, 0, 0);
+  grad.addColorStop(0, '#2a0a18');
+  grad.addColorStop(1, '#5a1533');
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.moveTo(-w * 0.12, 0);
+  ctx.lineTo(-w * 0.12, wallTop * 0.7);
+  ctx.quadraticCurveTo(0, wallTop * 1.05, w * 0.12, wallTop * 0.7);
+  ctx.lineTo(w * 0.12, 0);
+  ctx.closePath();
+  ctx.fill();
+  // a warm glow out of it
+  const glow = ctx.createRadialGradient(0, -4, 2, 0, -4, w * 0.3);
+  glow.addColorStop(0, 'rgba(255,200,120,0.45)');
+  glow.addColorStop(1, 'rgba(255,200,120,0)');
+  ctx.fillStyle = glow;
+  ctx.fillRect(-w * 0.3, -h * 0.3, w * 0.6, h * 0.36);
+
+  // the roof: a peaked canvas with a scalloped awning
+  ctx.fillStyle = '#c2185b';
+  ctx.beginPath();
+  ctx.moveTo(-w * 0.52, wallTop);
+  ctx.lineTo(0, -h);
+  ctx.lineTo(w * 0.52, wallTop);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = '#f6f1ea';
+  for (let i = 0; i < 6; i++) {
+    const x0 = -w * 0.52 + (i / 6) * w * 1.04;
+    if (i % 2) continue;
+    const x1 = x0 + w * 1.04 / 6;
+    ctx.beginPath();
+    ctx.moveTo(x0, wallTop);
+    ctx.lineTo(x1, wallTop);
+    ctx.lineTo(x1 * (0.001), -h);
+    ctx.closePath();
+    ctx.fill();
+  }
+  ctx.fillStyle = '#f6f1ea';
+  for (let i = 0; i < 9; i++) {
+    const cx = -w * 0.5 + (i / 8) * w;
+    ctx.beginPath();
+    ctx.arc(cx, wallTop, w / 16, 0, Math.PI);
+    ctx.fill();
+  }
+  // lights along the awning, chasing
+  const colours = ['#ffd44d', '#38bdf8', '#ff5c17', '#7cd67c'];
+  for (let i = 0; i < 13; i++) {
+    const cx = -w * 0.5 + (i / 12) * w;
+    const on = Math.floor(time / 180 + i) % 3 === 0;
+    ctx.fillStyle = colours[i % colours.length];
+    ctx.globalAlpha = on ? 1 : 0.45;
+    ctx.beginPath();
+    ctx.arc(cx, wallTop + w / 16 + 3, 3, 0, Math.PI * 2);
+    ctx.fill();
+    if (on) {
+      ctx.globalAlpha = 0.25;
+      ctx.beginPath();
+      ctx.arc(cx, wallTop + w / 16 + 3, 7, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  ctx.globalAlpha = 1;
+
+  // a big die on top, tilted
+  ctx.save();
+  ctx.translate(0, -h - 12);
+  ctx.rotate(Math.sin(time / 900) * 0.12);
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath();
+  ctx.roundRect(-13, -13, 26, 26, 5);
+  ctx.fill();
+  ctx.strokeStyle = '#7a1f3d';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+  ctx.fillStyle = '#c2185b';
+  for (const [dx, dy] of [
+    [-7, -7],
+    [7, -7],
+    [0, 0],
+    [-7, 7],
+    [7, 7],
+  ]) {
+    ctx.beginPath();
+    ctx.arc(dx, dy, 2.6, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+
+  // a stack of chips by the door
+  for (let i = 0; i < 3; i++) {
+    ctx.fillStyle = ['#38bdf8', '#ffd44d', '#ff5c17'][i];
+    ctx.beginPath();
+    ctx.ellipse(w * 0.3, -3 - i * 4, 11, 4.5, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.8)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }
+}

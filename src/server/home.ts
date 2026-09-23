@@ -128,7 +128,7 @@ async function buyFurnitureNow(
   if (!profile) return { error: 'Pick a username first.' };
 
   const cost = spec.price * count;
-  if (profile.pog < cost) return { error: `That costs ${cost} $POG.` };
+  if (profile.pog < cost) return { error: `That costs ${cost} P coins.` };
 
   profile.pog -= cost;
   const key = 'f_' + spec.id;
@@ -258,7 +258,7 @@ async function listIglooNow(
       return { error: `Ask between ${SALE_MIN} and ${SALE_MAX.toLocaleString('en-US')} $POG.` };
     }
   } else if (!Number.isFinite(asking) || asking < PRICE_MIN || asking > PRICE_MAX) {
-    return { error: `Ask between ${PRICE_MIN} and ${PRICE_MAX.toLocaleString('en-US')} $POG.` };
+    return { error: `Ask between ${PRICE_MIN} and ${PRICE_MAX.toLocaleString('en-US')} P coins.` };
   }
 
   const igloo = await iglooOf(wallet);
@@ -332,7 +332,7 @@ export async function buyIgloo(
     if (await iglooOf(buyer)) {
       return { error: 'You already have an igloo. Sell it first.' };
     }
-    if (buyerProfile.pog < listing.price) return { error: `That costs ${listing.price} $POG.` };
+    if (buyerProfile.pog < listing.price) return { error: `That costs ${listing.price} P coins.` };
 
     // whatever it earned up to this moment belongs to the seller
     await settleNow(sellerWallet);

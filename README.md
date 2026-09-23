@@ -18,7 +18,7 @@ game server to keep alive.
 | **Multiplayer** | Everyone shares one map over a public MQTT broker — positions, chat and name tags in real time. |
 | **Survival loop** | Chop wood, cut ice, fish. Craft a rod, then an igloo kit, then raise the igloo — all validated server-side. |
 | **Daily quests** | Three a day, derived from your wallet address and the UTC date. Clear all three and a streak bonus stacks on top. |
-| **Play to earn** | 70 scarce $POG coins on the ice, the plaza cookout, and quest rewards — spendable only on hats. Balances are banked per wallet on a live leaderboard. |
+| **Play to earn** | 70 scarce P coins on the ice — none near the plaza, and well apart — the plaza cookout, and quest rewards. P coins are the in-game money, not the $POG token; the token only ever moves wallet to wallet. Balances are banked per wallet on a live leaderboard. |
 | **The season** | **Frost**, a separate ledger that only goes up. A fixed token budget is split by share at the end of each season. Gated, capped, and snapshot to a merkle root. |
 | **Phone support** | An on-screen action button next to the virtual stick, so gathering, the stations and building all work without a keyboard. |
 | **Onboarding** | A card that says the one thing to do next — move, fell a pine, gather 25 wood, craft a rod, catch a fish, cook it — with an arrow on the ice to where. Judged from the pack, not from clicks, so it cannot get stuck; goes away for good once the loop has been walked once, or when skipped. |
@@ -37,7 +37,7 @@ where a catch becomes currency.
 ```
 25 wood              ->  fishing rod  ->  fish the holes
 300 wood + 120 ice   ->  igloo kit    ->  raise your own igloo
-5 fish   -> 1 $POG   |   30 fish -> 7 $POG     (the plaza fire)
+5 fish   -> 1 P coin |   30 fish -> 7 P coins  (the plaza fire)
 ```
 
 A raw fish has no other use, which is the point: the rod is what turns a
@@ -188,14 +188,63 @@ during the countdown or after the end, act in a match they are not in, take
 their own challenge, take one twice, put up a stake they do not hold, act from
 anywhere but the arena, or keep playing once it is over.
 
+## The bear caves
+
+Far the other side of the plaza from the arena, past the last lantern: a hill
+with a black mouth in it. A run is a side-on corridor of ice with polar bears
+coming the other way. Move with A/D, jump with W, throw with J. A bear takes
+two snowballs at first, more as the waves go on; every one put down is gold,
+more the deeper the wave. Three hearts, a swipe takes one, and a swipe cannot
+reach a penguin in the air. Leaving is allowed only when no bear is close.
+
+**The bet is the pack.** Walk out (or wait for the cave to close after three
+minutes) and the gold is in your pack. Get eaten and the run's gold *and
+everything in the pack* — wood, ice, fish, P coins, gold, tools, furniture
+in the bag — is gone. Which is what the igloo's **store** is for: standing at
+your own igloo, anything in the pack can be put away and taken back out. Pack
+and store share the same hold cap, so the store is a safe place rather than a
+bigger pack; a listed igloo is frozen, because a buyer is paying for what is
+in it.
+
+The run is honest the same way the arena is. The client sends keys — move,
+jump, throw, leave — the server stamps each on arrival, and the run is a
+pure function of that log and a seed the server chose when the run began
+(`shared/dungeon.js`). It is replayed whenever the run is read and settled
+exactly once, under the wallet lock. Nothing about kills, hearts or gold is
+ever taken from a request; `cavecheck.mjs` tries. Frost, skins and the
+igloo's store are never touched by the caves.
+
+## The goods market and the casino
+
+**The market house** trades wood, ice, fish and gold between players for
+P coins. A lot leaves the seller's pack the moment it goes up and comes back
+if it is taken down; a buyer pays per unit for as much of a lot as they
+want; 5% of every sale is burned. Both sides must have qualified for the
+season — a bazaar is the natural laundering route for a farm of shallow
+wallets feeding one deep one — and both must be standing at the market
+house. Every write runs under both wallets' locks, so two buyers racing for
+the last unit cannot both get it.
+
+**The casino tent**, out on the arena side, takes P coins — never the token
+— on three tables: a snowflake flip (ice or fire, pays 1.94×), ice dice (pick
+2–96, the roll is 0–99, under wins, pays 97/pick), and a bear race (three
+lanes, pays 2.91×). The house keeps 3% of the fair odds and burns it. Every
+roll is **provably fair**: each UTC day the server draws a secret seed and
+publishes only its SHA-256; a bet's roll is
+`HMAC-SHA256(seed, wallet:day:nonce:clientSeed)` where the nonce counts the
+wallet's bets that day and the client seed is the player's own; yesterday's
+seed is public at `/api/casino/reveal?day=`, so any past hand can be
+recomputed. The wager is taken and the win paid in one step under the wallet
+lock; a bet cannot bring its own result, and `marketcheck.mjs` tries.
+
 ## The season, and the airdrop
 
 Two currencies, because they have two different jobs.
 
-| | **$POG** | **Frost** |
+| | **P coins** | **Frost** |
 |---|---|---|
-| What it is | the soft currency | the airdrop ledger |
-| Spendable | yes, on hats | **never** |
+| What it is | the in-game money (not the $POG token) | the airdrop ledger |
+| Spendable | yes — hats, furniture, igloos, the market, the tables | **never** |
 | Can go down | yes | no |
 | Where it comes from | coins, the cookout, quest rewards | quests, playtime, your igloo, the cairn |
 
@@ -338,6 +387,8 @@ node tools/questcheck.mjs    # rod -> fish -> cookout -> quests -> streak
 node tools/seasonmath.mjs    # caps, tiers, shares and the merkle tree (no server)
 node tools/salecheck.mjs     # the on-chain sale verifier against fixtures, and the yield clock (no server)
 node tools/arenacheck.mjs    # two wallets fight a full duel, and try every way to cheat it
+node tools/cavecheck.mjs     # a run in the caves: walks out, gets eaten, and cheats at both
+node tools/marketcheck.mjs   # the goods market and the casino, honestly and otherwise
 node tools/seasoncheck.mjs   # the season against a real API
 node tools/send.mjs          # dry run: what a payout would do, sending nothing
 

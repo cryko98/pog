@@ -264,9 +264,10 @@ export const STATION_SIGNS = {
   fire: 'Cookout',
   cairn: 'Season cairn',
   furnish: 'Furnishings',
-  market: 'Igloo market',
+  market: 'Market',
   arena: 'Snowball arena',
   cave: 'Bear caves',
+  casino: 'Casino',
 };
 
 /* ------------------------------------------------------------------ *
@@ -854,6 +855,9 @@ export function getProps() {
     // The bear caves are the other way, further still: a hill with a
     // black mouth in it, well past the last lantern. Nobody wanders in.
     { type: 'cave', x: sx - 1050, y: sy + 60, r: 44, scale: 1, variant: 0 },
+    // The casino tent is off the ring on the arena side, lit up so it is
+    // hard to miss and far enough that it is a choice to go.
+    { type: 'casino', x: sx + 820, y: sy, r: 40, scale: 1, variant: 0 },
     { type: 'banner', x: sx, y: sy - 150, r: 16, scale: 1, variant: 0 },
     { type: 'snowman', x: sx - 150, y: sy + 140, r: 16, scale: 1.2, variant: 3 },
     { type: 'snowman', x: sx + 158, y: sy + 142, r: 16, scale: 1.1, variant: 7 },
@@ -1054,6 +1058,7 @@ export function getNodes() {
     market: 'market',
     arena: 'arena',
     cave: 'cave',
+    casino: 'casino',
   };
   for (const prop of getProps()) {
     const kind = stationOf[prop.type];

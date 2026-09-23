@@ -14,6 +14,7 @@ import { ArenaPanel } from '../components/ArenaPanel';
 import { DuelScene } from '../components/DuelScene';
 import { DungeonScene } from '../components/DungeonScene';
 import { CavePanel } from '../components/CavePanel';
+import { CasinoPanel } from '../components/CasinoPanel';
 import { Onboarding } from '../components/Onboarding';
 import { SkillsPanel } from '../components/SkillsPanel';
 import { playerLevel } from '../../shared/world.js';
@@ -609,6 +610,15 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
                 onClose={() => setStation(null)}
               />
             )}
+            {station === 'casino' && (
+              <CasinoPanel
+                guest={!!identity?.guest}
+                inventory={hud.inventory}
+                position={() => gameRef.current?.position() ?? { x: 0, y: 0 }}
+                onChanged={() => void gameRef.current?.syncProfile()}
+                onClose={() => setStation(null)}
+              />
+            )}
             {station === 'cave' && (
               <CavePanel
                 guest={!!identity?.guest}
@@ -626,7 +636,8 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
                 guest={!!identity?.guest}
                 refresh={homeTick}
                 hud={hud}
-                initialTab={station === 'market' ? 'market' : 'shop'}
+                initialTab={station === 'market' ? 'goods' : 'shop'}
+                position={() => gameRef.current?.position() ?? { x: 0, y: 0 }}
                 onPlace={(id) => {
                   setStation(null);
                   gameRef.current?.startPlacing(id);

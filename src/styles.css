@@ -2791,6 +2791,250 @@ section.band {
 }
 
 /* ------------------------------------------------------------------ *
+ * The goods market
+ * ------------------------------------------------------------------ */
+
+.gm-sell {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  margin-bottom: 10px;
+  border-radius: 14px;
+  background: rgba(15, 118, 110, 0.16);
+  box-shadow: inset 0 0 0 1px rgba(45, 212, 191, 0.4);
+}
+
+.gm-sell > b {
+  font-size: 0.86rem;
+}
+
+.gm-goods {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.gm-goods .bp-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  text-transform: capitalize;
+}
+
+.gm-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 8px;
+  align-items: end;
+}
+
+.gm-form label {
+  display: grid;
+  gap: 3px;
+  font-size: 0.74rem;
+  color: #a9cbd6;
+}
+
+.gm-form input,
+.gm-qty,
+.cs-bet input,
+.cs-fair input {
+  width: 100%;
+  min-width: 0;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.14);
+  color: var(--snow);
+  font: inherit;
+  font-size: 0.86rem;
+}
+
+.gm-form small {
+  min-height: 1em;
+  font-size: 0.68rem;
+  color: #8fb3c0;
+}
+
+.gm-qty {
+  width: 58px;
+  flex: none;
+  text-align: center;
+}
+
+@media (max-width: 480px) {
+  .gm-form {
+    grid-template-columns: 1fr 1fr;
+  }
+  .gm-form .btn {
+    grid-column: 1 / -1;
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * The casino
+ * ------------------------------------------------------------------ */
+
+.cs-table {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  min-height: 118px;
+  padding: 14px;
+  margin: 8px 0 10px;
+  border-radius: 16px;
+  background: radial-gradient(ellipse at 50% 30%, rgba(194, 24, 91, 0.35), rgba(60, 10, 30, 0.6));
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12), inset 0 0 40px rgba(0, 0, 0, 0.35);
+  text-align: center;
+  transition: box-shadow 0.3s;
+}
+
+.cs-table.won {
+  box-shadow: inset 0 0 0 2px rgba(124, 214, 124, 0.8), 0 0 18px rgba(124, 214, 124, 0.35);
+}
+
+.cs-table.lost {
+  box-shadow: inset 0 0 0 2px rgba(255, 92, 108, 0.7);
+}
+
+.cs-table b {
+  font-size: 1rem;
+}
+
+.cs-table small {
+  font-size: 0.72rem;
+  color: #d9c3cf;
+}
+
+.cs-face {
+  font-size: 2.6rem;
+  line-height: 1;
+  filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.5));
+}
+
+.cs-face.idle {
+  opacity: 0.55;
+}
+
+.cs-spin {
+  animation: cs-spin 0.5s linear infinite;
+}
+
+@keyframes cs-spin {
+  from {
+    transform: rotateY(0deg);
+  }
+  to {
+    transform: rotateY(360deg);
+  }
+}
+
+.cs-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.cs-choices .duel-btn {
+  flex: 1;
+}
+
+.cs-slider {
+  display: grid;
+  gap: 6px;
+  width: 100%;
+  font-size: 0.78rem;
+  color: #a9cbd6;
+}
+
+.cs-slider input[type='range'] {
+  width: 100%;
+  accent-color: #f472b6;
+}
+
+.cs-bet {
+  display: grid;
+  gap: 8px;
+}
+
+.cs-bet label {
+  display: grid;
+  gap: 3px;
+  font-size: 0.74rem;
+  color: #a9cbd6;
+}
+
+.cs-quick {
+  display: flex;
+  gap: 6px;
+}
+
+.cs-quick .duel-btn {
+  flex: 1;
+}
+
+.cs-fair-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 12px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: #a9cbd6;
+  font: inherit;
+  font-size: 0.74rem;
+  cursor: pointer;
+}
+
+.cs-fair {
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  margin-top: 6px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.05);
+  font-size: 0.7rem;
+  color: #a9cbd6;
+}
+
+.cs-fair code {
+  font-size: 0.66rem;
+  color: #ffd44d;
+  word-break: break-all;
+}
+
+.cs-fair label {
+  display: grid;
+  gap: 3px;
+}
+
+.cs-log {
+  display: grid;
+  gap: 4px;
+  font-size: 0.74rem;
+}
+
+.cs-log > div {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr auto;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.cs-log > div.won b {
+  color: #7cd67c;
+}
+
+.cs-log > div.lost b {
+  color: #ff8a96;
+}
+
+/* ------------------------------------------------------------------ *
  * Scrollbars: thin and tinted, never the raw grey default
  * ------------------------------------------------------------------ */
 

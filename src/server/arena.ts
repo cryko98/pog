@@ -197,7 +197,7 @@ export async function createChallenge(
     if (!poolReady()) return { error: 'Real $POG duels open once the token and the pool wallet are live.' };
     const amount = Math.floor(Number(stakeRaw));
     if (!Number.isFinite(amount) || amount < DUEL.minTokens || amount > DUEL.maxTokens) {
-      return { error: `Stake between ${DUEL.minTokens} and ${DUEL.maxTokens.toLocaleString('en-US')} $POG.` };
+      return { error: `Stake between ${DUEL.minTokens} and ${DUEL.maxTokens.toLocaleString('en-US')} real $POG.` };
     }
     stake = { kind: 'pog', amount };
   } else {

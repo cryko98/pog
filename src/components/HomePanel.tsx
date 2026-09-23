@@ -4,6 +4,7 @@ import type { HudState } from '../game/engine';
 import { api, type HomeState, type IglooListing, type ListingCurrency } from '../lib/api';
 import { canSendTransactions, shortAddress, signAndSendTransaction } from '../lib/wallet';
 import { useSession } from '../state/session';
+import { GoodsMarket } from './GoodsMarket';
 import { Icon } from './Icon';
 
 interface Props {
@@ -17,9 +18,11 @@ interface Props {
   onClose: () => void;
   /** which tab the building that opened this wants to show */
   initialTab?: Tab;
+  /** where the player stands, for the goods market's position check */
+  position?: () => { x: number; y: number };
 }
 
-export type Tab = 'home' | 'store' | 'shop' | 'market';
+export type Tab = 'home' | 'store' | 'shop' | 'goods' | 'market';
 
 const big = (n: number) => n.toLocaleString('en-US');
 
@@ -43,8 +46,8 @@ type Checkout =
  * chain records it, and the server reads it back. The Frost ledger is
  * next door and none of this can touch it.
  */
-export function HomePanel({ guest, refresh, hud, onPlace, onTakeNearest, onChanged, onClose, initialTab = 'home' }: Props) {
-  const { connected } = useSession();
+export function HomePanel({ guest, refresh, hud, onPlace, onTakeNearest, onChanged, onClose, initialTab = 'home', position }: Props) {
+  const { connected, identity } = useSession();
   const [state, setState] = useState<HomeState | null>(null);
   const [tab, setTab] = useState<Tab>(initialTab);
   const [busy, setBusy] = useState('');
@@ -157,9 +160,9 @@ export function HomePanel({ guest, refresh, hud, onPlace, onTakeNearest, onChang
       ) : (
         <>
           <div className="bp-tabs">
-            {(['home', 'store', 'shop', 'market'] as Tab[]).map((t) => (
+            {(['home', 'store', 'shop', 'goods', 'market'] as Tab[]).map((t) => (
               <button key={t} className={`bp-tab${tab === t ? ' active' : ''}`} onClick={() => setTab(t)}>
-                {t === 'home' ? 'Home' : t === 'store' ? 'Store' : t === 'shop' ? 'Shop' : 'Market'}
+                {t === 'home' ? 'Home' : t === 'store' ? 'Store' : t === 'shop' ? 'Shop' : t === 'goods' ? 'Goods' : 'Igloos'}
               </button>
             ))}
           </div>
@@ -440,6 +443,15 @@ export function HomePanel({ guest, refresh, hud, onPlace, onTakeNearest, onChang
           )}
 
           {/* ---------------- the market ---------------- */}
+          {tab === 'goods' && (
+            <GoodsMarket
+              wallet={identity?.guest ? null : (identity?.id ?? null)}
+              inventory={hud.inventory}
+              position={position ?? (() => ({ x: NaN, y: NaN }))}
+              onChanged={onChanged}
+            />
+          )}
+
           {tab === 'market' && (
             <>
               <p className="bp-note">

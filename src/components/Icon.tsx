@@ -8,6 +8,7 @@
  */
 
 export type IconName =
+  | 'dice'
   | 'wood'
   | 'ice'
   | 'fish'
@@ -49,6 +50,16 @@ interface Props {
 
 /** Each entry draws inside a 24×24 box. */
 const PATHS: Record<IconName, React.ReactNode> = {
+  dice: (
+    <>
+      <rect x="3.5" y="3.5" width="17" height="17" rx="4" fill="#fff" stroke="#c2185b" strokeWidth="1.5" />
+      <circle cx="8.3" cy="8.3" r="1.7" fill="#c2185b" />
+      <circle cx="15.7" cy="8.3" r="1.7" fill="#c2185b" />
+      <circle cx="12" cy="12" r="1.7" fill="#c2185b" />
+      <circle cx="8.3" cy="15.7" r="1.7" fill="#c2185b" />
+      <circle cx="15.7" cy="15.7" r="1.7" fill="#c2185b" />
+    </>
+  ),
   gold: (
     <>
       <path d="M5 15.5 8.2 9.4h7.6l3.2 6.1-3 3.2H8Z" fill="#f5c84b" stroke="#a8760f" strokeWidth="1.3" strokeLinejoin="round" />

@@ -87,7 +87,7 @@ export async function reserveSale(
     const store = await kv();
     const listing = await listingOf(sellerWallet);
     if (!listing) return { error: 'That one has gone.' };
-    if (listing.currency !== 'pog') return { error: 'That one is sold for in-game $POG.' };
+    if (listing.currency !== 'pog') return { error: 'That one is sold for P coins.' };
     if (!(await getProfile(buyer))) return { error: 'Pick a username first.' };
     if (await store.hget<Igloo>(K.igloos, buyer)) {
       return { error: 'You already have an igloo. Sell it first.' };
