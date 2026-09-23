@@ -70,6 +70,13 @@ export const GATE = {
   holdLabel: '25,000 $POG',
 };
 
+/**
+ * Chat is for holders. Any wallet holding at least this much $POG on
+ * chain may talk; everyone else can read. Before the token is live,
+ * nobody can — there is no holder to be.
+ */
+export const CHAT = { hold: 1, holdLabel: '1 $POG' };
+
 /* ------------------------------------------------------------------ *
  * Earning Frost
  *

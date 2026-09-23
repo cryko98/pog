@@ -1064,6 +1064,18 @@ section.band {
   font-style: italic;
 }
 
+.chat-locked {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.06);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.14);
+  color: #a9cbd6;
+  font-size: 0.78rem;
+}
+
 .chat-form {
   display: flex;
   gap: 8px;

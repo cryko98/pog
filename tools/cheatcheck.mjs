@@ -181,6 +181,17 @@ console.log('\n--- gathering ---');
   check('fishing without a rod never succeeds', r.status !== 200, r.json.error);
 }
 
+console.log('\n--- chat is for holders ---');
+{
+  const { json } = await call('/api/game/state', { token: me.token });
+  check('the state says whether this wallet may chat', json.chat && typeof json.chat.allowed === 'boolean' && json.chat.hold >= 1, JSON.stringify(json.chat));
+  check('with no token live, nobody may chat', json.chat.allowed === false && json.chat.live === false, JSON.stringify(json.chat));
+  const h = await call('/api/online/holders');
+  check('and the holder list is empty', h.status === 200 && Array.isArray(h.json.wallets) && h.json.wallets.length === 0, JSON.stringify(h.json));
+  const r = await call('/api/online/holders', { method: 'POST', body: { wallets: [me.wallet] } });
+  check('the holder list cannot be written', !r.json.wallets || !r.json.wallets.includes(me.wallet));
+}
+
 console.log('\n--- tools ---');
 {
   const { json } = await call('/api/game/state', { token: me.token });

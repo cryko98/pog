@@ -32,6 +32,7 @@ import {
   listIgloos,
   questBoard,
   walletForToken,
+  chatStatus,
 } from '../../src/server/game.js';
 
 export default async function handler(req: any, res: any) {
@@ -60,7 +61,7 @@ export default async function handler(req: any, res: any) {
         listIgloos(),
         questBoard(wallet),
       ]);
-      return json(res, 200, { profile, depleted, igloos, quests });
+      return json(res, 200, { profile, depleted, igloos, quests, chat: await chatStatus(wallet) });
     }
 
     if (action === 'quests') {

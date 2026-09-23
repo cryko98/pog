@@ -368,6 +368,14 @@ export interface CasinoState {
   today: { wagered: number; paid: number };
 }
 
+/** whether this wallet may chat: the token is live and it holds enough */
+export interface ChatStatus {
+  allowed: boolean;
+  live: boolean;
+  hold: number;
+  holdLabel: string;
+}
+
 export interface LeaderboardEntry {
   rank: number;
   name: string;
@@ -466,9 +474,12 @@ export const api = {
   /* --- survival layer --- */
 
   gameState: () =>
-    request<{ profile: Profile; depleted: string[]; igloos: Igloo[]; quests: QuestBoard }>(
+    request<{ profile: Profile; depleted: string[]; igloos: Igloo[]; quests: QuestBoard; chat: ChatStatus }>(
       '/game/state'
     ),
+
+  /** the online wallets allowed to chat right now */
+  onlineHolders: () => request<{ wallets: string[] }>('/online/holders'),
 
   quests: () => request<QuestBoard>('/game/quests'),
 

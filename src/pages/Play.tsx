@@ -41,6 +41,7 @@ const EMPTY_HUD: HudState = {
   moved: 0,
   crafts: {},
   skills: {},
+  chat: { allowed: false, live: false, hold: 1, holdLabel: '1 $POG' },
 };
 
 export function Play({ navigate }: { navigate: (r: Route) => void }) {
@@ -176,7 +177,7 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
       const typing = el?.tagName === 'INPUT';
       if (e.key === 'Enter' && !typing) {
         e.preventDefault();
-        chatInputRef.current?.focus();
+        if (hud.chat.allowed) chatInputRef.current?.focus();
       } else if (e.key === 'Escape' && typing) {
         chatInputRef.current?.blur();
       } else if (e.key === 'Escape' && !typing) {
@@ -713,6 +714,16 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
               </div>
             ))}
           </div>
+          {!hud.chat.allowed ? (
+            <div className="chat-locked">
+              <Icon name="lock" size={13} />
+              {identity?.guest
+                ? 'Chat is for $POG holders. Connect a wallet that holds $POG to talk.'
+                : hud.chat.live
+                  ? `Chat is for $POG holders — hold at least ${hud.chat.holdLabel} to talk. You can read along.`
+                  : 'Chat opens for $POG holders once the token is live.'}
+            </div>
+          ) : (
           <form className="chat-form" onSubmit={sendChat}>
             <input
               ref={chatInputRef}
@@ -733,6 +744,7 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
               Send
             </button>
           </form>
+          )}
         </div>
 
         {hud.building && (
@@ -772,7 +784,7 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
               <Icon name="snowflake" size={13} /> slippery ice!
             </>
           ) : (
-            'Enter to chat'
+            hud.chat.allowed ? 'Enter to chat' : 'Chat is for holders'
           )}
         </div>
 

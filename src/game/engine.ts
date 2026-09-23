@@ -133,6 +133,8 @@ export interface HudState {
   crafts: Record<string, number>;
   /** completed gathers per trade — the skill ladders */
   skills: Record<string, number>;
+  /** chat is for holders: whether we may talk, and what it takes */
+  chat: { allowed: boolean; live: boolean; hold: number; holdLabel: string };
 }
 
 export interface ChatLine {
@@ -298,6 +300,10 @@ export class PogGame {
   private castHinted = false;
   /** somewhere off the snow that is not an igloo — the arena, for now */
   private away: string | null = null;
+  /** chat is for holders: what the server last said about us, and about everyone online */
+  private chat: HudState['chat'] = { allowed: false, live: false, hold: 1, holdLabel: '1 $POG' };
+  private holders = new Set<string>();
+  private holderTimer = 0;
   /** for the tutorial */
   private movedTotal = 0;
   private crafts: Record<string, number> = {};
@@ -393,6 +399,8 @@ export class PogGame {
   /* ---------------- lifecycle ---------------- */
 
   start(minimap?: HTMLCanvasElement | null) {
+    void this.refreshHolders();
+    this.holderTimer = window.setInterval(() => void this.refreshHolders(), 45_000);
     if (this.running) return;
     this.running = true;
     this.minimapCtx = minimap ? minimap.getContext('2d') : null;
@@ -458,6 +466,9 @@ export class PogGame {
       }),
 
       subscribeChat((m) => {
+        // chat is for holders: the server says who those are, and anything
+        // from anyone else is dropped here, whatever a client published
+        if (!this.holders.has(m.id)) return;
         this.bubbles.set(m.id, { text: m.text, until: performance.now() + 5200 });
         this.pushChat({ id: crypto.randomUUID(), name: m.name, color: m.color, text: m.text });
       }),
@@ -501,6 +512,7 @@ export class PogGame {
   }
 
   stop() {
+    window.clearInterval(this.holderTimer);
     this.running = false;
     cancelAnimationFrame(this.raf);
     window.removeEventListener('resize', this.resize);
@@ -530,8 +542,9 @@ export class PogGame {
   async syncProfile() {
     if (this.opts.guest) return;
     try {
-      const { profile, quests } = await api.gameState();
+      const { profile, quests, chat } = await api.gameState();
       this.applyProfile(profile);
+      if (chat) this.chat = chat;
       if (quests) this.opts.onQuests(quests);
     } catch {
       /* the next action will refresh it */
@@ -541,8 +554,9 @@ export class PogGame {
   async refreshState() {
     if (this.opts.guest) return;
     try {
-      const { profile, depleted, igloos, quests } = await api.gameState();
+      const { profile, depleted, igloos, quests, chat } = await api.gameState();
       this.applyProfile(profile);
+      if (chat) this.chat = chat;
       const now = Date.now();
       depleted.forEach((id) => {
         if (!this.depleted.has(id)) this.depleted.set(id, now + 60_000);
@@ -1231,9 +1245,27 @@ export class PogGame {
   }
 
   say(text: string) {
+    if (!this.chat.allowed) {
+      this.pushChat({
+        id: crypto.randomUUID(),
+        text: this.chat.live ? `Chat is for $POG holders — hold at least ${this.chat.holdLabel} to talk.` : 'Chat opens for $POG holders once the token is live.',
+        system: true,
+      });
+      return;
+    }
     // the broker echoes our own message back, which is what renders the
     // bubble and the log line — no local echo needed
     sendChat({ id: this.selfId, name: this.opts.name, color: this.opts.color, text });
+  }
+
+  /** Who may talk right now, from the server; polled while we play. */
+  private async refreshHolders() {
+    try {
+      const { wallets } = await api.onlineHolders();
+      this.holders = new Set(wallets);
+    } catch {
+      /* keep the last list */
+    }
   }
 
   /** Chat input steals the keyboard; make sure we are not left walking. */
@@ -1632,6 +1664,7 @@ export class PogGame {
         moved: this.movedTotal,
         crafts: this.crafts,
         skills: this.skills,
+        chat: this.chat,
         status: presenceConnected() ? 'open' : 'connecting',
         x: Math.round(this.me.x),
         y: Math.round(this.me.y),

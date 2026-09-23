@@ -10,7 +10,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { actionOf, bearer, body, json } from '../_shared.js';
-import { heartbeat, onlineCount, walletForToken } from '../../src/server/game.js';
+import { heartbeat, onlineCount, onlineHolders, walletForToken } from '../../src/server/game.js';
 
 export default async function handler(req: any, res: any) {
   const action = actionOf(req, 'online');
@@ -34,6 +34,11 @@ export default async function handler(req: any, res: any) {
 
     if (action === 'count') {
       return json(res, 200, { count: await onlineCount() });
+    }
+
+    // the online wallets that may chat; clients show chat from these only
+    if (action === 'holders') {
+      return json(res, 200, { wallets: await onlineHolders() });
     }
 
     return json(res, 404, { error: 'Unknown online action.' });
