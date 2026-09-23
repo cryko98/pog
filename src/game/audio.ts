@@ -4,9 +4,9 @@
  * Every effect is synthesised on the fly with the Web Audio API — noise
  * bursts through filters for cracks, splashes and crunches, short tones
  * with envelopes for chimes and thuds — so there are no audio files to
- * ship, license or wait for. The music is a slow procedural winter piece:
- * a pad drifting through four chords, a music-box melody picking notes
- * from a pentatonic scale, and wind underneath.
+ * ship, license or wait for. The music is a slow winter piece:
+ * a soft pad and a bass through four chords, a written music-box melody
+ * looping over them, and a breath of wind underneath.
  *
  * Browsers only let audio start after the player has touched something,
  * so the context is created lazily on the first gesture. Two switches,
@@ -46,7 +46,6 @@ class Sound {
   private musicRunning = false;
   private nextBeat = 0;
   private beat = 0;
-  private lastStep = 0;
   private tense = false;
   private listeners = new Set<() => void>();
 
@@ -418,7 +417,7 @@ class Sound {
     this.musicRunning = false;
   }
 
-  /** A slow, breathy bed under everything. */
+  /** A slow, breathy bed under everything — a breath, not a hiss. */
   private wind() {
     const ctx = this.ctx;
     if (!ctx || !this.musicBus || !this.noiseBuf) return;
@@ -427,14 +426,14 @@ class Sound {
     src.loop = true;
     const f = ctx.createBiquadFilter();
     f.type = 'lowpass';
-    f.frequency.value = 320;
+    f.frequency.value = 180;
     const lfo = ctx.createOscillator();
-    lfo.frequency.value = 0.07;
+    lfo.frequency.value = 0.05;
     const lfoGain = ctx.createGain();
-    lfoGain.gain.value = 180;
+    lfoGain.gain.value = 90;
     lfo.connect(lfoGain).connect(f.frequency);
     const g = ctx.createGain();
-    g.gain.value = 0.045;
+    g.gain.value = 0.022;
     src.connect(f).connect(g).connect(this.musicBus);
     src.start();
     lfo.start();
@@ -442,33 +441,49 @@ class Sound {
   }
 
   /**
-   * Look a little ahead and queue what falls due: a chord every four
-   * beats, a note from the melody most beats, a pulse in the arena.
+   * The piece itself: four bars of C, G, Am, F under a written melody,
+   * looping. Composed rather than rolled — a random walk over a scale
+   * sounds like a phone left off the hook after a minute. A note is
+   * occasionally left out so the loop breathes.
+   */
+  private static readonly CHORDS = [
+    { bass: 130.8, pad: [261.6, 329.6, 392.0] }, // C
+    { bass: 98.0, pad: [196.0, 246.9, 293.7] }, // G
+    { bass: 110.0, pad: [220.0, 261.6, 329.6] }, // Am
+    { bass: 87.3, pad: [174.6, 220.0, 261.6] }, // F
+  ];
+
+  /** One note (Hz) or a rest per beat, eight beats a chord. */
+  private static readonly MELODY: Array<number | null> = [
+    659.3, null, 784.0, null, 659.3, 587.3, 523.3, null, // over C
+    587.3, null, 493.9, null, 587.3, null, 392.0, null, // over G
+    440.0, null, 523.3, null, 659.3, 587.3, 523.3, null, // over Am
+    440.0, null, 523.3, null, 440.0, 392.0, 329.6, null, // over F, leading home
+  ];
+
+  /**
+   * Look a little ahead and queue what falls due: a chord and its bass
+   * every eight beats, the melody's note for this beat, a pulse in the
+   * arena.
    */
   private schedule() {
     const ctx = this.ctx;
     if (!ctx || !this.musicBus) return;
-    const BEAT = this.tense ? 0.55 : 0.75; // seconds
+    const BEAT = this.tense ? 0.5 : 0.9; // seconds
+    const LOOP = Sound.MELODY.length;
     while (this.nextBeat < ctx.currentTime + 0.6) {
       const t = this.nextBeat;
-      const chords = [
-        [220, 261.6, 329.6], // Am
-        [174.6, 220, 261.6], // F
-        [261.6, 329.6, 392], // C
-        [196, 246.9, 293.7], // G
-      ];
-      const chord = chords[Math.floor(this.beat / 8) % chords.length];
-      if (this.beat % 8 === 0) this.pad(chord, t, BEAT * 8.2);
-      // the music box: pentatonic over the chord, sparse and drifting
-      const scale = [chord[0] * 2, chord[1] * 2, chord[2] * 2, chord[0] * 3, chord[1] * 3, chord[2] * 3, chord[0] * 4];
-      const chance = this.tense ? 0.7 : 0.45;
-      if (Math.random() < chance) {
-        let idx = Math.max(0, Math.min(scale.length - 1, this.lastStep + Math.round((Math.random() - 0.5) * 3)));
-        if (Math.random() < 0.15) idx = Math.floor(Math.random() * scale.length);
-        this.lastStep = idx;
-        this.bell(scale[idx], t + (Math.random() < 0.3 ? BEAT / 2 : 0));
+      const step = this.beat % LOOP;
+      const chord = Sound.CHORDS[Math.floor(step / 8)];
+      if (step % 8 === 0) {
+        this.pad(chord.pad, t, BEAT * 8.3);
+        this.bass(chord.bass, t, BEAT * 8);
       }
-      if (this.tense && this.beat % 2 === 0) this.pulse(t);
+      const note = Sound.MELODY[step];
+      // the second time round, let a note or two go so it does not grind
+      const rest = Math.floor(this.beat / LOOP) % 2 === 1 && Math.random() < 0.18;
+      if (note && !rest) this.bell(note, t);
+      if (this.tense && step % 2 === 0) this.pulse(t);
       this.nextBeat += BEAT;
       this.beat++;
     }
@@ -478,18 +493,18 @@ class Sound {
     const ctx = this.ctx!;
     const bus = this.musicBus!;
     for (const f of freqs) {
-      for (const detune of [-6, 6]) {
+      for (const detune of [-2.5, 2.5]) {
         const osc = ctx.createOscillator();
         osc.type = 'triangle';
         osc.frequency.value = f;
         osc.detune.value = detune;
         const lp = ctx.createBiquadFilter();
         lp.type = 'lowpass';
-        lp.frequency.value = 900;
+        lp.frequency.value = 520;
         const g = ctx.createGain();
         g.gain.setValueAtTime(0.0001, at);
-        g.gain.exponentialRampToValueAtTime(0.028, at + 1.4);
-        g.gain.setValueAtTime(0.028, at + dur - 1.2);
+        g.gain.exponentialRampToValueAtTime(0.02, at + 2.2);
+        g.gain.setValueAtTime(0.02, at + dur - 1.6);
         g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
         osc.connect(lp).connect(g).connect(bus);
         osc.start(at);
@@ -498,28 +513,46 @@ class Sound {
     }
   }
 
+  /** A soft root under each chord, so the pad has a floor to stand on. */
+  private bass(freq: number, at: number, dur: number) {
+    const ctx = this.ctx!;
+    const bus = this.musicBus!;
+    const osc = ctx.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.value = freq;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, at);
+    g.gain.exponentialRampToValueAtTime(0.05, at + 0.6);
+    g.gain.setValueAtTime(0.05, at + dur - 1.2);
+    g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
+    osc.connect(g).connect(bus);
+    osc.start(at);
+    osc.stop(at + dur + 0.05);
+  }
+
+  /** A music-box note: a sine with a soft edge and an octave whisper. */
   private bell(freq: number, at: number) {
     const ctx = this.ctx!;
     const bus = this.musicBus!;
     const osc = ctx.createOscillator();
     osc.type = 'sine';
     osc.frequency.value = freq;
-    const harm = ctx.createOscillator();
-    harm.type = 'sine';
-    harm.frequency.value = freq * 3.01;
+    const oct = ctx.createOscillator();
+    oct.type = 'sine';
+    oct.frequency.value = freq * 2;
     const g = ctx.createGain();
     g.gain.setValueAtTime(0.0001, at);
-    g.gain.exponentialRampToValueAtTime(0.07, at + 0.01);
-    g.gain.exponentialRampToValueAtTime(0.0001, at + 1.6);
-    const hg = ctx.createGain();
-    hg.gain.setValueAtTime(0.012, at);
-    hg.gain.exponentialRampToValueAtTime(0.0001, at + 0.5);
+    g.gain.exponentialRampToValueAtTime(0.05, at + 0.012);
+    g.gain.exponentialRampToValueAtTime(0.0001, at + 1.9);
+    const og = ctx.createGain();
+    og.gain.setValueAtTime(0.008, at);
+    og.gain.exponentialRampToValueAtTime(0.0001, at + 0.7);
     osc.connect(g).connect(bus);
-    harm.connect(hg).connect(bus);
+    oct.connect(og).connect(bus);
     osc.start(at);
-    harm.start(at);
-    osc.stop(at + 1.7);
-    harm.stop(at + 0.6);
+    oct.start(at);
+    osc.stop(at + 2);
+    oct.stop(at + 0.8);
   }
 
   private pulse(at: number) {
