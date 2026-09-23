@@ -21,7 +21,7 @@ interface Offering {
   frost: number;
 }
 
-const RES_ICON: Record<string, IconName> = { wood: 'wood', ice: 'ice', fish: 'fish', gold: 'gold' };
+const RES_ICON: Record<string, IconName> = { wood: 'wood', ice: 'ice', fish: 'fish' };
 
 const pct = (n: number) => (n * 100).toFixed(n < 0.001 ? 4 : 2) + '%';
 const big = (n: number) => n.toLocaleString('en-US');

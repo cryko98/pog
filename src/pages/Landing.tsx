@@ -37,14 +37,14 @@ const FEATURES = [
     body: 'Off the plaza, past the lanterns: two penguins face off across a rink, a stake each, winner takes the pot. Real time — throw straight balls and lobs, jump the straight ones, step out from under the lobs, first to five hits. Stake wood, ice, fish or P coins, or the real $POG token into the arena pool once it is live. Every move is stamped by the server as it arrives and the fight is replayed from that log, so nobody can claim a hit or dodge after the fact.',
   },
   {
-    icon: 'gold' as IconName,
+    icon: 'coin' as IconName,
     title: 'The bear caves',
-    body: 'Far the other way, past the last lantern, a black mouth in a hill. Inside: a corridor of ice, polar bears coming at you, and gold for every one you put down with snowballs — more the deeper you go. Three hearts, and a swipe cannot reach a penguin in the air. Walk out when no bear is close and the gold is yours. Get eaten and everything in your pack is gone — so put things away in your igloo first.',
+    body: 'Far the other way, past the last lantern, a black mouth in a hill. Inside: a corridor of ice, polar bears coming at you — more, faster and tougher with every wave — and P coins for every one you put down with snowballs. Three hearts, and a swipe cannot reach a penguin in the air. Walk out when no bear is close and the coins are yours. Get eaten and everything in your pack is gone — so put things away in your igloo first.',
   },
   {
     icon: 'dice' as IconName,
     title: 'A market and a casino',
-    body: 'The market house trades wood, ice, fish and gold between players for P coins, with 5% of every sale burned. The casino tent takes P coins on a snowflake flip, ice dice or a bear race — and every roll is provably fair: the server commits to the day’s seed before you bet, you add a seed of your own, and yesterday’s seed is published so any hand can be checked.',
+    body: 'The market house trades wood, ice and fish between players for P coins, with 5% of every sale burned. The casino tent takes P coins on a snowflake flip, ice dice or a bear race — three white bears, each running its own race on the roll’s bytes — the house wins more hands than it loses, and every roll is provably fair: the server commits to the day’s seed before you bet, you add a seed of your own, and yesterday’s seed is published so any hand can be checked.',
   },
   {
     icon: 'quest' as IconName,

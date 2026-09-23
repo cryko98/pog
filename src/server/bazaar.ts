@@ -1,5 +1,5 @@
 /**
- * The goods market: players sell wood, ice, fish and gold to each other
+ * The goods market: players sell wood, ice and fish to each other
  * for P coins.
  *
  * ------------------------------------------------------------------ *
@@ -38,7 +38,7 @@ export const BAZAAR = {
   fee: BAZAAR_FEE,
 };
 
-export const GOODS = ['wood', 'ice', 'fish', 'gold'] as const;
+export const GOODS = ['wood', 'ice', 'fish'] as const;
 export type Good = (typeof GOODS)[number];
 const isGood = (g: unknown): g is Good => typeof g === 'string' && (GOODS as readonly string[]).includes(g);
 
@@ -83,7 +83,7 @@ export async function lots(): Promise<Lot[]> {
  * ------------------------------------------------------------------ */
 
 export async function listLot(wallet: string, good: unknown, qty: unknown, each: unknown, x: unknown, y: unknown): Promise<{ lot?: Lot; profile?: Profile; error?: string }> {
-  if (!isGood(good)) return { error: 'The market takes wood, ice, fish and gold.' };
+  if (!isGood(good)) return { error: 'The market takes wood, ice and fish.' };
   const n = Math.floor(Number(qty));
   const price = Math.floor(Number(each));
   if (!Number.isFinite(n) || n < BAZAAR.minQty || n > BAZAAR.maxQty) return { error: `Sell between ${BAZAAR.minQty} and ${BAZAAR.maxQty.toLocaleString('en-US')} at a time.` };
@@ -121,7 +121,7 @@ export async function unlistLot(wallet: string, id: unknown, x: unknown, y: unkn
     if (!lot || lot.wallet !== wallet) return { error: 'That lot is not yours.' };
     const profile = await getProfile(wallet);
     if (!profile) return { error: 'Pick a username first.' };
-    if (lot.good !== 'gold' && profile.wood + profile.ice + profile.fish + lot.qty > holdCap(profile)) {
+    if (profile.wood + profile.ice + profile.fish + lot.qty > holdCap(profile)) {
       return { error: 'Your pack cannot hold it all. Sell some, or take it back in parts later.' };
     }
     await store.hdel(KEY.lots, id);
@@ -156,7 +156,7 @@ export async function buyLot(buyer: string, id: unknown, qty: unknown, x: unknow
     const buyerProfile = await getProfile(buyer);
     if (!buyerProfile) return { error: 'Pick a username first.' };
     if (buyerProfile.pog < cost) return { error: `That costs ${cost.toLocaleString('en-US')} P coins.` };
-    if (lot.good !== 'gold' && buyerProfile.wood + buyerProfile.ice + buyerProfile.fish + n > holdCap(buyerProfile)) {
+    if (buyerProfile.wood + buyerProfile.ice + buyerProfile.fish + n > holdCap(buyerProfile)) {
       return { error: 'Your pack cannot hold that many. Buy fewer, or put something away at home.' };
     }
 

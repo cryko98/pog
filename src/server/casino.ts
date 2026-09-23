@@ -34,6 +34,10 @@ export interface Bet {
   shown: string;
   won: boolean;
   paid: number;
+  /** the hex the roll came from — public, since the seed cannot be recovered from it */
+  digest: string;
+  /** the race, when the hand was one: every bear's pace per leg and finish time */
+  race?: { paces: number[][]; times: number[]; winner: string };
   nonce: number;
   day: string;
   clientSeed: string;
@@ -149,16 +153,17 @@ export async function placeBet(
     const day = dayOf();
     const seed = await seedFor(day);
     const nonce = await store.incrBy(KEY.nonce(wallet, day), 1);
-    const { roll } = rollOf(seed, wallet, day, nonce, client);
+    const { roll, digest } = rollOf(seed, wallet, day, nonce, client);
     const multiplier = multiplierOf(game, pick);
-    const { shown, won } = outcomeOf(game, pick, roll);
+    const { shown, won, race } = outcomeOf(game, pick, roll, digest);
     const paid = won ? Math.floor(amount * multiplier) : 0;
 
     profile.pog += paid - amount;
     const saved = await putProfile(profile);
     await store.zadd(K.leaderboard, saved.pog, wallet);
 
-    const bet: Bet = { game: game as keyof typeof GAMES, choice: pick, wager: amount, multiplier, shown, won, paid, nonce, day, clientSeed: client, at: Date.now() };
+    const bet: Bet = { game: game as keyof typeof GAMES, choice: pick, wager: amount, multiplier, shown, won, paid, digest, nonce, day, clientSeed: client, at: Date.now() };
+    if (race) bet.race = race;
     await store.rpushCapped(KEY.log(wallet), bet, 40);
     await store.incrBy(KEY.wagered(day), amount);
     if (paid) await store.incrBy(KEY.paid(day), paid);

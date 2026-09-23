@@ -215,8 +215,6 @@ export interface Profile extends FrostFields {
   wood: number;
   ice: number;
   fish: number;
-  /** what the bears in the caves are worth; sold at the market, or offered at the cairn */
-  gold: number;
   /** crafted things: rod, iglooKit */
   items: Record<string, number>;
   skins: string[];
@@ -273,11 +271,10 @@ export interface Store {
   ice: number;
   fish: number;
   pog: number;
-  gold: number;
   items: Record<string, number>;
 }
 
-export const emptyStore = (): Store => ({ wood: 0, ice: 0, fish: 0, pog: 0, gold: 0, items: {} });
+export const emptyStore = (): Store => ({ wood: 0, ice: 0, fish: 0, pog: 0, items: {} });
 
 /**
  * Only things the server itself hands out, only whole non-negative counts.
@@ -345,7 +342,6 @@ function normalize(p: Partial<Profile> & { wallet: string }): Profile {
     wood: Math.max(0, Math.floor(Number(p.wood) || 0)),
     ice: Math.max(0, Math.floor(Number(p.ice) || 0)),
     fish: Math.max(0, Math.floor(Number(p.fish) || 0)),
-    gold: Math.max(0, Math.floor(Number(p.gold) || 0)),
     items: sanitizeItems(p.items),
     skins: Array.isArray(p.skins) ? p.skins : ['default'],
     skin: typeof p.skin === 'string' ? p.skin : 'default',
@@ -363,10 +359,10 @@ function normalize(p: Partial<Profile> & { wallet: string }): Profile {
 }
 
 /** Everything a profile is allowed to hold, capped so injection stays bounded. */
-const CAPS: Record<string, number> = { pog: 1_000_000, wood: 20_000, ice: 20_000, fish: 20_000, gold: 100_000 };
+const CAPS: Record<string, number> = { pog: 1_000_000, wood: 20_000, ice: 20_000, fish: 20_000 };
 const clampStock = (p: Profile) => {
   for (const k of Object.keys(CAPS)) {
-    const key = k as 'pog' | 'wood' | 'ice' | 'fish' | 'gold';
+    const key = k as 'pog' | 'wood' | 'ice' | 'fish';
     p[key] = Math.min(CAPS[k], Math.max(0, Math.floor(p[key])));
   }
   return p;
@@ -554,7 +550,7 @@ async function devGrantNow(
 
   const granted: Record<string, number> = {};
 
-  for (const key of ['wood', 'ice', 'fish', 'pog', 'gold'] as const) {
+  for (const key of ['wood', 'ice', 'fish', 'pog'] as const) {
     const amount = Math.floor(Number(gift[key]) || 0);
     if (amount > 0) {
       profile[key] += amount;

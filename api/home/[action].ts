@@ -8,7 +8,7 @@
  *   POST list     { price, currency } -> put the igloo up for sale
  *   POST unlist                       -> take it back off
  *   POST purchase { seller }          -> buy somebody else's, in soft $POG
- *   POST deposit  { wood, ice, fish, pog, gold, items, x, y } -> from the pack into the igloo
+ *   POST deposit  { wood, ice, fish, pog, items, x, y } -> from the pack into the igloo
  *   POST withdraw { ...same }         -> and back
  *
  * The on-chain market, live once POG_MINT is set:

@@ -29,7 +29,7 @@ const EMPTY_HUD: HudState = {
   x: 0,
   y: 0,
   onIce: false,
-  inventory: { pog: 0, wood: 0, ice: 0, fish: 0, gold: 0, items: {} },
+  inventory: { pog: 0, wood: 0, ice: 0, fish: 0, items: {} },
   prompt: '',
   busy: false,
   building: false,
@@ -403,11 +403,6 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
             <span title="Fish">
               <Icon name="fish" size={15} /> {hud.inventory.fish}
             </span>
-            {hud.inventory.gold > 0 && (
-              <span title="Gold">
-                <Icon name="gold" size={15} /> {hud.inventory.gold}
-              </span>
-            )}
             {hud.inventory.items.rod > 0 && (
               <span title="Fishing rod">
                 <Icon name="rod" size={15} /> {hud.inventory.items.rod}
@@ -544,7 +539,7 @@ export function Play({ navigate }: { navigate: (r: Route) => void }) {
             id={caveId}
             onLeave={() => {
               setCaveId(null);
-              // the gold (or the empty pack) is the truth now; show it
+              // the coins (or the empty pack) are the truth now; show it
               void gameRef.current?.syncProfile();
               setHomeTick((n) => n + 1);
             }}

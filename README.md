@@ -193,14 +193,16 @@ anywhere but the arena, or keep playing once it is over.
 Far the other side of the plaza from the arena, past the last lantern: a hill
 with a black mouth in it. A run is a side-on corridor of ice with polar bears
 coming the other way. Move with A/D, jump with W, throw with J. A bear takes
-two snowballs at first, more as the waves go on; every one put down is gold,
-more the deeper the wave. Three hearts, a swipe takes one, and a swipe cannot
-reach a penguin in the air. Leaving is allowed only when no bear is close.
+two snowballs at first and one more with every wave; they come faster, more
+at once, and each swipes on its own clock, so they cannot be jumped by rote.
+Every one put down is P coins, more the deeper the wave. Three hearts, a
+swipe takes one, and a swipe cannot reach a penguin in the air. Leaving is
+allowed only when no bear is close.
 
 **The bet is the pack.** Walk out (or wait for the cave to close after three
-minutes) and the gold is in your pack. Get eaten and the run's gold *and
-everything in the pack* — wood, ice, fish, P coins, gold, tools, furniture
-in the bag — is gone. Which is what the igloo's **store** is for: standing at
+minutes) and the coins are in your pack. Get eaten and the run's coins *and
+everything in the pack* — wood, ice, fish, P coins, tools, furniture in the
+bag — is gone. Which is what the igloo's **store** is for: standing at
 your own igloo, anything in the pack can be put away and taken back out. Pack
 and store share the same hold cap, so the store is a safe place rather than a
 bigger pack; a listed igloo is frozen, because a buyer is paying for what is
@@ -210,13 +212,13 @@ The run is honest the same way the arena is. The client sends keys — move,
 jump, throw, leave — the server stamps each on arrival, and the run is a
 pure function of that log and a seed the server chose when the run began
 (`shared/dungeon.js`). It is replayed whenever the run is read and settled
-exactly once, under the wallet lock. Nothing about kills, hearts or gold is
+exactly once, under the wallet lock. Nothing about kills, hearts or coins is
 ever taken from a request; `cavecheck.mjs` tries. Frost, skins and the
 igloo's store are never touched by the caves.
 
 ## The goods market and the casino
 
-**The market house** trades wood, ice, fish and gold between players for
+**The market house** trades wood, ice and fish between players for
 P coins. A lot leaves the seller's pack the moment it goes up and comes back
 if it is taken down; a buyer pays per unit for as much of a lot as they
 want; 5% of every sale is burned. Both sides must have qualified for the
@@ -226,9 +228,14 @@ house. Every write runs under both wallets' locks, so two buyers racing for
 the last unit cannot both get it.
 
 **The casino tent**, out on the arena side, takes P coins — never the token
-— on three tables: a snowflake flip (ice or fire, pays 1.94×), ice dice (pick
-2–96, the roll is 0–99, under wins, pays 97/pick), and a bear race (three
-lanes, pays 2.91×). The house keeps 3% of the fair odds and burns it. Every
+— on three tables, and every table wins fewer hands than it loses. The
+snowflake flip is ice or fire, but 8% of the time the flake *melts* and beats
+both calls (46% to win, pays 2×). The ice dice take a number from 2 to 48;
+the roll is 0–99 and under wins (pays 92/pick). The bear race is a real race:
+each of three polar bears gets its own pace for each of eight legs, every
+pace a byte of the roll's digest, and the first over the line wins (a third
+each, pays 2.76×) — the client animates exactly those paces, so what you
+watch is what won. The house keeps 8% of the fair odds and burns it. Every
 roll is **provably fair**: each UTC day the server draws a secret seed and
 publishes only its SHA-256; a bet's roll is
 `HMAC-SHA256(seed, wallet:day:nonce:clientSeed)` where the nonce counts the

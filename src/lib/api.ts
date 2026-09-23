@@ -6,7 +6,6 @@ export interface Profile {
   wood: number;
   ice: number;
   fish: number;
-  gold?: number;
   items: Record<string, number>;
   skins: string[];
   skin: string;
@@ -122,7 +121,6 @@ export interface IglooStore {
   ice: number;
   fish: number;
   pog: number;
-  gold: number;
   items: Record<string, number>;
 }
 
@@ -270,7 +268,7 @@ export interface RunInput {
 
 export interface RunSettled {
   why: 'dead' | 'left' | 'closed';
-  gold: number;
+  coins: number;
   kills: number;
   wave: number;
   at: number;
@@ -288,7 +286,7 @@ export interface RunView {
 
 /* --- the goods market --- */
 
-export type Good = 'wood' | 'ice' | 'fish' | 'gold';
+export type Good = 'wood' | 'ice' | 'fish';
 
 export interface Lot {
   id: string;
@@ -319,6 +317,8 @@ export interface CasinoBet {
   shown: string;
   won: boolean;
   paid: number;
+  digest: string;
+  race?: { paces: number[][]; times: number[]; winner: string };
   nonce: number;
   day: string;
   clientSeed: string;
@@ -330,7 +330,7 @@ export interface CasinoState {
   commit: string;
   reveal: { day: string; seed: string } | null;
   nonce: number;
-  rules: { minWager: number; maxWager: number; betsPerMin: number; edge: number };
+  rules: { minWager: number; maxWager: number; betsPerMin: number; edge: number; meltChance: number; diceMax: number };
   games: Array<{ id: 'flip' | 'dice' | 'race'; label: string; blurb: string; choices: string[] | null }>;
   recent: CasinoBet[];
   today: { wagered: number; paid: number };

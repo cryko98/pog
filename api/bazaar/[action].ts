@@ -1,5 +1,5 @@
 /**
- * The goods market: wood, ice, fish and gold, player to player, for P coins.
+ * The goods market: wood, ice and fish, player to player, for P coins.
  *
  *   GET  open                            -> every lot up for sale (public)
  *   POST list   { good, qty, each, x, y } -> put a lot up (the goods leave your pack now)

@@ -45,7 +45,6 @@ const RESOURCES: Array<{ key: keyof Inventory; icon: IconName; label: string }> 
   { key: 'ice', icon: 'ice', label: 'Ice' },
   { key: 'fish', icon: 'fish', label: 'Fish' },
   { key: 'pog', icon: 'coin', label: 'P coins' },
-  { key: 'gold', icon: 'gold', label: 'Gold' },
 ];
 
 const ITEMS: Record<string, { icon: IconName; label: string }> = {

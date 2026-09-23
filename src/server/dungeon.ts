@@ -1,10 +1,10 @@
 /**
  * The bear caves, server side: one run at a time per wallet, a stamped
  * input log, a seed the client learns only when the run starts, and the
- * settlement — gold into the pack if you walked out, the pack emptied if
+ * settlement — P coins into the pack if you walked out, the pack emptied if
  * you did not.
  *
- * Nothing about kills, gold or hearts is taken from a request. The run is
+ * Nothing about kills, coins or hearts is taken from a request. The run is
  * replayed from the log (`shared/dungeon.js`) whenever it is read, and
  * settled exactly once, under the wallet lock.
  */
@@ -29,7 +29,7 @@ export interface Run {
   seed: number;
   startAt: number;
   /** filled in once the run has been replayed to an end and settled */
-  settled?: { why: 'dead' | 'left' | 'closed'; gold: number; kills: number; wave: number; at: number; lost?: Record<string, number> };
+  settled?: { why: 'dead' | 'left' | 'closed'; coins: number; kills: number; wave: number; at: number; lost?: Record<string, number> };
 }
 
 const KEY = {
@@ -137,7 +137,7 @@ export type RunView = ReturnType<typeof viewOf>;
 
 /**
  * The run as it stands. If the replay says it has ended, settle it now —
- * once — so the gold (or the loss) lands the moment it is read.
+ * once — so the coins (or the loss) land the moment it is read.
  */
 export async function caveState(wallet: string, id?: unknown): Promise<{ run: RunView | null; profile?: Profile }> {
   const store = await kv();
@@ -158,20 +158,19 @@ export async function caveState(wallet: string, id?: unknown): Promise<{ run: Ru
     if (!fresh || fresh.settled) return fresh;
     const profile = await getProfile(wallet);
     if (!profile) return fresh;
-    const record: NonNullable<Run['settled']> = { why, gold: state.gold, kills: state.kills, wave: state.wave, at: now };
+    const record: NonNullable<Run['settled']> = { why, coins: state.coins, kills: state.kills, wave: state.wave, at: now };
     if (why === 'dead') {
       // the bet was the pack; the igloo's store is untouched
-      record.lost = { wood: profile.wood, ice: profile.ice, fish: profile.fish, pog: profile.pog, gold: profile.gold };
+      record.lost = { wood: profile.wood, ice: profile.ice, fish: profile.fish, pog: profile.pog };
       profile.wood = 0;
       profile.ice = 0;
       profile.fish = 0;
       profile.pog = 0;
-      profile.gold = 0;
       profile.items = {};
       profile.wear = {};
-      record.gold = 0;
+      record.coins = 0;
     } else {
-      profile.gold += state.gold;
+      profile.pog += state.coins;
     }
     const saved = await putProfile(profile);
     await store.zadd(K.leaderboard, saved.pog, wallet);

@@ -102,7 +102,6 @@ export interface Inventory {
   wood: number;
   ice: number;
   fish: number;
-  gold: number;
   items: Record<string, number>;
   /** every species landed, by count */
   fishLog?: Record<string, number>;
@@ -201,7 +200,7 @@ const SIGN_HEIGHT: Record<string, number> = {
   cairn: 84,
   furnish: 126,
   arena: 124,
-  cave: 118,
+  cave: 212,
   casino: 120,
 };
 
@@ -287,7 +286,7 @@ export class PogGame {
   private igloos = new Map<string, IglooMsg>();
   private nearNode: WorldNode | null = null;
   private busy = false;
-  private inventory: Inventory = { pog: 0, wood: 0, ice: 0, fish: 0, gold: 0, items: {} };
+  private inventory: Inventory = { pog: 0, wood: 0, ice: 0, fish: 0, items: {} };
   private hat: string | null = null;
   /** swings landed on the node under us, as the API counts them */
   private hits = new Map<string, { hits: number; needed: number; at: number }>();
@@ -598,7 +597,6 @@ export class PogGame {
     wood: number;
     ice: number;
     fish: number;
-    gold?: number;
     items: Record<string, number>;
     skills?: Record<string, number>;
     fishLog?: Record<string, number>;
@@ -611,7 +609,6 @@ export class PogGame {
       wood: profile.wood,
       ice: profile.ice,
       fish: profile.fish,
-      gold: profile.gold || 0,
       items: profile.items || {},
       fishLog: profile.fishLog || {},
       wear: profile.wear || {},

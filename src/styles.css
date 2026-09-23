@@ -2907,27 +2907,204 @@ section.band {
   color: #d9c3cf;
 }
 
-.cs-face {
-  font-size: 2.6rem;
-  line-height: 1;
-  filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.5));
+.cs-result {
+  display: grid;
+  gap: 2px;
+  margin: -4px 0 10px;
+  text-align: center;
 }
 
-.cs-face.idle {
-  opacity: 0.55;
+.cs-result b {
+  font-size: 1rem;
 }
 
-.cs-spin {
-  animation: cs-spin 0.5s linear infinite;
+.cs-result.won b {
+  color: #7cd67c;
 }
 
-@keyframes cs-spin {
+.cs-result.lost b {
+  color: #ff8a96;
+}
+
+.cs-result small {
+  font-size: 0.72rem;
+  color: #d9c3cf;
+}
+
+/* the flip */
+.cs-coin {
+  position: relative;
+  width: 72px;
+  height: 72px;
+  transform-style: preserve-3d;
+  transition: transform 0.4s;
+}
+
+.cs-coin[data-face='ice'] {
+  transform: rotateY(0deg);
+}
+
+.cs-coin[data-face='fire'] {
+  transform: rotateY(180deg);
+}
+
+.cs-coin[data-face='melt'] {
+  transform: rotateY(90deg) scaleY(0.4);
+  transition: transform 0.6s;
+}
+
+.cs-coin.flying {
+  animation: cs-fly 1.9s cubic-bezier(0.2, 0.7, 0.3, 1);
+}
+
+@keyframes cs-fly {
+  0% {
+    transform: translateY(0) rotateY(0deg);
+  }
+  45% {
+    transform: translateY(-70px) rotateY(1080deg);
+  }
+  100% {
+    transform: translateY(0) rotateY(2160deg);
+  }
+}
+
+.cs-coin-face {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  font-size: 2rem;
+  backface-visibility: hidden;
+  box-shadow: inset 0 0 0 4px rgba(255, 255, 255, 0.5), 0 6px 14px rgba(0, 0, 0, 0.45);
+}
+
+.cs-coin-face.ice {
+  background: radial-gradient(circle at 35% 30%, #e8f7ff, #5fb8e6 70%, #2b7aa8);
+}
+
+.cs-coin-face.fire {
+  background: radial-gradient(circle at 35% 30%, #ffe4c4, #ff7a1a 70%, #a8360f);
+  transform: rotateY(180deg);
+}
+
+.cs-drips {
+  width: 72px;
+  height: 10px;
+  margin-top: -6px;
+  border-radius: 0 0 40px 40px;
+  background: linear-gradient(#9fd3ee, rgba(159, 211, 238, 0));
+  animation: cs-drip 0.8s ease-out;
+}
+
+@keyframes cs-drip {
   from {
-    transform: rotateY(0deg);
+    transform: scaleX(0.3);
+    opacity: 0;
   }
   to {
-    transform: rotateY(360deg);
+    transform: scaleX(1);
+    opacity: 1;
   }
+}
+
+/* the dice */
+.cs-dice-row {
+  display: flex;
+  gap: 12px;
+}
+
+.cs-die {
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 12px;
+  background: linear-gradient(160deg, #eef8ff, #a9d7f0);
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.7), inset -6px -6px 12px rgba(60, 130, 170, 0.35), 0 6px 12px rgba(0, 0, 0, 0.4);
+  color: #0d2b3a;
+  font-family: 'Baloo 2', system-ui, sans-serif;
+  font-size: 1.7rem;
+  font-weight: 800;
+}
+
+.cs-die.rolling {
+  animation: cs-tumble 0.5s linear infinite;
+}
+
+.cs-die.rolling.alt {
+  animation-direction: reverse;
+  animation-duration: 0.42s;
+}
+
+@keyframes cs-tumble {
+  from {
+    transform: rotate(0deg) translateY(0);
+  }
+  50% {
+    transform: rotate(180deg) translateY(-8px);
+  }
+  to {
+    transform: rotate(360deg) translateY(0);
+  }
+}
+
+.cs-dice-bar {
+  position: relative;
+  width: 100%;
+  height: 8px;
+  margin-top: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: visible;
+}
+
+.cs-dice-bar i {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 999px;
+  background: #7cd67c;
+}
+
+.cs-dice-bar b {
+  position: absolute;
+  top: -4px;
+  width: 4px;
+  height: 16px;
+  margin-left: -2px;
+  border-radius: 2px;
+  background: #ffd44d;
+  box-shadow: 0 0 6px #ffd44d;
+}
+
+/* the race */
+.cs-race {
+  padding: 8px;
+}
+
+.cs-track {
+  width: 100%;
+  height: 168px;
+  border-radius: 10px;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.15);
+}
+
+.cs-lane {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cs-lane i {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--lane);
+}
+
+.cs-lane.active {
+  box-shadow: inset 0 0 0 2px var(--lane);
 }
 
 .cs-choices {

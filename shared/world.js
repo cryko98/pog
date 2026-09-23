@@ -255,7 +255,7 @@ export const RECIPES = {
 };
 
 /** Which profile fields a recipe may pay out into; anything else is an item. */
-export const RESOURCE_KEYS = ['pog', 'wood', 'ice', 'fish', 'gold'];
+export const RESOURCE_KEYS = ['pog', 'wood', 'ice', 'fish'];
 
 /** What each plaza building calls itself, on the sign over its roof. */
 export const STATION_SIGNS = {
@@ -854,7 +854,7 @@ export function getProps() {
     { type: 'arena', x: sx + 940, y: sy - 280, r: 12, scale: 1, variant: 0 },
     // The bear caves are the other way, further still: a hill with a
     // black mouth in it, well past the last lantern. Nobody wanders in.
-    { type: 'cave', x: sx - 1050, y: sy + 60, r: 44, scale: 1, variant: 0 },
+    { type: 'cave', x: sx - 1050, y: sy + 60, r: 78, scale: 1.8, variant: 0 },
     // The casino tent is off the ring on the arena side, lit up so it is
     // hard to miss and far enough that it is a choice to go.
     { type: 'casino', x: sx + 820, y: sy, r: 40, scale: 1, variant: 0 },

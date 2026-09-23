@@ -25,7 +25,6 @@ export type IconName =
   | 'music'
   | 'axe'
   | 'pick'
-  | 'gold'
   | 'power'
   | 'play'
   | 'penguin'
@@ -58,13 +57,6 @@ const PATHS: Record<IconName, React.ReactNode> = {
       <circle cx="12" cy="12" r="1.7" fill="#c2185b" />
       <circle cx="8.3" cy="15.7" r="1.7" fill="#c2185b" />
       <circle cx="15.7" cy="15.7" r="1.7" fill="#c2185b" />
-    </>
-  ),
-  gold: (
-    <>
-      <path d="M5 15.5 8.2 9.4h7.6l3.2 6.1-3 3.2H8Z" fill="#f5c84b" stroke="#a8760f" strokeWidth="1.3" strokeLinejoin="round" />
-      <path d="M8.2 9.4 10 12.2h4l1.8-2.8" fill="none" stroke="#a8760f" strokeWidth="1.1" />
-      <path d="M9.5 11 7.3 14.6" stroke="#fff3c4" strokeWidth="1.4" strokeLinecap="round" />
     </>
   ),
   axe: (

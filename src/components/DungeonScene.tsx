@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { CAVE, simulateRun } from '../../shared/dungeon.js';
+import { drawBear } from '../game/bear';
 import { blitPenguin, drawPenguinWithTool } from '../game/penguin';
 import { sound } from '../game/audio';
 import { api, type RunInput, type RunView } from '../lib/api';
@@ -416,10 +417,10 @@ export function DungeonScene({ id, onLeave }: Props) {
           }
           if (e.type === 'kill') {
             sound.bearDown();
-            sound.gold();
+            sound.coin();
             const kx = sx(e.x as number);
             burst(kx, ground - bearH * 0.5, 22, 260 * scale, '#ffd44d');
-            pops.current.push({ t: pnow, x: kx, y: ground - bearH, text: `+${e.gold} gold`, color: '#ffd44d' });
+            pops.current.push({ t: pnow, x: kx, y: ground - bearH, text: `+${e.coins} P`, color: '#ffd44d' });
           }
           if (e.type === 'hurt') {
             sound.hurt();
@@ -558,7 +559,7 @@ export function DungeonScene({ id, onLeave }: Props) {
 
   const world = view && !view.settled && serverNow() >= view.startAt ? worldNow() : null;
   const hp = view?.settled ? (view.settled.why === 'dead' ? 0 : CAVE.hp) : (world?.me.hp ?? CAVE.hp);
-  const gold = view?.settled ? view.settled.gold : (world?.gold ?? 0);
+  const coins = view?.settled ? view.settled.coins : (world?.coins ?? 0);
   const kills = view?.settled ? view.settled.kills : (world?.kills ?? 0);
   const wave = view?.settled ? view.settled.wave : (world?.wave ?? 1);
   const clockLeft = view ? Math.max(0, view.startAt + CAVE.durationMs - serverNow()) : 0;
@@ -605,9 +606,9 @@ export function DungeonScene({ id, onLeave }: Props) {
         </div>
         <div className="duel-side me">
           <span className="cave-gold">
-            <Icon name="gold" size={16} /> {big(gold)}
+            <Icon name="coin" size={16} /> {big(coins)}
           </span>
-          <b>Gold</b>
+          <b>P coins</b>
         </div>
       </div>
 
@@ -636,11 +637,11 @@ export function DungeonScene({ id, onLeave }: Props) {
 
       {done && (
         <div className="duel-card">
-          <b>{done.why === 'dead' ? 'Eaten.' : `${big(done.gold)} gold, yours.`}</b>
+          <b>{done.why === 'dead' ? 'Eaten.' : `${big(done.coins)} P coins, yours.`}</b>
           <p>
             {done.why === 'dead'
               ? `Wave ${done.wave}, ${done.kills} bears down — and the pack is gone${lostLine ? `: ${lostLine}` : ''}.`
-              : `Wave ${done.wave}, ${done.kills} bears down. The gold is in your pack.`}
+              : `Wave ${done.wave}, ${done.kills} bears down. The coins are in your pack.`}
           </p>
           <button className="btn btn-primary" onClick={onLeave}>
             Back to the snow
@@ -656,94 +657,4 @@ export function DungeonScene({ id, onLeave }: Props) {
       )}
     </div>
   );
-}
-
-/**
- * A polar bear on all fours, walking left, drawn with its feet at
- * (x, ground) and `h` tall. `swipe` is -1 when it is not swiping, else
- * 0..1 through the swing.
- */
-function drawBear(ctx: CanvasRenderingContext2D, x: number, ground: number, h: number, now: number, walking: boolean, swipe: number, hpFrac: number) {
-  const s = h / 96;
-  const bob = walking ? Math.sin(now / 110) * 3 * s : 0;
-  ctx.save();
-  ctx.translate(x, ground + bob);
-  // shadow
-  ctx.fillStyle = 'rgba(0,0,0,0.28)';
-  ctx.beginPath();
-  ctx.ellipse(0, -bob - 2, 62 * s, 10 * s, 0, 0, Math.PI * 2);
-  ctx.fill();
-
-  const fur = '#f4f7fb';
-  const fur2 = '#d9e4ee';
-  // legs
-  const stride = walking ? Math.sin(now / 110) * 10 * s : 0;
-  ctx.fillStyle = fur2;
-  for (const [lx, phase] of [
-    [-38, 1],
-    [-16, -1],
-    [18, 1],
-    [42, -1],
-  ] as Array<[number, number]>) {
-    ctx.beginPath();
-    ctx.roundRect(lx * s + stride * phase - 9 * s, -40 * s, 18 * s, 40 * s, 8 * s);
-    ctx.fill();
-  }
-  // body
-  ctx.fillStyle = fur;
-  ctx.beginPath();
-  ctx.ellipse(0, -58 * s, 60 * s, 34 * s, 0, 0, Math.PI * 2);
-  ctx.fill();
-  // head, out to the left
-  ctx.beginPath();
-  ctx.ellipse(-62 * s, -72 * s, 26 * s, 22 * s, 0, 0, Math.PI * 2);
-  ctx.fill();
-  // ears
-  ctx.fillStyle = fur2;
-  ctx.beginPath();
-  ctx.arc(-52 * s, -92 * s, 7 * s, 0, Math.PI * 2);
-  ctx.arc(-74 * s, -90 * s, 7 * s, 0, Math.PI * 2);
-  ctx.fill();
-  // snout
-  ctx.fillStyle = fur2;
-  ctx.beginPath();
-  ctx.ellipse(-84 * s, -66 * s, 12 * s, 9 * s, 0, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.fillStyle = '#1a1a1a';
-  ctx.beginPath();
-  ctx.ellipse(-93 * s, -68 * s, 4.5 * s, 3.5 * s, 0, 0, Math.PI * 2);
-  ctx.fill();
-  // eye
-  ctx.beginPath();
-  ctx.arc(-70 * s, -78 * s, 2.6 * s, 0, Math.PI * 2);
-  ctx.fill();
-  // a swipe: the front paw comes round
-  if (swipe >= 0) {
-    const a = -1.2 + swipe * 2.2;
-    ctx.save();
-    ctx.translate(-40 * s, -50 * s);
-    ctx.rotate(a);
-    ctx.fillStyle = fur2;
-    ctx.beginPath();
-    ctx.roundRect(-8 * s, 0, 16 * s, 46 * s, 8 * s);
-    ctx.fill();
-    ctx.fillStyle = '#333';
-    for (let k = -1; k <= 1; k++) {
-      ctx.beginPath();
-      ctx.moveTo(k * 5 * s - 2 * s, 44 * s);
-      ctx.lineTo(k * 5 * s, 54 * s);
-      ctx.lineTo(k * 5 * s + 2 * s, 44 * s);
-      ctx.closePath();
-      ctx.fill();
-    }
-    ctx.restore();
-  }
-  // health
-  if (hpFrac < 1) {
-    ctx.fillStyle = 'rgba(0,0,0,0.5)';
-    ctx.fillRect(-30 * s, -108 * s, 60 * s, 6 * s);
-    ctx.fillStyle = hpFrac > 0.5 ? '#7cd67c' : '#ff6b6b';
-    ctx.fillRect(-30 * s, -108 * s, 60 * s * hpFrac, 6 * s);
-  }
-  ctx.restore();
 }

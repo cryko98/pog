@@ -1,6 +1,6 @@
 /**
  * The bear caves: a run down a corridor with polar bears coming the other
- * way, gold on every one you put down, and everything in your pack on
+ * way, P coins for every one you put down, and everything in your pack on
  * the line if you do not walk out again.
  *
  * ------------------------------------------------------------------ *
@@ -14,8 +14,8 @@
  * comes from a seeded generator, so the client cannot know what is coming
  * any sooner than the server does and cannot claim a kill it did not make.
  *
- * The bet is the pack. Leaving with gold is only allowed when no bear is
- * close; dying loses the run's gold AND empties the pack — which is what
+ * The bet is the pack. Leaving with coins is only allowed when no bear is
+ * close; dying loses the run's coins AND empties the pack — which is what
  * the igloo's store is for.
  */
 
@@ -28,33 +28,35 @@ export const CAVE = {
   speed: 330,
   jumpV: 720,
   gravity: 2400,
-  jumpCooldownMs: 900,
+  jumpCooldownMs: 1000,
   hp: 3,
   /** throws: straight balls, always toward the bears */
-  throwCooldownMs: 650,
-  windupMs: 180,
-  ballSpeed: 780,
+  throwCooldownMs: 700,
+  windupMs: 200,
+  ballSpeed: 760,
   ballHeight: 34,
-  maxBalls: 3,
+  maxBalls: 2,
   /** bears */
-  bearSpeed: 125,
-  bearSpeedPerWave: 16,
+  bearSpeed: 150,
+  bearSpeedPerWave: 22,
   bearHp: 2,
-  bearHpEvery: 2, // +1 hp every this many waves
-  bearReach: 74,
-  bearSwipeMs: 1000,
-  bearKnockback: 40,
-  bearsAlive: 4,
-  spawnMs: 3200,
-  spawnMsPerWave: 380,
-  spawnMsMin: 1100,
-  /** the loot */
-  goldPerKill: 1,
-  goldEveryWaves: 2, // +1 gold every this many waves
-  killsPerWave: 5,
+  bearHpEvery: 1, // +1 hp every this many waves
+  bearReach: 78,
+  /** a bear swipes on its own clock, somewhere in this range, so it cannot be jumped by rote */
+  bearSwipeMs: 700,
+  bearSwipeJitterMs: 450,
+  bearKnockback: 26,
+  bearsAlive: 5,
+  spawnMs: 2400,
+  spawnMsPerWave: 320,
+  spawnMsMin: 800,
+  /** the loot, in P coins */
+  coinsPerKill: 1,
+  coinsEveryWaves: 2, // +1 coin every this many waves
+  killsPerWave: 4,
   /** when leaving is allowed: no bear this close */
   leaveGap: 220,
-  /** a run cannot outlast this; the cave "closes" and you are outside with the gold */
+  /** a run cannot outlast this; the cave "closes" and you are outside with the coins */
   durationMs: 180_000,
   cooldownMs: 30_000,
   inputsPerSec: 15,
@@ -91,14 +93,14 @@ export function seedOf(id) {
 
 export const waveOf = (kills) => 1 + Math.floor(kills / CAVE.killsPerWave);
 export const bearHpAt = (wave) => CAVE.bearHp + Math.floor((wave - 1) / CAVE.bearHpEvery);
-export const goldAt = (wave) => CAVE.goldPerKill + Math.floor((wave - 1) / CAVE.goldEveryWaves);
+export const coinsAt = (wave) => CAVE.coinsPerKill + Math.floor((wave - 1) / CAVE.coinsEveryWaves);
 export const spawnMsAt = (wave) => Math.max(CAVE.spawnMsMin, CAVE.spawnMs - (wave - 1) * CAVE.spawnMsPerWave);
 export const bearSpeedAt = (wave) => CAVE.bearSpeed + (wave - 1) * CAVE.bearSpeedPerWave;
 
 /**
  * Run the cave from `startAt` to `until` under `inputs` (each `{ t, type,
  * dir? }` stamped by the server). Returns the world at `until`: the
- * penguin, the bears, the balls, the gold so far, and every event.
+ * penguin, the bears, the balls, the coins so far, and every event.
  */
 export function simulateRun(inputs, seed, startAt, until) {
   const rnd = mulberry32(seed);
@@ -107,7 +109,7 @@ export function simulateRun(inputs, seed, startAt, until) {
   const balls = [];
   const events = [];
   let kills = 0;
-  let gold = 0;
+  let coins = 0;
   let over = null; // { why: 'dead' | 'left' | 'closed', t }
   let nextSpawn = startAt + 1500;
   let nextBearId = 1;
@@ -163,7 +165,7 @@ export function simulateRun(inputs, seed, startAt, until) {
 
     // spawn
     if (tNext >= nextSpawn && bears.filter((b) => !b.dead).length < CAVE.bearsAlive) {
-      bears.push({ id: nextBearId++, x: CAVE.spawnX, hp: bearHpAt(wave), maxHp: bearHpAt(wave), speed: bearSpeedAt(wave) * (0.9 + rnd() * 0.2), swipeAt: 0, dead: false, bornAt: tNext });
+      bears.push({ id: nextBearId++, x: CAVE.spawnX, hp: bearHpAt(wave), maxHp: bearHpAt(wave), speed: bearSpeedAt(wave) * (0.9 + rnd() * 0.2), swipeEvery: CAVE.bearSwipeMs + rnd() * CAVE.bearSwipeJitterMs, swipeAt: 0, dead: false, bornAt: tNext });
       events.push({ t: tNext, type: 'spawn', id: nextBearId - 1 });
       nextSpawn = tNext + spawnMsAt(wave) * (0.8 + rnd() * 0.4);
     }
@@ -188,7 +190,7 @@ export function simulateRun(inputs, seed, startAt, until) {
       else {
         if (b.x < me.x + CAVE.bearReach * 0.6) b.x = me.x + CAVE.bearReach * 0.6;
         if (tNext >= b.swipeAt) {
-          b.swipeAt = tNext + CAVE.bearSwipeMs;
+          b.swipeAt = tNext + b.swipeEvery;
           events.push({ t: tNext, type: 'swipe', id: b.id });
           if (me.y < 40) {
             me.hp -= 1;
@@ -222,9 +224,9 @@ export function simulateRun(inputs, seed, startAt, until) {
         if (target.hp <= 0) {
           target.dead = true;
           kills += 1;
-          const g = goldAt(wave);
-          gold += g;
-          events.push({ t: tNext, type: 'kill', id: target.id, gold: g, x: target.x });
+          const g = coinsAt(wave);
+          coins += g;
+          events.push({ t: tNext, type: 'kill', id: target.id, coins: g, x: target.x });
         }
       } else if (ball.x > CAVE.width + 60) {
         ball.done = true;
@@ -238,7 +240,7 @@ export function simulateRun(inputs, seed, startAt, until) {
     balls: balls.filter((b) => !b.done && b.flying),
     kills,
     wave: waveOf(kills),
-    gold,
+    coins,
     over,
     events,
     t: end,

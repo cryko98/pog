@@ -346,7 +346,7 @@ export function HomePanel({ guest, refresh, hud, onPlace, onTakeNearest, onChang
                     share the same cap, so this is a safe place, not a bigger pack.
                     {hud.inside !== state.igloo.wallet && ' Step inside to move things.'}
                   </p>
-                  {(['wood', 'ice', 'fish', 'pog', 'gold'] as const).map((k) => {
+                  {(['wood', 'ice', 'fish', 'pog'] as const).map((k) => {
                     const inPack = hud.inventory[k] as number;
                     const put = state.store?.[k] ?? 0;
                     const label = k === 'pog' ? 'P coins' : k;

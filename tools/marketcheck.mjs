@@ -12,7 +12,7 @@ import nacl from 'tweetnacl';
 import bs58 from 'bs58';
 import { createHmac, createHash } from 'node:crypto';
 import { getNode } from '../shared/world.js';
-import { CASINO, multiplierOf, outcomeOf, normaliseChoice } from '../shared/casino.js';
+import { CASINO, chanceOf, multiplierOf, outcomeOf, normaliseChoice, simulateRace } from '../shared/casino.js';
 
 const BASE = process.env.BASE || 'http://localhost:5173';
 const DEV = process.env.DEV_KEY || 'localtest';
@@ -72,15 +72,27 @@ async function qualify(me) {
 
 console.log('--- the rules, offline ---');
 {
-  check('a flip pays under 2x', multiplierOf('flip', 'ice') < 2 && multiplierOf('flip', 'ice') > 1.9, String(multiplierOf('flip', 'ice')));
-  check('dice under 50 pays about the same as a flip', Math.abs(multiplierOf('dice', '50') - multiplierOf('flip', 'ice')) < 0.01);
-  check('dice under 2 pays the most', multiplierOf('dice', '2') > 48);
-  check('a choice off the table is refused', normaliseChoice('dice', '97') === null && normaliseChoice('dice', '1') === null && normaliseChoice('flip', 'snow') === null);
-  check('the dice roll "99" beats every number', outcomeOf('dice', '96', 0.999).won === false);
+  check('every table wins less than half its hands', chanceOf('flip', 'ice') < 0.5 && chanceOf('dice', String(CASINO.diceMax)) < 0.5 && chanceOf('race', '1') < 0.5);
+  check('a flip pays no more than 2x', multiplierOf('flip', 'ice') <= 2 && multiplierOf('flip', 'ice') > 1.8, String(multiplierOf('flip', 'ice')));
+  check('dice under 2 pays the most', multiplierOf('dice', '2') > 40);
+  check('a choice off the table is refused', normaliseChoice('dice', String(CASINO.diceMax + 1)) === null && normaliseChoice('dice', '1') === null && normaliseChoice('flip', 'snow') === null && normaliseChoice('flip', 'melt') === null);
+  check('the dice roll "99" beats every number', outcomeOf('dice', String(CASINO.diceMax), 0.999).won === false);
   check('the dice roll "0" loses to none', outcomeOf('dice', '2', 0).won === true);
-  // the edge, by exhaustion: over every possible flip the house keeps ~3%
-  const ev = (multiplierOf('flip', 'ice') * 0.5);
-  check('the house edge on a flip is about 3%', Math.abs(1 - ev - CASINO.edge) < 0.01, `ev ${ev}`);
+  check('a melted flake beats both calls', outcomeOf('flip', 'ice', 0.01).won === false && outcomeOf('flip', 'fire', 0.01).won === false && outcomeOf('flip', 'ice', 0.01).shown === 'melt');
+  for (const [g, c] of [['flip', 'ice'], ['dice', '30'], ['race', '2']]) {
+    const ev = chanceOf(g, c) * multiplierOf(g, c);
+    check(`the house keeps about ${Math.round(CASINO.edge * 100)}% on ${g}`, Math.abs(1 - ev - CASINO.edge) < 0.015, `ev ${ev.toFixed(3)}`);
+  }
+  {
+    // the race is a simulation: same digest, same race; and no lane is favoured
+    const d = createHmac('sha256', 'k').update('race').digest('hex');
+    check('the same digest runs the same race', JSON.stringify(simulateRace(d)) === JSON.stringify(simulateRace(d)));
+    const r = simulateRace(d);
+    check('the winner is the bear with the shortest time', r.times[Number(r.winner) - 1] === Math.min(...r.times), JSON.stringify(r.times));
+    const wins = [0, 0, 0];
+    for (let n = 0; n < 3000; n++) wins[Number(simulateRace(createHmac('sha256', 'k').update('r' + n).digest('hex')).winner) - 1]++;
+    check('every lane wins about a third of the time', wins.every((w) => w > 850 && w < 1150), wins.join('/'));
+  }
 }
 
 console.log('\n--- the goods market ---');
@@ -103,7 +115,7 @@ await qualify(buyer);
 {
   await sleep(GAP);
   const r = await post('/api/bazaar/list', seller.token, { good: 'rod', qty: 1, each: 3, ...atMarket });
-  check('only wood, ice, fish and gold are traded', r.status === 409 && /takes wood/.test(r.json.error), r.json.error);
+  check('only wood, ice and fish are traded', r.status === 409 && /takes wood/.test(r.json.error), r.json.error);
   await sleep(GAP);
   const r2 = await post('/api/bazaar/list', seller.token, { good: 'wood', qty: 500, each: 3, ...atMarket });
   check('selling more than you have is refused', r2.status === 409 && /not 500/.test(r2.json.error), r2.json.error);
@@ -204,6 +216,9 @@ await grant(gambler.token, { pog: 500 });
   const r3 = await post('/api/casino/bet', gambler.token, { game: 'dice', choice: '99', wager: 10, clientSeed: 'a', ...atCasino });
   check('a sure-thing dice number is refused', r3.status === 409, r3.json.error);
   await sleep(GAP);
+  const r3b = await post('/api/casino/bet', gambler.token, { game: 'dice', choice: '60', wager: 10, clientSeed: 'a', ...atCasino });
+  check('a better-than-even dice number is refused', r3b.status === 409, r3b.json.error);
+  await sleep(GAP);
   const r4 = await post('/api/casino/bet', gambler.token, { game: 'roulette', choice: '7', wager: 10, clientSeed: 'a', ...atCasino });
   check('a game that does not exist is refused', r4.status === 409, r4.json.error);
   await sleep(GAP);
@@ -215,13 +230,18 @@ await grant(gambler.token, { pog: 500 });
   const st = await call('/api/casino/state', { token: gambler.token });
   check('the state shows a commitment, not the seed', /^[0-9a-f]{64}$/.test(st.json.commit) && !('seed' in st.json));
   await sleep(GAP);
-  const r = await post('/api/casino/bet', gambler.token, { game: 'dice', choice: '50', wager: 20, clientSeed: 'check', ...atCasino });
+  const r = await post('/api/casino/bet', gambler.token, { game: 'dice', choice: '40', wager: 20, clientSeed: 'check', ...atCasino });
   check('an honest bet settles', r.status === 200 && typeof r.json.bet.won === 'boolean', JSON.stringify(r.json).slice(0, 120));
   const after = await profile(gambler.token);
   const delta = after.pog - before.pog;
   check('the balance moved by exactly the wager or the win', delta === (r.json.bet.won ? r.json.bet.paid - 20 : -20), `delta=${delta} bet=${JSON.stringify(r.json.bet)}`);
   check('the bet is numbered', r.json.bet.nonce === st.json.nonce + 1, `nonce ${r.json.bet.nonce}`);
   check('the client seed is echoed back for checking', r.json.bet.clientSeed === 'check');
+  check('the digest is returned and reproduces the outcome', /^[0-9a-f]{64}$/.test(r.json.bet.digest) && String(Math.floor((parseInt(r.json.bet.digest.slice(0, 13), 16) / 2 ** 52) * 100)) === r.json.bet.shown, r.json.bet.shown);
+  await sleep(GAP);
+  const race = await post('/api/casino/bet', gambler.token, { game: 'race', choice: '1', wager: 5, clientSeed: 'check', ...atCasino });
+  check('a race hand carries the whole race', race.status === 200 && race.json.bet.race && race.json.bet.race.paces.length === 3, JSON.stringify(race.json.bet?.race).slice(0, 80));
+  check('the race the client will show is the race that was settled', race.status === 200 && JSON.stringify(simulateRace(race.json.bet.digest)) === JSON.stringify(race.json.bet.race) && race.json.bet.shown === race.json.bet.race.winner);
   const st2 = await call('/api/casino/state', { token: gambler.token });
   check('the commitment did not change after the bet', st2.json.commit === st.json.commit);
   check('the bet is in the log', st2.json.recent.some((b) => b.nonce === r.json.bet.nonce));

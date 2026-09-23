@@ -104,8 +104,6 @@ export const OFFERINGS = {
   wood: { id: 'wood', label: 'A cord of wood', cost: { wood: 50 }, frost: 6 },
   ice: { id: 'ice', label: 'A pallet of ice', cost: { ice: 50 }, frost: 6 },
   fish: { id: 'fish', label: 'A haul of fish', cost: { fish: 10 }, frost: 6 },
-  /** gold only comes out of the bear caves, so this is the dungeon's road to Frost */
-  gold: { id: 'gold', label: 'A pouch of gold', cost: { gold: 3 }, frost: 6 },
 };
 
 /** The most Frost a wallet can take from the cairn in one day. */

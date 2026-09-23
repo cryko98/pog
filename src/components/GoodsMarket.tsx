@@ -12,11 +12,11 @@ interface Props {
   onChanged: () => void;
 }
 
-const GOODS: Good[] = ['wood', 'ice', 'fish', 'gold'];
+const GOODS: Good[] = ['wood', 'ice', 'fish'];
 const big = (n: number) => n.toLocaleString('en-US');
 
 /**
- * The goods market: lots of wood, ice, fish and gold that players put up
+ * The goods market: lots of wood, ice and fish that players put up
  * for P coins, and a form to put up your own. The goods leave the pack
  * when a lot goes up and come back when it is taken down; a buyer pays
  * per unit for as many as they want.
@@ -71,7 +71,7 @@ export function GoodsMarket({ wallet, inventory, position, onChanged }: Props) {
   return (
     <>
       <p className="bp-note">
-        Wood, ice, fish and gold, player to player, for P coins. A lot leaves your pack when it goes up
+        Wood, ice and fish, player to player, for P coins. A lot leaves your pack when it goes up
         and comes back if you take it down; {Math.round(fee * 100)}% of every sale is burned. Both sides
         must have qualified for the season.
       </p>

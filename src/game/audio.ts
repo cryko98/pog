@@ -393,11 +393,6 @@ class Sound {
     this.tone(1320, 160, { type: 'triangle', to: 1760, gain: 0.1, at: 0.2 });
   }
 
-  gold() {
-    this.tone(1568, 80, { type: 'square', gain: 0.06 });
-    this.tone(2093, 140, { type: 'square', gain: 0.06, at: 0.07 });
-  }
-
   countdown(last: boolean) {
     this.tone(last ? 1047 : 660, last ? 500 : 140, { type: 'square', gain: last ? 0.12 : 0.06 });
   }

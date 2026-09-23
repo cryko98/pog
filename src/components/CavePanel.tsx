@@ -42,7 +42,6 @@ export function CavePanel({ guest, inventory, position, onEnter, onClose }: Prop
     inventory.ice && `${big(inventory.ice)} ice`,
     inventory.fish && `${big(inventory.fish)} fish`,
     inventory.pog && `${big(inventory.pog)} P coins`,
-    inventory.gold && `${big(inventory.gold)} gold`,
     items && `${items} item${items === 1 ? '' : 's'}`,
   ].filter(Boolean) as string[];
 
@@ -63,7 +62,7 @@ export function CavePanel({ guest, inventory, position, onEnter, onClose }: Prop
     <div className="panel side-panel cave">
       <div className="bp-head">
         <h4>
-          <Icon name="gold" size={16} /> Bear caves
+          <Icon name="coin" size={16} /> Bear caves
         </h4>
         <button className="bp-close" onClick={onClose} aria-label="Close">
           <Icon name="close" size={15} />
@@ -71,9 +70,10 @@ export function CavePanel({ guest, inventory, position, onEnter, onClose }: Prop
       </div>
 
       <p className="bp-note">
-        A corridor of ice with polar bears coming the other way. Every bear you put down with snowballs is
-        gold — more the deeper you get. You have {CAVE.hp} hearts; a swipe takes one, and a bear cannot
-        swipe what is in the air. Walk out whenever no bear is close, and the gold is yours.
+        A corridor of ice with polar bears coming the other way — more of them, faster, and tougher the
+        deeper you get. Every bear you put down with snowballs is P coins. You have {CAVE.hp} hearts; a
+        swipe takes one, and a bear cannot swipe what is in the air. Walk out whenever no bear is close,
+        and the coins are yours.
       </p>
 
       <div className="cave-risk">

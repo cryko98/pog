@@ -375,12 +375,12 @@ export async function buyIgloo(
  * frozen, because a buyer is paying for what is in it.
  * ------------------------------------------------------------------ */
 
-const STORE_KEYS = ['wood', 'ice', 'fish', 'pog', 'gold'] as const;
+const STORE_KEYS = ['wood', 'ice', 'fish', 'pog'] as const;
 type StoreKey = (typeof STORE_KEYS)[number];
 
 /** Whole non-negative amounts of the five resources and any items named. */
 function bundleOf(raw: unknown): { res: Record<StoreKey, number>; items: Record<string, number>; any: boolean } {
-  const res = { wood: 0, ice: 0, fish: 0, pog: 0, gold: 0 };
+  const res = { wood: 0, ice: 0, fish: 0, pog: 0 };
   const items: Record<string, number> = {};
   let any = false;
   const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;

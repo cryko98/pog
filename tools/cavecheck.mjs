@@ -67,14 +67,14 @@ console.log('--- the rules, offline ---');
   for (let t = 500; t < 180_000; t += 950) ins.push({ t: s0 + t, type: 'jump' });
   ins.sort((a, b) => a.t - b.t).forEach((i, k) => (i.seq = k + 1));
   const busy = simulateRun(ins, seed, s0, s0 + CAVE.durationMs + 1000);
-  check('a spam thrower does not survive the whole run', busy.over?.why === 'dead', `died at ${busy.over ? Math.round((busy.over.t - s0) / 1000) : '?'}s with ${busy.gold} gold`);
+  check('a spam thrower does not survive the whole run', busy.over?.why === 'dead', `died at ${busy.over ? Math.round((busy.over.t - s0) / 1000) : '?'}s with ${busy.coins} P coins`);
   check('the run is deterministic whatever order the log arrives in', JSON.stringify(simulateRun([...ins].reverse(), seed, s0, s0 + 60_000)) === JSON.stringify(simulateRun(ins, seed, s0, s0 + 60_000)));
   const early = simulateRun([{ t: s0 + 300, type: 'leave', seq: 1 }], seed, s0, s0 + 5000);
-  check('leaving before any bear is close is allowed', early.over?.why === 'left' && early.gold === 0);
-  const late = simulateRun([{ t: s0 + 8_500, type: 'leave', seq: 1 }], seed, s0, s0 + 9_000);
+  check('leaving before any bear is close is allowed', early.over?.why === 'left' && early.coins === 0);
+  const late = simulateRun([{ t: s0 + 7_000, type: 'leave', seq: 1 }], seed, s0, s0 + 7_400);
   check('leaving with a bear on you is refused', late.events.some((e) => e.type === 'nope') && late.over?.why !== 'left');
-  const forged = simulateRun([{ t: s0 + 100, type: 'kill', seq: 1 }, { t: s0 + 200, type: 'gold', gold: 999, seq: 2 }], seed, s0, s0 + 1000);
-  check('made-up input types do nothing', forged.gold === 0 && forged.kills === 0);
+  const forged = simulateRun([{ t: s0 + 100, type: 'kill', seq: 1 }, { t: s0 + 200, type: 'coins', coins: 999, seq: 2 }], seed, s0, s0 + 1000);
+  check('made-up input types do nothing', forged.coins === 0 && forged.kills === 0);
 }
 
 console.log('\n--- going in ---');
@@ -111,7 +111,7 @@ let run;
 }
 await sleep(Math.max(0, run.startAt - Date.now()) + 100);
 {
-  const r = await post('/api/dungeon/input', me.token, { id: run.id, type: 'kill', gold: 500 });
+  const r = await post('/api/dungeon/input', me.token, { id: run.id, type: 'kill', coins: 500 });
   check('an invented input type is refused', r.status === 409, r.json.error);
   const r2 = await post('/api/dungeon/input', me.token, { id: run.id, type: 'move', dir: 7 });
   check('a move with a bogus direction is refused', r2.status === 409, r2.json.error);
@@ -123,7 +123,7 @@ await sleep(Math.max(0, run.startAt - Date.now()) + 100);
 }
 {
   const r = await state(me.token, run.id);
-  check('the run view carries no score for the client to edit', r.status === 200 && r.json.run && !('gold' in r.json.run) && !('kills' in r.json.run));
+  check('the run view carries no score for the client to edit', r.status === 200 && r.json.run && !('coins' in r.json.run) && !('kills' in r.json.run));
 }
 
 console.log('\n--- walking out ---');
