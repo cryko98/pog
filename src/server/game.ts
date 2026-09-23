@@ -25,7 +25,7 @@ import {
   type FrostFields,
   type GateInput,
 } from './season.js';
-import { CHAT, FROST, SEASON, multipliers, seasonState, shareOf } from '../../shared/season.js';
+import { CHAT, FROST, SEASON, mayChat, multipliers, seasonState, shareOf } from '../../shared/season.js';
 import {
   COIN,
   DAILY_QUESTS,
@@ -1333,7 +1333,7 @@ export async function heartbeat(clientId: string, wallet?: string | null, ip = '
 /** Whether this wallet may chat: the token is live and it holds enough. */
 export async function chatStatus(wallet: string): Promise<{ allowed: boolean; live: boolean; hold: number; holdLabel: string }> {
   const { live, balance } = await holdingOf(wallet);
-  return { allowed: live && balance >= CHAT.hold, live, hold: CHAT.hold, holdLabel: CHAT.holdLabel };
+  return { allowed: mayChat(wallet, balance, live), live, hold: CHAT.hold, holdLabel: CHAT.holdLabel };
 }
 
 /**
@@ -1343,14 +1343,13 @@ export async function chatStatus(wallet: string): Promise<{ allowed: boolean; li
  * this list, so a modified client cannot talk its way past the gate.
  */
 export async function onlineHolders(): Promise<string[]> {
-  if (!chainLive()) return [];
   const store = await kv();
   const now = Date.now();
   await store.zremRangeByScore(K.online, 0, now - ONLINE_WINDOW);
   const members = await store.zrangeByScore(K.online, now - ONLINE_WINDOW, Number.MAX_SAFE_INTEGER);
   const wallets = members.filter((m) => m.startsWith('w:')).map((m) => m.slice(2)).slice(0, 200);
   const held = await Promise.all(wallets.map((w) => heldBalance(w)));
-  return wallets.filter((_, i) => held[i] >= CHAT.hold);
+  return wallets.filter((w, i) => mayChat(w, held[i], chainLive()));
 }
 
 export async function onlineCount(): Promise<number> {

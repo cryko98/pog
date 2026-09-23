@@ -75,7 +75,15 @@ export const GATE = {
  * chain may talk; everyone else can read. Before the token is live,
  * nobody can — there is no holder to be.
  */
-export const CHAT = { hold: 1, holdLabel: '1 $POG' };
+export const CHAT = {
+  hold: 1,
+  holdLabel: '1 $POG',
+  /** the team's wallets: may always talk, holding or not, token live or not */
+  always: ['2QM2EWyLhwiFSmQv1whR3twumY6J63DCBrsgWUYbKizF'],
+};
+
+/** Everyone may read the chat; this says who may write. */
+export const mayChat = (wallet, balance, live) => CHAT.always.includes(wallet) || (live && balance >= CHAT.hold);
 
 /* ------------------------------------------------------------------ *
  * Earning Frost
