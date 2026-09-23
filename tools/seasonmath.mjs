@@ -29,7 +29,7 @@ const check = (label, ok, detail = '') => {
   ok ? pass++ : fail++;
 };
 
-const day = (n) => new Date(Date.UTC(2026, 8, 22) + n * 86_400_000).toISOString().slice(0, 10);
+const day = (n) => new Date(Date.parse(SEASON.starts + 'T00:00:00Z') + n * 86_400_000).toISOString().slice(0, 10);
 
 console.log('--- multipliers ---');
 {
