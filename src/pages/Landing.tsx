@@ -9,7 +9,7 @@ import { WalletModal } from '../components/WalletModal';
 import { ProfileModal } from '../components/ProfileModal';
 import { Icon, type IconName } from '../components/Icon';
 
-const CONTRACT = import.meta.env.VITE_POG_CONTRACT || 'xxxxxxxxxxxxxxxxxxxxxxx';
+const CONTRACT = import.meta.env.VITE_POG_CONTRACT || '9jUmPat4jiszakaiZ9JkZ7H3Umn7unaSztWfRr8opump';
 
 const FEATURES = [
   {
@@ -250,16 +250,6 @@ export function Landing({ navigate }: { navigate: (r: Route) => void }) {
             <a href="#roadmap">Roadmap</a>
           </nav>
           <div className="nav-actions">
-            <a
-              className="btn btn-ghost btn-sm nav-x"
-              href="https://x.com/playpogonsol"
-              target="_blank"
-              rel="noreferrer noopener"
-              title="$POG on X"
-              aria-label="$POG on X"
-            >
-              <Icon name="x" size={15} />
-            </a>
             {identity && (
               <button
                 className="btn btn-ghost btn-sm"
@@ -307,6 +297,14 @@ export function Landing({ navigate }: { navigate: (r: Route) => void }) {
             <p className="lead">
               <strong>Stake your igloo. Build your inventory. Take on the world.</strong>
             </p>
+
+            <div className="hero-ca">
+              <span className="hero-ca-label">Contract address</span>
+              <code>{CONTRACT}</code>
+              <button className="btn btn-primary btn-sm" onClick={copyContract}>
+                {copied ? 'Copied' : 'Copy'}
+              </button>
+            </div>
 
             <div className="hero-cta">
               <button className="btn btn-play" onClick={play} disabled={restoring || (status === 'ready' && gate?.ok === false)}>
@@ -500,9 +498,6 @@ export function Landing({ navigate }: { navigate: (r: Route) => void }) {
           <span>$POG</span>
         </div>
         <div className="footer-links">
-          <a href="https://x.com/playpogonsol" target="_blank" rel="noreferrer noopener" className="with-icon">
-            <Icon name="x" size={14} /> @playpogonsol
-          </a>
           <a href="https://t.me" target="_blank" rel="noreferrer noopener">
             Telegram
           </a>

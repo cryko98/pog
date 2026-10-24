@@ -1,5 +1,4 @@
 import { PenguinMark } from '../components/PenguinMark';
-import { Icon } from '../components/Icon';
 
 /**
  * What the site shows once the project has ended: one page, no game, no
@@ -17,9 +16,6 @@ export function Closed() {
           fought here. Nothing on this site is playable any more, and no token, key or wallet is
           touched by it.
         </p>
-        <a className="btn btn-ghost" href="https://x.com/playpogonsol" target="_blank" rel="noreferrer">
-          <Icon name="x" size={14} /> @playpogonsol
-        </a>
       </div>
     </div>
   );
