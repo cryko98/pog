@@ -38,12 +38,12 @@
 
 /** Bump `id` to start a new season. Everything resets against the new id. */
 export const SEASON = {
-  // id 2: the ledger was wiped for launch day, so every wallet starts at zero
-  id: 2,
+  // id 3: the store was wiped for the relaunch, so every wallet starts at zero
+  id: 3,
   name: 'First Frost',
   /** UTC day the season opens and closes (closes at 00:00 UTC on `ends`) */
-  starts: '2026-09-23',
-  ends: '2026-10-21',
+  starts: '2026-10-24',
+  ends: '2026-11-21',
   /**
    * Tokens set aside for this season, split by Frost share. Informational
    * on the client; the actual transfer is done from the snapshot.

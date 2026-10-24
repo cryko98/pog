@@ -9,7 +9,7 @@ import { WalletModal } from '../components/WalletModal';
 import { ProfileModal } from '../components/ProfileModal';
 import { Icon, type IconName } from '../components/Icon';
 
-const CONTRACT = import.meta.env.VITE_POG_CONTRACT || '97w1C8hzmzVfe7wdv8GoUXJy54N1MCnfNk6SAKJnpump';
+const CONTRACT = import.meta.env.VITE_POG_CONTRACT || 'xxxxxxxxxxxxxxxxxxxxxxx';
 
 const FEATURES = [
   {
