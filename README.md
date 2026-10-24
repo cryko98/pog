@@ -93,8 +93,10 @@ per minute no matter how many players work them.
 **The ice is for holders.** Once the token is live, a wallet has to hold at
 least 1,000 $POG on chain to play at all — every world endpoint answers 403
 otherwise (`src/server/access.ts`), the heartbeat credits it no playtime, and
-the landing page says how short it is. There is no guest mode. The team's
-wallets (`CHAT.always`) always get in; before the token is live, everyone does.
+the landing page says how short it is. Guests can still roam the ice and look
+around — nothing they do is recorded, and a guest has no wallet to gather or
+earn with. The team's wallets (`CHAT.always`) always get in; before the token
+is live, every wallet does.
 
 ## Igloos, furniture and the market
 
